@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Liberde",
-  description: "Your self-hosted AI platform, powered by OpenRouter",
+  description: "Your self-hosted, model-agnostic AI platform.",
   manifest: "/manifest.json",
   appleWebApp: { capable: true, title: "Liberde", statusBarStyle: "default" },
 };
@@ -27,6 +27,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        {/* Standalone mode on iOS/Android home-screen launch (belt-and-suspenders
+            alongside Next's appleWebApp metadata). */}
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="mobile-web-app-capable" content="yes" />
         <script dangerouslySetInnerHTML={{ __html: themeInit }} />
       </head>
       <body className="antialiased">{children}</body>

@@ -1,7 +1,7 @@
 {
   "name": "Liberde",
   "short_name": "Liberde",
-  "description": "Your self-hosted AI platform, powered by OpenRouter",
+  "description": "Your self-hosted, model-agnostic AI platform.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#faf9f5",
