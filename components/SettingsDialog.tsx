@@ -761,7 +761,7 @@ function ProvidersTab() {
       </p>
 
       <div className="space-y-2 rounded-xl border border-line p-3">
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <select
             value={kind}
             onChange={(e) => setKind(e.target.value as ProviderRow["kind"])}
@@ -794,13 +794,13 @@ function ProvidersTab() {
             className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
           />
         )}
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           {kind === "bedrock" && (
             <input
               value={region}
               onChange={(e) => setRegion(e.target.value)}
               placeholder="Region (us-east-1)"
-              className="w-40 rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+              className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent sm:w-40"
             />
           )}
           {kind === "azure" && (
@@ -808,7 +808,7 @@ function ProvidersTab() {
               value={apiVersion}
               onChange={(e) => setApiVersion(e.target.value)}
               placeholder="api-version (blank = 2024-10-21)"
-              className="w-56 rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+              className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent sm:w-56"
             />
           )}
           <input
@@ -825,7 +825,7 @@ function ProvidersTab() {
               Or use IAM credentials (access key + secret, signed with SigV4) — most AWS
               accounts. These take precedence over a Bedrock API key.
             </p>
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <input
                 value={accessKeyId}
                 onChange={(e) => setAccessKeyId(e.target.value)}
@@ -856,7 +856,7 @@ function ProvidersTab() {
           placeholder={placeholderModels}
           className="w-full resize-y rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
         />
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <input
             value={promptPrice}
             onChange={(e) => setPromptPrice(e.target.value)}
@@ -1166,7 +1166,7 @@ function ConnectorsTab() {
         </button>
         {showAdd && (
           <div className="space-y-2 border-t border-line p-3">
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -1185,12 +1185,12 @@ function ConnectorsTab() {
               </select>
             </div>
             {transport === "stdio" ? (
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <input
                   value={command}
                   onChange={(e) => setCommand(e.target.value)}
                   placeholder="Command (e.g. npx)"
-                  className="w-40 rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+                  className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent sm:w-40"
                 />
                 <input
                   value={args}
@@ -1200,7 +1200,7 @@ function ConnectorsTab() {
                 />
               </div>
             ) : (
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <input
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
@@ -1212,7 +1212,7 @@ function ConnectorsTab() {
                   onChange={(e) => setBearerToken(e.target.value)}
                   type="password"
                   placeholder="Bearer token (optional)"
-                  className="w-52 rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+                  className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent sm:w-52"
                 />
               </div>
             )}

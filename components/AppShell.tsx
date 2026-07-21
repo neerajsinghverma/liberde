@@ -223,6 +223,7 @@ export default function AppShell({ initialView }: { initialView: View }) {
             }}
             onConversationsChanged={refreshConversations}
             onOpenSidebar={() => setSidebarOpen(true)}
+            userName={me?.name}
           />
         ) : view.kind === "models" ? (
           <ModelsPanel

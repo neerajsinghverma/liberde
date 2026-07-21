@@ -45,6 +45,8 @@ interface Props {
   onConversationsChanged: () => void;
   /** Open the sidebar (mobile hamburger). */
   onOpenSidebar?: () => void;
+  /** Signed-in user's name, for the personalized welcome greeting. */
+  userName?: string;
   /** "chat" (default) or "design" — scopes new conversations to a workspace. */
   mode?: string;
 }
@@ -57,6 +59,7 @@ export default function ChatView({
   onConversationCreated,
   onConversationsChanged,
   onOpenSidebar,
+  userName,
   mode = "chat",
 }: Props) {
   const [convId, setConvId] = useState(conversationId);
@@ -928,7 +931,7 @@ export default function ChatView({
               <Icon name="pencil" size={26} />
             </div>
             <h1 className="font-display text-4xl font-medium tracking-tight">
-              What should we design today?
+              {timeGreeting(userName)}
             </h1>
             <p className="mt-3 max-w-md text-sm text-ink-muted">
               Pick a starting point, or just describe it. I’ll ask a couple of quick
@@ -954,7 +957,7 @@ export default function ChatView({
         ) : showWelcome ? (
           <div className="flex min-h-full flex-col items-center justify-center px-6 py-10 text-center">
             <h1 className="font-display text-4xl font-medium tracking-tight">
-              {timeGreeting()}
+              {timeGreeting(userName)}
             </h1>
             {settings?.hasApiKey && (
               <div className="mt-8 grid max-w-2xl grid-cols-1 gap-2 sm:grid-cols-2">
@@ -1561,18 +1564,37 @@ const STARTER_PROMPTS: { icon: string; label: string; prompt: string }[] = [
 // A gentle, whimsical greeting that shifts with the time of day (and drifts a
 // little day to day) — like Claude's home greeting. Deterministic within a day
 // so it doesn't flicker across re-renders.
-function timeGreeting(): string {
+// A rotating, whimsical greeting — time-of-day lines plus playful name-forward
+// ones (Claude-style: "Good evening, Neeraj", "Neeraj returns!", "Welcome
+// back"). `{n}` is the user's first name. Varies by hour + day so it drifts
+// through the set, but is stable within a given hour (no flicker on re-render).
+function timeGreeting(name?: string): string {
   const now = new Date();
   const h = now.getHours();
-  const buckets: [number, string[]][] = [
-    [5, ["Still up?", "Burning the midnight oil?", "Late-night ideas brewing?"]],
-    [12, ["Good morning", "Morning — what's first?", "A fresh start. What are we making?"]],
-    [17, ["Good afternoon", "What can I help with?", "Afternoon — what's the plan?"]],
-    [22, ["Good evening", "Evening — what's on your mind?", "How can I help tonight?"]],
-    [24, ["Winding down?", "One more for the night?", "What can I help with?"]],
+  const first = name?.trim().split(/\s+/)[0] || "";
+  const timed =
+    h < 5
+      ? ["Still up, {n}", "Burning the midnight oil, {n}", "The night is yours, {n}"]
+      : h < 12
+        ? ["Good morning, {n}", "Morning, {n}", "Rise and shine, {n}"]
+        : h < 17
+          ? ["Good afternoon, {n}", "Afternoon, {n}", "Hey there, {n}"]
+          : h < 22
+            ? ["Good evening, {n}", "Evening, {n}", "Hope your day was good, {n}"]
+            : ["Winding down, {n}", "Still here, {n}", "One more, {n}?"];
+  // Time-agnostic, playful — only used when we know the name.
+  const playful = [
+    "{n} returns!",
+    "Welcome back, {n}",
+    "Look who's back — {n}",
+    "Back at it, {n}",
+    "Good to see you, {n}",
+    "Ready when you are, {n}",
   ];
-  const options = buckets.find(([until]) => h < until)?.[1] ?? ["Hello"];
-  return options[(now.getDate() + now.getDay()) % options.length];
+  const pool = first ? [...timed, ...playful] : timed;
+  const chosen = pool[(now.getDate() * 5 + h + now.getDay()) % pool.length];
+  if (!first) return chosen.replace(/,?\s*\{n\}\??/g, "").trim() || "Hello";
+  return chosen.replace("{n}", first);
 }
 
 // Design-studio templates: each seeds a SHORT intent (not a full brief) so the
