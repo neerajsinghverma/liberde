@@ -197,6 +197,18 @@ export default function AppShell({ initialView }: { initialView: View }) {
       />
 
       <main className="flex min-w-0 flex-1">
+        {/* Mobile: non-chat views (models/usage/help/project) get a floating
+            hamburger to reopen the sidebar, since the slim rail is hidden on
+            mobile and only ChatView has its own in-header hamburger. */}
+        {view.kind !== "chat" && !sidebarOpen && (
+          <button
+            onClick={() => setSidebarOpen(true)}
+            title="Open menu"
+            className="absolute left-3 top-3 z-20 rounded-lg border border-line bg-surface-2 p-1.5 text-ink-muted shadow-sm md:hidden"
+          >
+            <Icon name="menu" size={20} />
+          </button>
+        )}
         {view.kind === "chat" ? (
           <ChatView
             key={workspace}
@@ -210,6 +222,7 @@ export default function AppShell({ initialView }: { initialView: View }) {
               refreshConversations();
             }}
             onConversationsChanged={refreshConversations}
+            onOpenSidebar={() => setSidebarOpen(true)}
           />
         ) : view.kind === "models" ? (
           <ModelsPanel

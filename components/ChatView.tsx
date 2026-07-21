@@ -43,6 +43,8 @@ interface Props {
   projects: Project[];
   onConversationCreated: (c: Conversation) => void;
   onConversationsChanged: () => void;
+  /** Open the sidebar (mobile hamburger). */
+  onOpenSidebar?: () => void;
   /** "chat" (default) or "design" — scopes new conversations to a workspace. */
   mode?: string;
 }
@@ -54,6 +56,7 @@ export default function ChatView({
   projects,
   onConversationCreated,
   onConversationsChanged,
+  onOpenSidebar,
   mode = "chat",
 }: Props) {
   const [convId, setConvId] = useState(conversationId);
@@ -738,6 +741,15 @@ export default function ChatView({
     )}
     <div className="flex min-w-0 flex-1 flex-col">
       <header className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2 md:gap-3 md:px-4">
+        {onOpenSidebar && (
+          <button
+            onClick={onOpenSidebar}
+            title="Open menu"
+            className="shrink-0 rounded-lg p-1.5 text-ink-muted hover:bg-surface-2 hover:text-ink md:hidden"
+          >
+            <Icon name="menu" size={20} />
+          </button>
+        )}
         <ModelPicker models={models} value={model} onChange={changeModel} />
         <button
           onClick={() => setShowAdvisor(true)}
@@ -911,7 +923,7 @@ export default function ChatView({
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         {showWelcome && mode === "design" ? (
-          <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+          <div className="flex min-h-full flex-col items-center justify-center px-6 py-10 text-center">
             <div className="login-logo mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-accent text-white">
               <Icon name="pencil" size={26} />
             </div>
@@ -940,14 +952,10 @@ export default function ChatView({
             )}
           </div>
         ) : showWelcome ? (
-          <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+          <div className="flex min-h-full flex-col items-center justify-center px-6 py-10 text-center">
             <h1 className="font-display text-4xl font-medium tracking-tight">
-              What can I help with?
+              {timeGreeting()}
             </h1>
-            <p className="mt-3 max-w-md text-sm text-ink-muted">
-              Liberde routes your chats to any model on OpenRouter — Claude, GPT,
-              Gemini, Llama, and hundreds more.
-            </p>
             {settings?.hasApiKey && (
               <div className="mt-8 grid max-w-2xl grid-cols-1 gap-2 sm:grid-cols-2">
                 {STARTER_PROMPTS.map((p) => (
@@ -1549,6 +1557,23 @@ const STARTER_PROMPTS: { icon: string; label: string; prompt: string }[] = [
       "Create a beautiful 8-slide presentation introducing our team to the basics of large language models — title slide, agenda, clear visuals, and a closing takeaways slide.",
   },
 ];
+
+// A gentle, whimsical greeting that shifts with the time of day (and drifts a
+// little day to day) — like Claude's home greeting. Deterministic within a day
+// so it doesn't flicker across re-renders.
+function timeGreeting(): string {
+  const now = new Date();
+  const h = now.getHours();
+  const buckets: [number, string[]][] = [
+    [5, ["Still up?", "Burning the midnight oil?", "Late-night ideas brewing?"]],
+    [12, ["Good morning", "Morning — what's first?", "A fresh start. What are we making?"]],
+    [17, ["Good afternoon", "What can I help with?", "Afternoon — what's the plan?"]],
+    [22, ["Good evening", "Evening — what's on your mind?", "How can I help tonight?"]],
+    [24, ["Winding down?", "One more for the night?", "What can I help with?"]],
+  ];
+  const options = buckets.find(([until]) => h < until)?.[1] ?? ["Hello"];
+  return options[(now.getDate() + now.getDay()) % options.length];
+}
 
 // Design-studio templates: each seeds a SHORT intent (not a full brief) so the
 // ask-first flow kicks in — clicking a card should interview you, then build.

@@ -165,7 +165,9 @@ export default function Sidebar({
 
   if (!open) {
     return (
-      <div className="flex w-12 flex-col items-center gap-2 border-r border-line bg-surface-2 py-3">
+      // Desktop keeps a slim icon rail; on mobile the sidebar hides entirely
+      // (a hamburger in the header opens it as an overlay) for max real estate.
+      <div className="flex w-12 flex-col items-center gap-2 border-r border-line bg-surface-2 py-3 max-md:hidden">
         <IconButton title="Open sidebar" onClick={onToggle}>
           <Icon name="sidebar" size={18} />
         </IconButton>

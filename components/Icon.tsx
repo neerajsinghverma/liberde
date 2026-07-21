@@ -128,6 +128,7 @@ const PATHS: Record<string, React.ReactNode> = {
       <path d="M12 3v5M12 16v5M3 12h5M16 12h5" />
     </>
   ),
+  menu: <path d="M4 6h16M4 12h16M4 18h16" />,
   book: <path d="M5 4a1 1 0 0 1 1-1h13v16H6a1 1 0 0 0-1 1V4ZM19 3v18M5 20a1 1 0 0 0 1 1h13" />,
   sidebar: (
     <>
