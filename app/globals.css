@@ -1,0 +1,184 @@
+@import "tailwindcss";
+@import "highlight.js/styles/github-dark.css";
+
+@theme {
+  --color-bg: #faf9f5;
+  --color-surface: #ffffff;
+  --color-surface-2: #f0eee6;
+  --color-line: #e3e1d9;
+  --color-ink: #1f1e1d;
+  --color-ink-muted: #6e6c66;
+  --color-accent: #c96442;
+  --color-accent-hover: #b5563a;
+  --font-display: "Georgia", "Times New Roman", serif;
+}
+
+/* Dark palette. Applied three ways, in increasing priority:
+   1. System preference, when the user hasn't forced a theme (no data-theme, or
+      data-theme="system" before the pre-hydration script resolves it).
+   2. data-theme="dark" — the user (or the resolving script) chose dark.
+   The light defaults in @theme already cover the light / forced-light case. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    --color-bg: #262624;
+    --color-surface: #30302e;
+    --color-surface-2: #3a3a37;
+    --color-line: #45443f;
+    --color-ink: #eeece6;
+    --color-ink-muted: #a3a094;
+    --color-accent: #d97757;
+    --color-accent-hover: #e08a6d;
+  }
+}
+:root[data-theme="dark"] {
+  --color-bg: #262624;
+  --color-surface: #30302e;
+  --color-surface-2: #3a3a37;
+  --color-line: #45443f;
+  --color-ink: #eeece6;
+  --color-ink-muted: #a3a094;
+  --color-accent: #d97757;
+  --color-accent-hover: #e08a6d;
+}
+
+/* Make Tailwind's `dark:` variant follow the toggle too, not just the OS:
+   it applies when data-theme="dark", or when the OS is dark and the user
+   hasn't forced a theme. Keeps the red/amber status badges in sync. */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(
+      :root:not([data-theme="light"]):not([data-theme="dark"]),
+      :root:not([data-theme="light"]):not([data-theme="dark"]) *
+    ) {
+      @slot;
+    }
+  }
+}
+
+html,
+body {
+  height: 100%;
+  background: var(--color-bg);
+  color: var(--color-ink);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line) transparent;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Markdown content inside chat messages */
+.prose-chat {
+  line-height: 1.65;
+  word-wrap: break-word;
+}
+.prose-chat > * + * {
+  margin-top: 0.75em;
+}
+.prose-chat h1,
+.prose-chat h2,
+.prose-chat h3,
+.prose-chat h4 {
+  font-weight: 600;
+  margin-top: 1.25em;
+}
+.prose-chat h1 { font-size: 1.35em; }
+.prose-chat h2 { font-size: 1.2em; }
+.prose-chat h3 { font-size: 1.05em; }
+.prose-chat ul { list-style: disc; padding-left: 1.4em; }
+.prose-chat ol { list-style: decimal; padding-left: 1.4em; }
+.prose-chat li + li { margin-top: 0.25em; }
+.prose-chat a { color: var(--color-accent); text-decoration: underline; }
+.prose-chat blockquote {
+  border-left: 3px solid var(--color-line);
+  padding-left: 1em;
+  color: var(--color-ink-muted);
+}
+.prose-chat code:not(pre code) {
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-line);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-size: 0.875em;
+}
+.prose-chat pre {
+  background: #1e1e1e;
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: 0.85em;
+}
+.prose-chat pre code {
+  display: block;
+  padding: 0.9em 1.1em;
+}
+.prose-chat table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}
+.prose-chat th,
+.prose-chat td {
+  border: 1px solid var(--color-line);
+  padding: 0.4em 0.8em;
+  text-align: left;
+}
+.prose-chat th {
+  background: var(--color-surface-2);
+  font-weight: 600;
+}
+.prose-chat hr {
+  border: none;
+  border-top: 1px solid var(--color-line);
+}
+
+/* Login screen */
+@keyframes liberde-fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes liberde-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+@keyframes liberde-glow {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(1.15); }
+}
+.login-card { animation: liberde-fade-up 0.5s ease-out both; }
+.login-logo { animation: liberde-float 4s ease-in-out infinite; }
+.login-blob {
+  position: absolute; border-radius: 9999px; filter: blur(90px);
+  background: var(--color-accent); pointer-events: none;
+  animation: liberde-glow 7s ease-in-out infinite;
+}
+
+/* Thinking shimmer — a light sweeping across the label while the model reasons */
+@keyframes liberde-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.shimmer-text {
+  background: linear-gradient(90deg, var(--color-ink-muted) 0%, var(--color-ink-muted) 35%, var(--color-ink) 50%, var(--color-ink-muted) 65%, var(--color-ink-muted) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: liberde-shimmer 1.6s linear infinite;
+}
+@keyframes liberde-spin-slow { to { transform: rotate(360deg); } }
+.animate-spin-slow { animation: liberde-spin-slow 3s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-text { animation: none; -webkit-text-fill-color: var(--color-ink); }
+  .animate-spin-slow { animation: none; }
+}

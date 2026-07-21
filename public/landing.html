@@ -1,0 +1,1676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="One polished AI experience where Claude, GPT, Kimi, Qwen, Mistral, Llama, and other models work together." />
+  <meta name="theme-color" content="#f5f0e8" />
+  <title>Liberde — One Experience, Every Model</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;500&family=Source+Sans+3:wght@400;500;600;700;800&family=Source+Serif+4:ital@0;1&display=swap" rel="stylesheet" />
+
+  <style>
+    :root {
+      --color-accent: #d97757;
+      --color-accent-hover: #e08a6d;
+      --color-accent-deep: #bd5f42;
+      --color-ink: #1d2523;
+      --color-ink-soft: #2a3532;
+      --color-paper: #f5f0e8;
+      --color-paper-deep: #e6ded0;
+      --color-gold: #d6aa56;
+      --color-muted: #69655e;
+      --color-line: rgba(29, 37, 35, 0.2);
+      --shadow: 8px 8px 0 var(--color-ink);
+      --sans: "Source Sans 3", sans-serif;
+      --serif: "Source Serif 4", serif;
+      --mono: "Source Code Pro", monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      overflow-x: hidden;
+      color: var(--color-ink);
+      background:
+        linear-gradient(rgba(29, 37, 35, 0.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(29, 37, 35, 0.045) 1px, transparent 1px),
+        var(--color-paper);
+      background-size: 32px 32px;
+      font-family: var(--sans);
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    button {
+      font: inherit;
+    }
+
+    button,
+    a {
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    ::selection {
+      color: var(--color-ink);
+      background: var(--color-accent-hover);
+    }
+
+    .shell {
+      width: min(1380px, calc(100% - 40px));
+      margin: 0 auto;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      margin: 0 0 22px;
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow::before {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--color-accent);
+      content: "";
+      box-shadow: 0 0 0 4px rgba(217, 119, 87, 0.18);
+    }
+
+    .nav-wrap {
+      position: relative;
+      z-index: 20;
+      padding-top: 18px;
+    }
+
+    nav {
+      display: flex;
+      min-height: 68px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 13px 0 20px;
+      border: 1.5px solid var(--color-ink);
+      border-radius: 999px;
+      background: rgba(245, 240, 232, 0.9);
+      box-shadow: 4px 4px 0 var(--color-ink);
+      backdrop-filter: blur(14px);
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 11px;
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.05em;
+    }
+
+    .brand-mark {
+      position: relative;
+      display: grid;
+      width: 34px;
+      height: 34px;
+      place-items: center;
+      overflow: hidden;
+      border: 1.5px solid var(--color-ink);
+      border-radius: 9px;
+      color: var(--color-ink);
+      background: var(--color-accent);
+      font-family: var(--serif);
+      font-size: 24px;
+      font-style: italic;
+      transform: rotate(-3deg);
+    }
+
+    .brand-mark::after {
+      position: absolute;
+      right: -6px;
+      bottom: -8px;
+      width: 19px;
+      height: 19px;
+      border: 1.5px solid var(--color-ink);
+      border-radius: 50%;
+      background: var(--color-gold);
+      content: "";
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 32px;
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 500;
+      text-transform: uppercase;
+    }
+
+    .nav-links a:not(.button):hover {
+      opacity: 0.55;
+    }
+
+    .button {
+      display: inline-flex;
+      min-height: 48px;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 0 21px;
+      border: 1.5px solid var(--color-ink);
+      border-radius: 999px;
+      color: var(--color-paper);
+      background: var(--color-ink);
+      cursor: pointer;
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
+    }
+
+    .button:hover {
+      box-shadow: 4px 4px 0 var(--color-accent-hover);
+      transform: translate(-2px, -2px);
+    }
+
+    .button.accent {
+      color: var(--color-ink);
+      background: var(--color-accent);
+    }
+
+    .button.light {
+      color: var(--color-ink);
+      background: var(--color-paper);
+    }
+
+    .button .arrow {
+      font-size: 17px;
+      line-height: 1;
+      transition: transform 180ms ease;
+    }
+
+    .button:hover .arrow {
+      transform: translateX(4px);
+    }
+
+    .menu-button {
+      display: none;
+      width: 45px;
+      height: 45px;
+      border: 1.5px solid var(--color-ink);
+      border-radius: 50%;
+      color: var(--color-ink);
+      background: var(--color-accent);
+      cursor: pointer;
+      font-size: 19px;
+    }
+
+    .hero {
+      position: relative;
+      padding: 105px 0 72px;
+    }
+
+    .hero::before {
+      position: absolute;
+      top: 48px;
+      right: -145px;
+      width: 430px;
+      height: 430px;
+      border: 1.5px solid var(--color-ink);
+      border-radius: 50%;
+      background: var(--color-accent-hover);
+      content: "";
+      opacity: 0.72;
+      z-index: -1;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.45fr) minmax(330px, 0.55fr);
+      align-items: end;
+      gap: 65px;
+    }
+
+    h1 {
+      max-width: 1060px;
+      margin: 0;
+      font-size: clamp(66px, 8.6vw, 138px);
+      font-weight: 700;
+      letter-spacing: -0.075em;
+      line-height: 0.84;
+    }
+
+    h1 .serif {
+      color: var(--color-accent-deep);
+      font-family: var(--serif);
+      font-weight: 400;
+    }
+
+    h1 .stroke {
+      color: transparent;
+      -webkit-text-stroke: 1.8px var(--color-ink);
+    }
+
+    h1 .highlight {
+      position: relative;
+      display: inline-block;
+      z-index: 1;
+    }
+
+    h1 .highlight::after {
+      position: absolute;
+      right: -3%;
+      bottom: 1%;
+      left: -2%;
+      height: 18%;
+      background: var(--color-accent);
+      content: "";
+      transform: rotate(-1deg);
+      z-index: -1;
+    }
+
+    .hero-copy {
+      padding-bottom: 8px;
+    }
+
+    .hero-copy p {
+      max-width: 480px;
+      margin: 0 0 28px;
+      font-size: 18px;
+      letter-spacing: -0.025em;
+      line-height: 1.55;
+    }
+
+    .hero-copy strong {
+      font-weight: 800;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .freedom-visual {
+      position: relative;
+      height: clamp(340px, 40vw, 540px);
+      margin: 78px 0 0;
+      overflow: hidden;
+      border: 1.5px solid var(--color-ink);
+      border-radius: 28px;
+      background: var(--color-ink);
+      box-shadow: var(--shadow);
+    }
+
+    .freedom-visual img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+      filter: saturate(0.82) sepia(0.06) contrast(1.05);
+      transition: transform 900ms cubic-bezier(.2, .7, .2, 1);
+    }
+
+    .freedom-visual:hover img {
+      transform: scale(1.025);
+    }
+
+    .freedom-visual::after {
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(90deg, rgba(29, 37, 35, 0.8), transparent 62%),
+        linear-gradient(0deg, rgba(29, 37, 35, 0.48), transparent 60%);
+      content: "";
+      pointer-events: none;
+    }
+
+    .visual-caption {
+      position: absolute;
+      top: 28px;
+      left: 28px;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 13px;
+      border: 1px solid rgba(245, 240, 232, 0.55);
+      border-radius: 999px;
+      color: var(--color-paper);
+      background: rgba(29, 37, 35, 0.38);
+      backdrop-filter: blur(12px);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      z-index: 2;
+    }
+
+    .visual-caption::before {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--color-accent);
+      content: "";
+    }
+
+    .visual-message {
+      position: absolute;
+      right: 30px;
+      bottom: 30px;
+      left: 30px;
+      max-width: 760px;
+      color: var(--color-paper);
+      font-size: clamp(29px, 4vw, 59px);
+      font-weight: 600;
+      letter-spacing: -0.055em;
+      line-height: 0.95;
+      z-index: 2;
+    }
+
+    .visual-message em {
+      color: var(--color-accent-hover);
+      font-family: var(--serif);
+      font-weight: 400;
+    }
+
+    .ticker {
+      margin-top: 86px;
+      overflow: hidden;
+      border-top: 1.5px solid var(--color-ink);
+      border-bottom: 1.5px solid var(--color-ink);
+      color: var(--color-ink);
+      background: var(--color-accent);
+      transform: rotate(-1.2deg) scale(1.04);
+    }
+
+    .ticker-track {
+      display: flex;
+      width: max-content;
+      padding: 13px 0;
+      animation: ticker 24s linear infinite;
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .ticker-track span {
+      display: inline-flex;
+      align-items: center;
+      gap: 24px;
+      padding-right: 24px;
+    }
+
+    .ticker-track span::after {
+      content: "✦";
+    }
+
+    @keyframes ticker {
+      to {
+        transform: translateX(-50%);
+      }
+    }
+
+    .statement {
+      padding: 150px 0;
+    }
+
+    .statement-grid {
+      display: grid;
+      grid-template-columns: 0.42fr 1.58fr;
+      gap: 50px;
+    }
+
+    .statement h2 {
+      max-width: 1100px;
+      margin: 0;
+      font-size: clamp(48px, 6.3vw, 98px);
+      font-weight: 600;
+      letter-spacing: -0.065em;
+      line-height: 0.98;
+    }
+
+    .statement h2 em {
+      color: var(--color-accent-deep);
+      font-family: var(--serif);
+      font-weight: 400;
+    }
+
+    .lab {
+      padding: 40px 0 140px;
+    }
+
+    .lab-card {
+      overflow: hidden;
+      border: 1.5px solid var(--color-ink);
+      border-radius: 28px;
+      background: var(--color-ink);
+      box-shadow: var(--shadow);
+    }
+
+    .window-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 15px 18px;
+      border-bottom: 1px solid rgba(245, 240, 232, 0.2);
+      color: var(--color-paper);
+      background: var(--color-ink-soft);
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .window-dots {
+      display: flex;
+      gap: 7px;
+    }
+
+    .window-dots i {
+      display: block;
+      width: 10px;
+      height: 10px;
+      border: 1px solid rgba(245, 240, 232, 0.5);
+      border-radius: 50%;
+    }
+
+    .window-dots i:first-child {
+      background: var(--color-accent);
+    }
+
+    .lab-grid {
+      display: grid;
+      grid-template-columns: 0.82fr 1.18fr;
+      min-height: 720px;
+    }
+
+    .control-panel {
+      padding: 42px;
+      color: var(--color-paper);
+      border-right: 1px solid rgba(245, 240, 232, 0.2);
+    }
+
+    .control-panel h3,
+    .output-panel h3 {
+      margin: 0 0 12px;
+      font-size: 30px;
+      letter-spacing: -0.045em;
+    }
+
+    .control-panel > p {
+      margin: 0 0 35px;
+      color: rgba(245, 240, 232, 0.62);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .model-label {
+      display: block;
+      margin-bottom: 12px;
+      color: rgba(245, 240, 232, 0.58);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .model-list {
+      display: grid;
+      gap: 9px;
+    }
+
+    .model-option {
+      display: grid;
+      grid-template-columns: 20px 1fr auto;
+      align-items: center;
+      gap: 13px;
+      width: 100%;
+      padding: 14px 15px;
+      border: 1px solid rgba(245, 240, 232, 0.22);
+      border-radius: 12px;
+      color: var(--color-paper);
+      background: transparent;
+      cursor: pointer;
+      text-align: left;
+      transition: border 160ms ease, background 160ms ease, transform 160ms ease;
+    }
+
+    .model-option:hover {
+      border-color: rgba(245, 240, 232, 0.65);
+      transform: translateX(3px);
+    }
+
+    .model-option.active {
+      color: var(--color-ink);
+      border-color: var(--color-accent);
+      background: var(--color-accent);
+    }
+
+    .radio {
+      display: grid;
+      width: 17px;
+      height: 17px;
+      place-items: center;
+      border: 1.5px solid currentColor;
+      border-radius: 50%;
+    }
+
+    .radio::after {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      content: "";
+      opacity: 0;
+    }
+
+    .active .radio::after {
+      opacity: 1;
+    }
+
+    .model-name {
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .model-tag {
+      font-family: var(--mono);
+      font-size: 9px;
+      text-transform: uppercase;
+      opacity: 0.7;
+    }
+
+    .output-panel {
+      position: relative;
+      padding: 42px;
+      color: var(--color-paper);
+      background:
+        radial-gradient(circle at 85% 15%, rgba(217, 119, 87, 0.23), transparent 28%),
+        var(--color-ink);
+    }
+
+    .live-badge {
+      position: absolute;
+      top: 42px;
+      right: 42px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--color-accent-hover);
+      font-family: var(--mono);
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+
+    .live-badge::before {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--color-accent);
+      content: "";
+      animation: pulse 1.6s infinite;
+    }
+
+    @keyframes pulse {
+      50% {
+        box-shadow: 0 0 0 7px rgba(217, 119, 87, 0.12);
+        opacity: 0.65;
+      }
+    }
+
+    .stack {
+      display: grid;
+      margin-top: 32px;
+      gap: 10px;
+    }
+
+    .stack-layer {
+      display: grid;
+      grid-template-columns: 34px 1fr auto;
+      align-items: center;
+      gap: 15px;
+      padding: 17px 18px;
+      border: 1px solid rgba(245, 240, 232, 0.18);
+      border-radius: 12px;
+      background: rgba(245, 240, 232, 0.04);
+      transition: transform 220ms ease, border 220ms ease;
+    }
+
+    .stack-layer:hover {
+      border-color: var(--color-accent-hover);
+      transform: translateX(5px);
+    }
+
+    .layer-number {
+      font-family: var(--mono);
+      font-size: 10px;
+      opacity: 0.5;
+    }
+
+    .layer-copy strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 13px;
+    }
+
+    .layer-copy span {
+      color: rgba(245, 240, 232, 0.52);
+      font-family: var(--mono);
+      font-size: 9px;
+    }
+
+    .layer-status {
+      color: var(--color-accent-hover);
+      font-family: var(--mono);
+      font-size: 9px;
+      text-transform: uppercase;
+    }
+
+    .result-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 21px;
+      padding: 16px 2px 0;
+      border-top: 1px solid rgba(245, 240, 232, 0.16);
+      font-family: var(--mono);
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+
+    .result-line strong {
+      color: var(--color-accent-hover);
+      font-size: 12px;
+    }
+
+    .principles {
+      padding: 130px 0;
+      border-top: 1.5px solid var(--color-ink);
+      background: var(--color-accent);
+    }
+
+    .section-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 40px;
+      margin-bottom: 70px;
+    }
+
+    .section-head h2 {
+      max-width: 850px;
+      margin: 0;
+      font-size: clamp(52px, 7vw, 106px);
+      font-weight: 700;
+      letter-spacing: -0.07em;
+      line-height: 0.9;
+    }
+
+    .section-head h2 em {
+      font-family: var(--serif);
+      font-weight: 400;
+    }
+
+    .section-head p {
+      max-width: 390px;
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.6;
+    }
+
+    .principle-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      border-top: 1.5px solid var(--color-ink);
+      border-left: 1.5px solid var(--color-ink);
+    }
+
+    .principle {
+      min-height: 390px;
+      padding: 30px;
+      border-right: 1.5px solid var(--color-ink);
+      border-bottom: 1.5px solid var(--color-ink);
+      transition: color 200ms ease, background 200ms ease;
+    }
+
+    .principle:hover {
+      color: var(--color-paper);
+      background: var(--color-ink);
+    }
+
+    .principle-number {
+      display: block;
+      margin-bottom: 120px;
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .principle h3 {
+      margin: 0 0 15px;
+      font-size: 28px;
+      letter-spacing: -0.045em;
+    }
+
+    .principle p {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.6;
+      opacity: 0.76;
+    }
+
+    .impact {
+      padding: 140px 0;
+      color: var(--color-paper);
+      background: var(--color-ink);
+    }
+
+    .impact-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      align-items: start;
+      gap: 110px;
+    }
+
+    .impact h2 {
+      margin: 0;
+      font-size: clamp(60px, 8vw, 120px);
+      font-weight: 600;
+      letter-spacing: -0.07em;
+      line-height: 0.89;
+    }
+
+    .impact h2 em {
+      color: var(--color-accent-hover);
+      font-family: var(--serif);
+      font-weight: 400;
+    }
+
+    .metrics {
+      border-top: 1px solid rgba(245, 240, 232, 0.3);
+    }
+
+    .metric {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 30px;
+      padding: 28px 0;
+      border-bottom: 1px solid rgba(245, 240, 232, 0.3);
+    }
+
+    .metric-label {
+      max-width: 350px;
+      color: rgba(245, 240, 232, 0.68);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .metric-value {
+      color: var(--color-accent-hover);
+      font-family: var(--mono);
+      font-size: 25px;
+      letter-spacing: -0.05em;
+    }
+
+    .manifesto {
+      padding: 150px 0;
+    }
+
+    .manifesto-card {
+      display: grid;
+      grid-template-columns: 1.08fr 0.92fr;
+      min-height: 560px;
+      overflow: hidden;
+      border: 1.5px solid var(--color-ink);
+      border-radius: 28px;
+      background: var(--color-accent);
+      box-shadow: var(--shadow);
+    }
+
+    .manifesto-copy {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 78px 8%;
+    }
+
+    .manifesto-card blockquote {
+      margin: 0;
+      font-size: clamp(42px, 5vw, 76px);
+      font-weight: 600;
+      letter-spacing: -0.06em;
+      line-height: 1;
+    }
+
+    .manifesto-card blockquote em {
+      color: var(--color-paper);
+      font-family: var(--serif);
+      font-weight: 400;
+    }
+
+    .manifesto-card footer {
+      margin-top: 42px;
+      font-family: var(--mono);
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+
+    .manifesto-image {
+      position: relative;
+      min-height: 430px;
+      overflow: hidden;
+      border-left: 1.5px solid var(--color-ink);
+      background: var(--color-ink);
+    }
+
+    .manifesto-image img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      filter: saturate(0.8) sepia(0.08);
+      transition: transform 800ms cubic-bezier(.2, .7, .2, 1);
+    }
+
+    .manifesto-card:hover .manifesto-image img {
+      transform: scale(1.035);
+    }
+
+    .manifesto-stamp {
+      position: absolute;
+      right: 24px;
+      bottom: 24px;
+      display: grid;
+      width: 108px;
+      height: 108px;
+      place-items: center;
+      border: 1.5px solid var(--color-paper);
+      border-radius: 50%;
+      color: var(--color-paper);
+      background: rgba(29, 37, 35, 0.72);
+      backdrop-filter: blur(8px);
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.12em;
+      line-height: 1.5;
+      text-align: center;
+      text-transform: uppercase;
+      transform: rotate(8deg);
+    }
+
+    .cta {
+      padding: 140px 0 155px;
+      text-align: center;
+    }
+
+    .cta-symbol {
+      display: grid;
+      width: 80px;
+      height: 80px;
+      margin: 0 auto 35px;
+      place-items: center;
+      border: 1.5px solid var(--color-ink);
+      border-radius: 22px;
+      color: var(--color-ink);
+      background: var(--color-accent);
+      box-shadow: 6px 6px 0 var(--color-ink);
+      font-family: var(--serif);
+      font-size: 55px;
+      font-style: italic;
+      transform: rotate(-4deg);
+    }
+
+    .cta h2 {
+      max-width: 1050px;
+      margin: 0 auto 27px;
+      font-size: clamp(58px, 8vw, 116px);
+      font-weight: 700;
+      letter-spacing: -0.075em;
+      line-height: 0.87;
+    }
+
+    .cta h2 em {
+      color: var(--color-accent-deep);
+      font-family: var(--serif);
+      font-weight: 400;
+    }
+
+    .cta > p:not(.eyebrow) {
+      max-width: 620px;
+      margin: 0 auto 34px;
+      color: var(--color-muted);
+      font-size: 17px;
+      line-height: 1.6;
+    }
+
+    .cta-actions {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    .site-footer {
+      padding: 35px 0;
+      border-top: 1.5px solid var(--color-ink);
+      color: var(--color-paper);
+      background: var(--color-ink);
+    }
+
+    .footer-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 30px;
+    }
+
+    .footer-meta,
+    .footer-links {
+      display: flex;
+      align-items: center;
+      gap: 25px;
+      color: rgba(245, 240, 232, 0.6);
+      font-family: var(--mono);
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+
+    .footer-links a:hover {
+      color: var(--color-accent-hover);
+    }
+
+    .reveal {
+      opacity: 0;
+      transform: translateY(24px);
+      transition: opacity 650ms ease, transform 650ms ease;
+    }
+
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    @media (max-width: 980px) {
+      .nav-links {
+        position: absolute;
+        top: 82px;
+        right: 20px;
+        left: 20px;
+        display: none;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0;
+        padding: 15px;
+        border: 1.5px solid var(--color-ink);
+        border-radius: 18px;
+        background: var(--color-paper);
+        box-shadow: 5px 5px 0 var(--color-ink);
+      }
+
+      .nav-links.open {
+        display: flex;
+      }
+
+      .nav-links a {
+        padding: 15px;
+        border-bottom: 1px solid var(--color-line);
+      }
+
+      .nav-links .button {
+        margin-top: 12px;
+      }
+
+      .menu-button {
+        display: block;
+      }
+
+      .hero-grid,
+      .statement-grid,
+      .impact-grid,
+      .manifesto-card {
+        grid-template-columns: 1fr;
+      }
+
+      .hero-grid {
+        gap: 55px;
+      }
+
+      .statement-grid {
+        gap: 20px;
+      }
+
+      .lab-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .control-panel {
+        border-right: 0;
+        border-bottom: 1px solid rgba(245, 240, 232, 0.2);
+      }
+
+      .principle-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .principle {
+        min-height: auto;
+      }
+
+      .principle-number {
+        margin-bottom: 60px;
+      }
+
+      .impact-grid {
+        gap: 60px;
+      }
+
+      .manifesto-image {
+        min-height: 520px;
+        border-top: 1.5px solid var(--color-ink);
+        border-left: 0;
+      }
+    }
+
+    @media (max-width: 680px) {
+      .shell {
+        width: min(100% - 24px, 1380px);
+      }
+
+      nav {
+        min-height: 62px;
+        padding-left: 14px;
+      }
+
+      .brand {
+        font-size: 18px;
+      }
+
+      .brand-mark {
+        width: 31px;
+        height: 31px;
+      }
+
+      .hero {
+        padding-top: 80px;
+      }
+
+      h1 {
+        font-size: clamp(55px, 19vw, 82px);
+      }
+
+      .hero::before {
+        top: 100px;
+        right: -170px;
+        width: 300px;
+        height: 300px;
+      }
+
+      .hero-copy p {
+        font-size: 16px;
+      }
+
+      .hero-actions,
+      .cta-actions {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .button {
+        width: 100%;
+      }
+
+      .freedom-visual {
+        height: 470px;
+        margin-top: 55px;
+        border-radius: 18px;
+        box-shadow: 5px 5px 0 var(--color-ink);
+      }
+
+      .visual-caption {
+        top: 18px;
+        left: 18px;
+      }
+
+      .visual-message {
+        right: 20px;
+        bottom: 22px;
+        left: 20px;
+      }
+
+      .ticker {
+        margin-top: 60px;
+      }
+
+      .statement,
+      .principles,
+      .impact,
+      .manifesto,
+      .cta {
+        padding-top: 100px;
+        padding-bottom: 100px;
+      }
+
+      .lab {
+        padding-bottom: 100px;
+      }
+
+      .lab-card {
+        border-radius: 18px;
+        box-shadow: 5px 5px 0 var(--color-ink);
+      }
+
+      .control-panel,
+      .output-panel {
+        padding: 28px 20px;
+      }
+
+      .live-badge {
+        position: static;
+        margin-bottom: 30px;
+      }
+
+      .section-head {
+        align-items: start;
+        flex-direction: column;
+        margin-bottom: 45px;
+      }
+
+      .principle {
+        padding: 25px 22px;
+      }
+
+      .metric {
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+
+      .manifesto-card {
+        border-radius: 20px;
+        box-shadow: 5px 5px 0 var(--color-ink);
+      }
+
+      .manifesto-copy {
+        padding: 60px 25px;
+      }
+
+      .manifesto-image {
+        min-height: 400px;
+      }
+
+      .manifesto-stamp {
+        width: 90px;
+        height: 90px;
+      }
+
+      .footer-row,
+      .footer-meta,
+      .footer-links {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .footer-row {
+        gap: 25px;
+      }
+
+      .footer-meta,
+      .footer-links {
+        gap: 12px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html {
+        scroll-behavior: auto;
+      }
+
+      .ticker-track,
+      .live-badge::before {
+        animation: none;
+      }
+
+      .reveal {
+        opacity: 1;
+        transform: none;
+        transition: none;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <header class="nav-wrap shell">
+    <nav aria-label="Primary navigation">
+      <a class="brand" href="#top" aria-label="Liberde home">
+        <span class="brand-mark">L</span>
+        <span>Liberde</span>
+      </a>
+
+      <div class="nav-links" id="navLinks">
+        <a href="#why">Why Liberde</a>
+        <a href="#harness">How it works</a>
+        <a href="#impact">What you control</a>
+        <a href="/login">Log in</a>
+        <a class="button accent" href="/login">
+          Try Liberde <span class="arrow">→</span>
+        </a>
+      </div>
+
+      <button class="menu-button" id="menuButton" aria-label="Toggle navigation" aria-expanded="false">☰</button>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="shell">
+        <div class="hero-grid">
+          <div>
+            <p class="eyebrow">100% open source · inspect · modify · self-host</p>
+            <h1>
+              Keep the<br />
+              <span class="serif">experience.</span><br />
+              <span class="stroke">Choose</span> the
+              <span class="highlight">intelligence.</span>
+            </h1>
+          </div>
+
+          <div class="hero-copy">
+            <p>
+              Claude and ChatGPT pair a great product with their own models.
+              <strong>Liberde unbundles the two: one polished experience where Claude,
+              GPT, Kimi, Qwen, Mistral, Llama, and other models work together.</strong>
+            </p>
+
+            <div class="hero-actions">
+              <a class="button accent" href="#harness">
+                See how it works <span class="arrow">→</span>
+              </a>
+              <a class="button light" href="#why">Why Liberde</a>
+            </div>
+          </div>
+        </div>
+
+        <figure class="freedom-visual reveal">
+          <img
+            src="https://liberde.gyria.ai/img/45a8d193-b898-4073-b21f-d7c001368015"
+            alt="An abstract bird leaving a closed structure, representing freedom from model lock-in."
+          />
+          <figcaption class="visual-caption">No provider lock-in</figcaption>
+          <div class="visual-message">
+            Your experience stays.<br />
+            <em>The model is your choice.</em>
+          </div>
+        </figure>
+      </div>
+
+      <div class="ticker" aria-hidden="true">
+        <div class="ticker-track">
+          <span>Claude · GPT · Kimi · Qwen · Mistral · Llama · Open models · Local models · One conversation</span>
+          <span>Claude · GPT · Kimi · Qwen · Mistral · Llama · Open models · Local models · One conversation</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="statement shell reveal" id="why">
+      <div class="statement-grid">
+        <p class="eyebrow">Design. Converse. Create.</p>
+        <h2>
+          Use the experience you love without giving control to one provider.
+          Move between models, keep your work, and understand the cost, data use,
+          and environmental impact. <em>Freely. Responsibly. Transparently.</em>
+        </h2>
+      </div>
+    </section>
+
+    <section class="lab shell reveal" id="harness">
+      <div class="lab-card">
+        <div class="window-bar">
+          <div class="window-dots"><i></i><i></i><i></i></div>
+          <span>Liberde / Conversation Control</span>
+          <span>6 models available</span>
+        </div>
+
+        <div class="lab-grid">
+          <div class="control-panel">
+            <h3>Change models, not conversations.</h3>
+            <p>
+              Use Claude for one response, GPT for the next, and an open or local
+              model when privacy, cost, or control matters. The conversation,
+              context, files, and tools stay in place.
+            </p>
+
+            <span class="model-label">Choose the model for the next response</span>
+
+            <div class="model-list" role="radiogroup" aria-label="Choose the next model">
+              <button class="model-option active" type="button" role="radio" aria-checked="true"
+                data-model="Claude" data-speed="842ms" data-cost="$0.038" data-tokens="2,418">
+                <span class="radio"></span>
+                <span class="model-name">Claude</span>
+                <span class="model-tag">Anthropic</span>
+              </button>
+
+              <button class="model-option" type="button" role="radio" aria-checked="false"
+                data-model="GPT" data-speed="516ms" data-cost="$0.009" data-tokens="2,306">
+                <span class="radio"></span>
+                <span class="model-name">GPT</span>
+                <span class="model-tag">OpenAI</span>
+              </button>
+
+              <button class="model-option" type="button" role="radio" aria-checked="false"
+                data-model="Kimi" data-speed="628ms" data-cost="$0.007" data-tokens="2,245">
+                <span class="radio"></span>
+                <span class="model-name">Kimi</span>
+                <span class="model-tag">Moonshot</span>
+              </button>
+
+              <button class="model-option" type="button" role="radio" aria-checked="false"
+                data-model="Qwen" data-speed="287ms" data-cost="$0.004" data-tokens="2,112">
+                <span class="radio"></span>
+                <span class="model-name">Qwen</span>
+                <span class="model-tag">Alibaba</span>
+              </button>
+
+              <button class="model-option" type="button" role="radio" aria-checked="false"
+                data-model="Mistral" data-speed="324ms" data-cost="$0.006" data-tokens="2,205">
+                <span class="radio"></span>
+                <span class="model-name">Mistral</span>
+                <span class="model-tag">Mistral AI</span>
+              </button>
+
+              <button class="model-option" type="button" role="radio" aria-checked="false"
+                data-model="Llama" data-speed="238ms" data-cost="$0.002" data-tokens="2,024">
+                <span class="radio"></span>
+                <span class="model-name">Llama</span>
+                <span class="model-tag">Meta</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="output-panel">
+            <span class="live-badge">Impact measured live</span>
+            <h3>One conversation, fully under your control</h3>
+
+            <div class="stack">
+              <div class="stack-layer">
+                <span class="layer-number">01</span>
+                <span class="layer-copy">
+                  <strong>Next response</strong>
+                  <span id="activeModel">Claude</span>
+                </span>
+                <span class="layer-status">Your choice</span>
+              </div>
+
+              <div class="stack-layer">
+                <span class="layer-number">02</span>
+                <span class="layer-copy">
+                  <strong>Shared conversation</strong>
+                  <span>Context, files, memory, and tools stay available</span>
+                </span>
+                <span class="layer-status">Portable</span>
+              </div>
+
+              <div class="stack-layer">
+                <span class="layer-number">03</span>
+                <span class="layer-copy">
+                  <strong>Estimated environmental impact</strong>
+                  <span>0.42 Wh energy · 0.18 gCO₂e this conversation</span>
+                </span>
+                <span class="layer-status">Visible</span>
+              </div>
+
+              <div class="stack-layer">
+                <span class="layer-number">04</span>
+                <span class="layer-copy">
+                  <strong>Usage & budget</strong>
+                  <span><span id="tokenMetric">2,418</span> tokens · 64% below your limit</span>
+                </span>
+                <span class="layer-status">Controlled</span>
+              </div>
+            </div>
+
+            <div class="result-line">
+              <span>Response time <strong id="speedMetric">842ms</strong></span>
+              <span>Response cost <strong id="costMetric">$0.038</strong></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="principles" id="principles">
+      <div class="shell">
+        <div class="section-head reveal">
+          <h2>Your AI use, <em>under your control.</em></h2>
+          <p>
+            Model choice is only the start. Liberde also shows the tokens, cost,
+            data access, tool use, and estimated environmental impact behind each response.
+          </p>
+        </div>
+
+        <div class="principle-grid reveal">
+          <article class="principle">
+            <span class="principle-number">01 / UNBUNDLED</span>
+            <h3>Keep the UX. Change the model.</h3>
+            <p>
+              Get one polished experience without tying your conversations,
+              context, and workflows to a single model provider.
+            </p>
+          </article>
+
+          <article class="principle">
+            <span class="principle-number">02 / TOGETHER</span>
+            <h3>Use many models in one conversation.</h3>
+            <p>
+              Move between closed, open, specialist, and local models. Each one
+              can pick up where the last one stopped.
+            </p>
+          </article>
+
+          <article class="principle">
+            <span class="principle-number">03 / TRANSPARENT</span>
+            <h3>See the things that matter.</h3>
+            <p>
+              Check tokens, cost, context, permissions, tool calls, data access,
+              and estimated environmental impact for every response.
+            </p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="impact" id="impact">
+      <div class="shell impact-grid">
+        <div class="reveal">
+          <p class="eyebrow">Nothing hidden</p>
+          <h2>
+            Pick the model.<br />
+            Keep the context.<br />
+            <em>Know the impact.</em>
+          </h2>
+        </div>
+
+        <div class="metrics reveal">
+          <div class="metric">
+            <span class="metric-label">Open, closed, specialist, and local models available</span>
+            <span class="metric-value">100s</span>
+          </div>
+
+          <div class="metric">
+            <span class="metric-label">Conversations lost when you change models</span>
+            <span class="metric-value">0</span>
+          </div>
+
+          <div class="metric">
+            <span class="metric-label">Token usage and cost visible for each response</span>
+            <span class="metric-value">Always</span>
+          </div>
+
+          <div class="metric">
+            <span class="metric-label">Estimated energy use and carbon impact</span>
+            <span class="metric-value">Tracked</span>
+          </div>
+
+          <div class="metric">
+            <span class="metric-label">Source code available to inspect and control</span>
+            <span class="metric-value">100% open</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="manifesto">
+      <div class="shell">
+        <div class="manifesto-card reveal">
+          <div class="manifesto-copy">
+            <blockquote>
+              “The experience you love should not decide
+              <em>which intelligence you can use.</em>”
+            </blockquote>
+            <footer>— Why we built Liberde</footer>
+          </div>
+
+          <div class="manifesto-image">
+            <img
+              src="https://liberde.gyria.ai/img/45a8d193-b898-4073-b21f-d7c001368015"
+              alt="An abstract bird leaving a closed structure, representing freedom from model lock-in."
+            />
+            <span class="manifesto-stamp">One UX<br />every model<br />your control</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="cta shell" id="start">
+      <div class="cta-symbol">L</div>
+      <p class="eyebrow">Free your AI experience</p>
+      <h2>One experience.<br /><em>Every model.</em></h2>
+      <p>
+        Keep the UX, conversations, context, files, and tools you rely on.
+        Choose the best model for each response—with clear cost, token use,
+        data access, and environmental impact.
+      </p>
+
+      <div class="cta-actions">
+        <a class="button accent" href="mailto:hello@gyria.ai?subject=I want to try Liberde">
+          Request access <span class="arrow">→</span>
+        </a>
+        <a class="button light" href="#top">Back to top ↑</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="shell footer-row">
+      <a class="brand" href="#top" aria-label="Liberde home">
+        <span class="brand-mark">L</span>
+        <span>Liberde</span>
+      </a>
+
+      <div class="footer-meta">
+        <span>One experience. Every model. No lock-in.</span>
+        <span>© <span id="year"></span> Liberde</span>
+      </div>
+
+      <div class="footer-links">
+        <a href="#principles">Principles</a>
+        <a href="#impact">Transparency</a>
+        <a href="mailto:hello@gyria.ai">Contact</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    const menuButton = document.getElementById("menuButton");
+    const navLinks = document.getElementById("navLinks");
+
+    menuButton.addEventListener("click", () => {
+      const isOpen = navLinks.classList.toggle("open");
+      menuButton.setAttribute("aria-expanded", String(isOpen));
+      menuButton.textContent = isOpen ? "×" : "☰";
+    });
+
+    navLinks.querySelectorAll("a").forEach((link) => {
+      link.addEventListener("click", () => {
+        navLinks.classList.remove("open");
+        menuButton.setAttribute("aria-expanded", "false");
+        menuButton.textContent = "☰";
+      });
+    });
+
+    const modelOptions = document.querySelectorAll(".model-option");
+    const activeModel = document.getElementById("activeModel");
+    const speedMetric = document.getElementById("speedMetric");
+    const costMetric = document.getElementById("costMetric");
+    const tokenMetric = document.getElementById("tokenMetric");
+
+    modelOptions.forEach((option) => {
+      option.addEventListener("click", () => {
+        modelOptions.forEach((item) => {
+          item.classList.remove("active");
+          item.setAttribute("aria-checked", "false");
+        });
+
+        option.classList.add("active");
+        option.setAttribute("aria-checked", "true");
+
+        activeModel.textContent = option.dataset.model;
+        speedMetric.textContent = option.dataset.speed;
+        costMetric.textContent = option.dataset.cost;
+        tokenMetric.textContent = option.dataset.tokens;
+
+        [activeModel, speedMetric, costMetric, tokenMetric].forEach((element) => {
+          element.animate(
+            [
+              { opacity: 0, transform: "translateY(5px)" },
+              { opacity: 1, transform: "translateY(0)" }
+            ],
+            { duration: 280, easing: "ease-out" }
+          );
+        });
+      });
+    });
+
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (!reduceMotion && "IntersectionObserver" in window) {
+      const revealObserver = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) {
+              entry.target.classList.add("visible");
+              revealObserver.unobserve(entry.target);
+            }
+          });
+        },
+        { threshold: 0.12 }
+      );
+
+      document.querySelectorAll(".reveal").forEach((element) => {
+        revealObserver.observe(element);
+      });
+    } else {
+      document.querySelectorAll(".reveal").forEach((element) => {
+        element.classList.add("visible");
+      });
+    }
+
+    document.getElementById("year").textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>

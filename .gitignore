@@ -1,0 +1,26 @@
+node_modules/
+.next/
+out/
+build/
+dist/
+
+# Local data (SQLite DB, generated files) — never commit
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Secrets & environment — never commit (keep .env.local.example as the template)
+.env
+.env.*
+!.env.local.example
+
+# Tooling / OS
+*.tsbuildinfo
+next-env.d.ts
+.vercel/
+.DS_Store
+*.log
+coverage/
+.idea/
+.vscode/
