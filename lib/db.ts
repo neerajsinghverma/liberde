@@ -587,6 +587,33 @@ export async function searchAll(
 }
 
 /** Full-text search across conversation titles and message content. */
+export interface RecallHit {
+  conversation_id: string;
+  title: string;
+  role: string;
+  content: string;
+  created_at: number;
+}
+
+/** Recall: find message excerpts across the user's past (non-temp) chats that
+ *  match a query — used by the model-callable "search_past_chats" tool. */
+export async function searchPastMessages(
+  query: string,
+  userId: string = DEFAULT_USER,
+  limit = 8
+): Promise<RecallHit[]> {
+  const like = `%${query.replace(/[%_]/g, "\\$&")}%`;
+  return (await q(
+    `SELECT c.id AS conversation_id, c.title AS title, m.role AS role,
+            m.content AS content, m.created_at AS created_at
+     FROM messages m JOIN conversations c ON c.id = m.conversation_id
+     WHERE c.user_id = $1 AND c.is_temp = 0 AND m.role IN ('user','assistant')
+       AND m.content ILIKE $2 ESCAPE '\\'
+     ORDER BY m.created_at DESC LIMIT $3`,
+    [userId, like, limit]
+  )) as unknown as RecallHit[];
+}
+
 export async function searchConversations(
   query: string,
   userId: string = DEFAULT_USER

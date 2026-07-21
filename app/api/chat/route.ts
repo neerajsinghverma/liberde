@@ -62,6 +62,12 @@ import {
   PLATFORM_TOOL_DEFS,
   PLATFORM_TOOLS_PROMPT,
 } from "@/lib/platform-tools";
+import {
+  execRecallTool,
+  isRecallTool,
+  RECALL_SYSTEM_PROMPT,
+  RECALL_TOOL_DEFS,
+} from "@/lib/recall";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -232,6 +238,8 @@ export async function POST(req: NextRequest) {
 
   // Memory is skipped entirely in temporary chats (nothing is remembered from them).
   const memoryActive = settings.memoryEnabled && !conversation.is_temp;
+  // Recall: let the model search the user's own past chats (skipped in temp chats).
+  const recallActive = settings.recallEnabled && !conversation.is_temp;
 
   const designMode = conversation.mode === "design";
   // Design imagery: "new way" = AI-generate assets via the image model (opt-in);
@@ -248,6 +256,7 @@ export async function POST(req: NextRequest) {
     ARTIFACT_READ_TOOL,
     ...(designImages ? [DESIGN_IMAGE_TOOL] : []),
     ...(memoryActive ? MEMORY_TOOL_DEFS : []),
+    ...(recallActive ? RECALL_TOOL_DEFS : []),
     ...mcpTools,
   ];
   const designDirective =
@@ -291,6 +300,7 @@ Only reply in plain text for a genuine question that clearly isn't a design requ
     ANALYSIS_SYSTEM_PROMPT,
     WEB_TOOLS_PROMPT,
     PLATFORM_TOOLS_PROMPT,
+    recallActive ? RECALL_SYSTEM_PROMPT : "",
     '# Clarifying\nIf a request is genuinely ambiguous or missing details needed to do it well (especially before substantial work), ask clarifying questions first instead of guessing. When you ask, emit them as an interactive block the interface turns into clickable options: <liberdeAsk>[{"q":"question?","options":["Option A","Option B"],"multi":false}]</liberdeAsk> — 1-3 questions, each with 2-4 concrete options. For simple or clear requests, just answer — do not over-ask.',
     memoryActive ? MEMORY_SYSTEM_PROMPT : "",
   ]
@@ -793,6 +803,8 @@ Only reply in plain text for a genuine question that clearly isn't a design requ
               output = await execArtifactRead(conversation.id, call.function.arguments);
             } else if (isMemoryTool(call.function.name)) {
               output = await execMemoryTool(call.function.name, call.function.arguments, userId);
+            } else if (isRecallTool(call.function.name)) {
+              output = await execRecallTool(call.function.name, call.function.arguments, userId);
             } else if (isPlatformTool(call.function.name)) {
               const result = await execPlatformTool(
                 call.function.name,
@@ -812,6 +824,7 @@ Only reply in plain text for a genuine question that clearly isn't a design requ
                   ARTIFACT_READ_TOOL,
                   ...(designImages ? [DESIGN_IMAGE_TOOL] : []),
                   ...(memoryActive ? MEMORY_TOOL_DEFS : []),
+                  ...(recallActive ? RECALL_TOOL_DEFS : []),
                   ...refreshedMcp
                 );
               }

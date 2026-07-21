@@ -124,6 +124,8 @@ export interface AppSettings {
   styleInstructions: string;
   responseStyle: string;
   memoryEnabled: boolean;
+  /** Let the model search the user's own past chats (search_past_chats tool). */
+  recallEnabled: boolean;
   monthlyBudget: number;
   temperature: number;
 }

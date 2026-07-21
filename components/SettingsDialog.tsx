@@ -43,6 +43,7 @@ export default function SettingsDialog({
   );
   const [responseStyle, setResponseStyle] = useState(settings.responseStyle ?? "normal");
   const [memoryEnabled, setMemoryEnabled] = useState(settings.memoryEnabled ?? true);
+  const [recallEnabled, setRecallEnabled] = useState(settings.recallEnabled ?? true);
   const [memories, setMemories] = useState<
     { id: string; content: string; created_at: number }[]
   >([]);
@@ -125,6 +126,7 @@ export default function SettingsDialog({
           styleInstructions,
           responseStyle,
           memoryEnabled,
+          recallEnabled,
           temperature,
           monthlyBudget: Number(monthlyBudget) || 0,
         }),
@@ -394,6 +396,22 @@ export default function SettingsDialog({
                 <p className="mt-1 text-xs text-ink-muted">
                   When on, the model can save durable facts from your chats and recalls
                   them everywhere (never in temporary chats).
+                </p>
+              </div>
+
+              <div>
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    checked={recallEnabled}
+                    onChange={(e) => setRecallEnabled(e.target.checked)}
+                    className="accent-(--color-accent)"
+                  />
+                  Search past chats
+                </label>
+                <p className="mt-1 text-xs text-ink-muted">
+                  When on, the assistant can search your own previous conversations to
+                  recall earlier context or facts about you (e.g. &ldquo;who am I?&rdquo;).
                 </p>
               </div>
 
