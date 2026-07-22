@@ -15,6 +15,35 @@ interface PlatformKey {
   key?: string;
 }
 
+type SettingsTabId =
+  | "general"
+  | "personalization"
+  | "providers"
+  | "connectors"
+  | "skills"
+  | "prompts"
+  | "keys"
+  | "admin";
+
+// Tab rail config (Claude-style): grouped, icon'd, with search keywords so the
+// search box can match on more than the visible label.
+const SETTINGS_TABS: {
+  id: SettingsTabId;
+  label: string;
+  icon: string;
+  group: "Settings" | "Customize";
+  keywords: string;
+}[] = [
+  { id: "general", label: "General", icon: "settings", group: "Settings", keywords: "model default title image transcribe temperature budget appearance theme api key openrouter" },
+  { id: "personalization", label: "Personal", icon: "star", group: "Settings", keywords: "about you name style instructions memory recall past chats push notifications response" },
+  { id: "providers", label: "Providers", icon: "wrench", group: "Settings", keywords: "azure bedrock aws google gemini vertex custom openai compatible groq ollama endpoint clouds" },
+  { id: "keys", label: "Keys", icon: "key", group: "Settings", keywords: "api platform key cli token v1 external apps" },
+  { id: "admin", label: "Admin", icon: "users", group: "Settings", keywords: "users signups accounts members administration" },
+  { id: "connectors", label: "Connectors", icon: "globe", group: "Customize", keywords: "mcp server tools deepwiki context7 remote http stdio" },
+  { id: "skills", label: "Skills", icon: "book", group: "Customize", keywords: "skill instructions reusable" },
+  { id: "prompts", label: "Prompts", icon: "message", group: "Customize", keywords: "prompt template saved snippet" },
+];
+
 export default function SettingsDialog({
   settings,
   models,
@@ -26,9 +55,8 @@ export default function SettingsDialog({
   onClose: () => void;
   onSaved: (s: AppSettings) => void;
 }) {
-  const [tab, setTab] = useState<
-    "general" | "personalization" | "providers" | "connectors" | "skills" | "prompts" | "keys" | "admin"
-  >("general");
+  const [tab, setTab] = useState<SettingsTabId>("general");
+  const [tabSearch, setTabSearch] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [defaultModel, setDefaultModel] = useState(settings.defaultModel);
   const [titleModel, setTitleModel] = useState(settings.titleModel);
@@ -161,40 +189,64 @@ export default function SettingsDialog({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="flex h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-2xl">
-        <div className="flex items-center justify-between border-b border-line px-5 py-3">
-          <h2 className="font-display text-lg font-semibold">Settings</h2>
-          <button onClick={onClose} className="text-ink-muted hover:text-ink">✕</button>
+      <div className="flex h-[85vh] w-full max-w-4xl overflow-hidden rounded-2xl border border-line bg-surface shadow-2xl max-md:flex-col">
+        {/* Tab rail — left sidebar on desktop, scrollable top bar on mobile */}
+        <div className="flex shrink-0 flex-col border-line md:w-56 md:border-r max-md:border-b">
+          <div className="flex items-center justify-between px-4 pt-4 pb-2">
+            <h2 className="font-display text-lg font-semibold">Settings</h2>
+            <button onClick={onClose} className="text-ink-muted hover:text-ink md:hidden">✕</button>
+          </div>
+          {/* Search (desktop) — filter/jump to a section */}
+          <div className="hidden px-3 pb-2 md:block">
+            <input
+              value={tabSearch}
+              onChange={(e) => setTabSearch(e.target.value)}
+              placeholder="Search settings…"
+              className="w-full rounded-lg border border-line bg-bg px-3 py-1.5 text-sm outline-none focus:border-accent"
+            />
+          </div>
+          <nav className="flex gap-1 overflow-x-auto px-2 pb-2 md:min-h-0 md:flex-col md:gap-0.5 md:overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {(() => {
+              const q = tabSearch.trim().toLowerCase();
+              const shown = SETTINGS_TABS.filter(
+                (t) => !q || t.label.toLowerCase().includes(q) || t.keywords.includes(q)
+              );
+              return shown.map((t, i) => {
+                const showGroup = !q && (i === 0 || shown[i - 1].group !== t.group);
+                return (
+                  <div key={t.id} className="contents">
+                    {showGroup && (
+                      <div className="mt-2 hidden px-3 pb-1 text-[11px] font-medium uppercase tracking-wide text-ink-muted first:mt-0 md:block">
+                        {t.group}
+                      </div>
+                    )}
+                    <button
+                      onClick={() => setTab(t.id)}
+                      className={`flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-sm md:w-full ${
+                        tab === t.id
+                          ? "bg-surface-2 font-medium text-ink"
+                          : "text-ink-muted hover:bg-surface-2/60 hover:text-ink"
+                      }`}
+                    >
+                      <Icon name={t.icon} size={15} /> {t.label}
+                    </button>
+                  </div>
+                );
+              });
+            })()}
+          </nav>
         </div>
 
-        <div className="flex gap-1 overflow-x-auto border-b border-line px-5 pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {(
-            [
-              ["general", "General"],
-              ["personalization", "Personal"],
-              ["providers", "Providers"],
-              ["connectors", "Connectors"],
-              ["skills", "Skills"],
-              ["prompts", "Prompts"],
-              ["keys", "Keys"],
-              ["admin", "Admin"],
-            ] as const
-          ).map(([t, label]) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`shrink-0 whitespace-nowrap rounded-t-lg px-2.5 py-1.5 text-sm ${
-                tab === t
-                  ? "border border-b-0 border-line bg-surface font-medium"
-                  : "text-ink-muted hover:text-ink"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+        {/* Content pane */}
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <button
+            onClick={onClose}
+            title="Close"
+            className="absolute right-4 top-4 z-10 hidden text-ink-muted hover:text-ink md:block"
+          >
+            ✕
+          </button>
+          <div className="min-h-0 flex-1 overflow-y-auto p-5">
           {tab === "general" ? (
             <div className="space-y-5">
               <Field
@@ -585,6 +637,7 @@ export default function SettingsDialog({
           >
             {saving ? "Saving…" : "Save"}
           </button>
+        </div>
         </div>
       </div>
     </div>
