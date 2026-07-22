@@ -24,11 +24,17 @@ export async function sendPushToUser(
   payload: PushPayload
 ): Promise<void> {
   if (!pushConfigured()) return;
-  webpush.setVapidDetails(
-    process.env.VAPID_SUBJECT || "mailto:admin@liberde.app",
-    process.env.VAPID_PUBLIC_KEY!,
-    process.env.VAPID_PRIVATE_KEY!
-  );
+  try {
+    webpush.setVapidDetails(
+      process.env.VAPID_SUBJECT || "mailto:admin@liberde.app",
+      process.env.VAPID_PUBLIC_KEY!,
+      process.env.VAPID_PRIVATE_KEY!
+    );
+  } catch (e) {
+    // Bad VAPID config must never break the actual response — just skip push.
+    console.error("[push] invalid VAPID config, skipping:", String(e).slice(0, 150));
+    return;
+  }
   let subs;
   try {
     subs = await listPushSubscriptions(userId);
