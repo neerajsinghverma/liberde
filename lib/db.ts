@@ -291,6 +291,14 @@ const SCHEMA_STATEMENTS: string[] = [
   `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS exec_model TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS run_msg_id TEXT`,
   `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS error TEXT`,
+  // Base columns an old/partial agent_runs table may predate. conversation_id
+  // is nullable here (the CREATE above adds NOT NULL + FK for fresh tables; the
+  // INSERT always supplies it) so this ALTER can't fail on existing rows.
+  `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS conversation_id TEXT`,
+  `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT 'local'`,
+  `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS goal TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS model TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'running'`,
   `CREATE INDEX IF NOT EXISTS idx_agent_runs_status ON agent_runs(status, updated_at)`,
   `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'chat'`,
   `CREATE TABLE IF NOT EXISTS generated_images (
