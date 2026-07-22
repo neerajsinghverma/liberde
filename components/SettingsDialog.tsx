@@ -189,7 +189,7 @@ export default function SettingsDialog({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="flex h-[85vh] w-full max-w-4xl overflow-hidden rounded-2xl border border-line bg-surface shadow-2xl max-md:flex-col">
+      <div className="flex h-[68vh] max-h-[calc(100dvh-2rem)] w-full max-w-4xl overflow-hidden rounded-2xl border border-line bg-surface shadow-2xl max-md:h-[85vh] max-md:flex-col">
         {/* Tab rail — left sidebar on desktop, scrollable top bar on mobile */}
         <div className="flex shrink-0 flex-col border-line md:w-56 md:border-r max-md:border-b">
           <div className="flex items-center justify-between px-4 pt-4 pb-2">
