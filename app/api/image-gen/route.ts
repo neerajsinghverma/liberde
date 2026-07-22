@@ -22,6 +22,12 @@ export async function POST(req: NextRequest) {
   if (!prompt) return Response.json({ error: "prompt is required" }, { status: 400 });
 
   const model = body.model || (await getSettings(userId)).imageModel;
+  if (!model) {
+    return Response.json(
+      { error: "No image model is set. Choose an image-capable model in Settings → General." },
+      { status: 400 }
+    );
+  }
   await addMessage(conversation.id, "user", prompt);
 
   const upstream = await fetch(`${OPENROUTER_BASE}/images`, {
@@ -32,10 +38,7 @@ export async function POST(req: NextRequest) {
   });
   if (!upstream.ok) {
     const detail = await upstream.text();
-    return Response.json(
-      { error: `Image generation failed (${upstream.status}): ${detail.slice(0, 400)}` },
-      { status: 502 }
-    );
+    return Response.json({ error: imageErrorMessage(upstream.status, detail) }, { status: 502 });
   }
   const data = await upstream.json();
   const images: string[] = (data.data ?? [])
@@ -45,7 +48,13 @@ export async function POST(req: NextRequest) {
         `data:${d.media_type || "image/png"};base64,${d.b64_json}`
     );
   if (images.length === 0) {
-    return Response.json({ error: "The model returned no image." }, { status: 502 });
+    return Response.json(
+      {
+        error:
+          "The image model didn't return an image — it may not support image generation, or the prompt was too vague. Try a clearer, more descriptive prompt, or pick an image-capable model in Settings → General.",
+      },
+      { status: 502 }
+    );
   }
 
   const saved = await addMessage(
@@ -57,4 +66,16 @@ export async function POST(req: NextRequest) {
     { images, cost: Number(data.usage?.cost) || null }
   );
   return Response.json({ message: saved }, { status: 201 });
+}
+
+/** Turn a raw upstream image-API error into a short, actionable message. */
+function imageErrorMessage(status: number, detail: string): string {
+  const d = detail.toLowerCase();
+  if (/no image data|finish_reason|no candidates|"stop"/.test(d)) {
+    return "The image model couldn't produce an image for that prompt. Try a clearer, more descriptive prompt — or choose a different image model in Settings → General.";
+  }
+  if (status === 400 && /model|not.*support|invalid|unsupported/.test(d)) {
+    return "That model can't generate images. Pick an image-capable model in Settings → General (e.g. a Gemini image or OpenAI image model).";
+  }
+  return `Image generation failed (${status}). Try again, or pick a different image model in Settings → General.`;
 }
