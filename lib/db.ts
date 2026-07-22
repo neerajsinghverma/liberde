@@ -865,8 +865,11 @@ export async function createAgentRun(fields: {
   const id = newId();
   const ts = now();
   await q(
+    // created_at ($9) and updated_at ($10) are passed as SEPARATE params — the
+    // Neon driver can't deduce a consistent type when one placeholder is reused
+    // across two columns ("inconsistent types deduced for parameter $9").
     `INSERT INTO agent_runs (id, conversation_id, user_id, goal, model, planner_model, exec_model, status, steps, current_step, notes, total_cost, context_block, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,'running','[]',0,'[]',0,$8,$9,$9)`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,'running','[]',0,'[]',0,$8,$9,$10)`,
     [
       id,
       fields.conversationId,
@@ -876,6 +879,7 @@ export async function createAgentRun(fields: {
       fields.plannerModel,
       fields.execModel,
       fields.contextBlock,
+      ts,
       ts,
     ]
   );
