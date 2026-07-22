@@ -513,7 +513,7 @@ export default function ChatView({
             setIsStreaming(false);
             setStreamText("");
             setResearchStatuses([]);
-            notifyDone("Liberde", agentMode ? "Your agent finished" : "Your research is ready");
+            notifyDone("Liberde", agentMode ? "Your plan finished" : "Your research is ready");
             if (convIdRef.current === id) await loadConversation(id!);
             onConversationsChanged();
           },
@@ -2534,9 +2534,9 @@ function Composer({
               <ComposerToggle
                 on={agentMode}
                 onClick={onToggleAgentMode}
-                title="Agent mode: plans your goal into steps, executes each with tools, delivers the result"
+                title="Plan: breaks your goal into steps, executes each with tools, and delivers the result"
               >
-                <Icon name="sparkles" size={14} /> Agent
+                <Icon name="sparkles" size={14} /> Plan
               </ComposerToggle>
               <button
                 title={
