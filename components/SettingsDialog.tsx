@@ -733,7 +733,7 @@ function AdminTab() {
 
 interface ProviderRow {
   id: string;
-  kind: "azure" | "bedrock" | "google" | "custom";
+  kind: "openai" | "anthropic" | "azure" | "bedrock" | "google" | "custom";
   name: string;
   enabled: number;
   endpoint: string | null;
@@ -743,6 +743,8 @@ interface ProviderRow {
 }
 
 const PROVIDER_KINDS = [
+  ["openai", "OpenAI (direct)"],
+  ["anthropic", "Anthropic (direct)"],
   ["azure", "Azure AI Foundry"],
   ["bedrock", "AWS Bedrock"],
   ["google", "Google (Gemini / Vertex)"],
@@ -821,7 +823,11 @@ function ProvidersTab() {
         ? "Model ids (e.g. anthropic.claude-sonnet-4-20250514-v1:0)"
         : kind === "google"
           ? "Model names (e.g. gemini-2.5-pro, gemini-3.1-flash)"
-          : "Model names your endpoint serves";
+          : kind === "openai"
+            ? "Model names (e.g. gpt-4o, gpt-4o-mini, o3-mini)"
+            : kind === "anthropic"
+              ? "Model names (e.g. claude-opus-4-20250514, claude-sonnet-4-20250514)"
+              : "Model names your endpoint serves";
 
   return (
     <div className="space-y-4">

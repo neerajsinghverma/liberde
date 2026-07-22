@@ -125,6 +125,28 @@ export function targetFor(record: ProviderRecord, model: string): ChatTarget {
         ...prices,
       };
     }
+    case "openai": {
+      // Direct OpenAI API (native chat-completions).
+      const base = (cfg.endpoint || "https://api.openai.com/v1").replace(/\/$/, "");
+      return {
+        url: `${base}/chat/completions`,
+        headers: { ...json, Authorization: `Bearer ${cfg.apiKey ?? ""}` },
+        bodyModel: model,
+        isOpenRouter: false,
+        ...prices,
+      };
+    }
+    case "anthropic": {
+      // Anthropic's OpenAI-compatible endpoint (chat-completions dialect).
+      const base = (cfg.endpoint || "https://api.anthropic.com/v1").replace(/\/$/, "");
+      return {
+        url: `${base}/chat/completions`,
+        headers: { ...json, Authorization: `Bearer ${cfg.apiKey ?? ""}` },
+        bodyModel: model,
+        isOpenRouter: false,
+        ...prices,
+      };
+    }
     default: {
       const base = (cfg.endpoint ?? "").replace(/\/$/, "");
       return {
@@ -197,7 +219,11 @@ export const kindLabel = (kind: ProviderRecord["kind"]) =>
       ? "AWS Bedrock"
       : kind === "google"
         ? "Google"
-        : "OpenAI-compatible";
+        : kind === "openai"
+          ? "OpenAI"
+          : kind === "anthropic"
+            ? "Anthropic"
+            : "OpenAI-compatible";
 
 /** Cheap live check: one-token completion against the first configured model. */
 export async function testProvider(

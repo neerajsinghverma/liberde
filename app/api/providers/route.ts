@@ -9,7 +9,7 @@ import {
 } from "@/lib/db";
 import { providerConfig, testProvider } from "@/lib/providers";
 
-const KINDS = ["azure", "bedrock", "google", "custom"] as const;
+const KINDS = ["openai", "anthropic", "azure", "bedrock", "google", "custom"] as const;
 
 const mask = (p: Awaited<ReturnType<typeof listProviders>>[number]) => {
   const cfg = providerConfig(p);
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
   if (!userId) return unauthorized();
   const body = await req.json();
   if (!KINDS.includes(body.kind)) {
-    return Response.json({ error: "kind must be azure|bedrock|google|custom" }, { status: 400 });
+    return Response.json({ error: "kind must be openai|anthropic|azure|bedrock|google|custom" }, { status: 400 });
   }
   if (!body.name?.trim()) return Response.json({ error: "name is required" }, { status: 400 });
   const models = String(body.models ?? "")

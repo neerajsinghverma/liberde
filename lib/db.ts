@@ -1582,7 +1582,7 @@ export async function deleteSharedChatsFor(conversationId: string) {
 export interface ProviderRecord {
   id: string;
   user_id: string;
-  kind: "azure" | "bedrock" | "google" | "custom";
+  kind: "openai" | "anthropic" | "azure" | "bedrock" | "google" | "custom";
   name: string;
   config: string; // JSON: endpoint/region/apiKey/apiVersion/models[]
   enabled: number;
