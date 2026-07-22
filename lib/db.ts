@@ -294,6 +294,9 @@ const SCHEMA_STATEMENTS: string[] = [
   // Base columns an old/partial agent_runs table may predate. conversation_id
   // is nullable here (the CREATE above adds NOT NULL + FK for fresh tables; the
   // INSERT always supplies it) so this ALTER can't fail on existing rows.
+  // A very old agent_runs had a NOT-NULL "payload" jsonb column the current
+  // code never sets — drop it so inserts don't violate the constraint.
+  `ALTER TABLE agent_runs DROP COLUMN IF EXISTS payload`,
   `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS conversation_id TEXT`,
   `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT 'local'`,
   `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS goal TEXT NOT NULL DEFAULT ''`,
