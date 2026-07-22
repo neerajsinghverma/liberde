@@ -4,6 +4,7 @@ import {
   addMessage,
   getApiKey,
   getConversation,
+  listMessages,
   tryLockConversation,
   unlockConversation,
   updateConversation,
@@ -49,10 +50,19 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let settings, model;
+  let settings, model, contextBlock = "";
   try {
     settings = await getSettings(userId);
     model = body.model || conversation.model || settings.defaultModel;
+    // Pull recent conversation so research can resolve follow-ups like "ya
+    // research" / "dig into that" against what was actually being discussed —
+    // rather than researching the literal words of the message.
+    const history = await listMessages(conversation.id);
+    contextBlock = history
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .slice(-6)
+      .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${(m.content || "").replace(/\s+/g, " ").slice(0, 1200)}`)
+      .join("\n");
     await addMessage(conversation.id, "user", query);
   } catch (e) {
     await unlockConversation(conversation.id);
@@ -85,7 +95,7 @@ export async function POST(req: NextRequest) {
             [
               {
                 role: "user",
-                content: `Generate up to ${MAX_SEARCHES} focused, diverse web search queries to deeply research this question. Reply with ONLY a JSON array of strings.\n\nQuestion: ${query}`,
+                content: `${contextBlock ? `Recent conversation for context:\n${contextBlock}\n\n` : ""}The user now asks to research: "${query}". Using the conversation context, work out what they ACTUALLY want researched (resolve vague references like "this", "that", "ya research", "dig deeper" to the real subject). Generate up to ${MAX_SEARCHES} focused, diverse web search queries on that subject. Reply with ONLY a JSON array of strings.`,
               },
             ],
             { temperature: 0.3, max_tokens: 300 }, userId
@@ -148,7 +158,7 @@ export async function POST(req: NextRequest) {
             [
               {
                 role: "user",
-                content: `Initial research findings for the question "${query}" are below. List up to ${MAX_SEARCHES} follow-up web-search queries that fill gaps, verify key claims, add recent data, or go deeper. Reply with ONLY a JSON array of strings.\n\n${r1}`,
+                content: `${contextBlock ? `Conversation context:\n${contextBlock}\n\n` : ""}The user asked to research "${query}" (interpreted using the context above). Initial findings are below. List up to ${MAX_SEARCHES} follow-up web-search queries that fill gaps, verify key claims, add recent data, or go deeper. Reply with ONLY a JSON array of strings.\n\n${r1}`,
               },
             ],
             { temperature: 0.3, max_tokens: 300 },
@@ -194,7 +204,7 @@ export async function POST(req: NextRequest) {
             },
             {
               role: "user",
-              content: `Question: ${query}\n\n# Findings\n${findingsBlock}\n\n# Sources\n${sourceList || "(no sources returned)"}`,
+              content: `${contextBlock ? `Recent conversation (for context — the request may refer back to it):\n${contextBlock}\n\n` : ""}The user's research request: "${query}"\n\n# Findings\n${findingsBlock}\n\n# Sources\n${sourceList || "(no sources returned)"}`,
             },
           ],
         });

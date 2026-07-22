@@ -626,7 +626,16 @@ export default function ChatView({
     return () => window.removeEventListener("liberde-canvas", onCanvas);
   }, [isStreaming]);
 
-  const stop = () => abortRef.current?.();
+  const stop = () => {
+    abortRef.current?.();
+    abortRef.current = null;
+    setIsStreaming(false);
+    stopBgPoll();
+    // Also release the server-side lock so a stuck/background run is cleared
+    // and the user can send again immediately (Stop must actually stop).
+    const id = convIdRef.current;
+    if (id) api(`/api/conversations/${id}/cancel`, { method: "POST" }).catch(() => {});
+  };
 
   const regenerate = (withModel?: string) => {
     const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
@@ -1220,6 +1229,12 @@ export default function ChatView({
                 <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-accent" />
                 Liberde is working on this response… it&apos;ll appear here when
                 ready.
+                <button
+                  onClick={stop}
+                  className="ml-1 rounded border border-line px-2 py-0.5 text-xs hover:bg-surface-2 hover:text-ink"
+                >
+                  Stop
+                </button>
               </div>
             )}
 

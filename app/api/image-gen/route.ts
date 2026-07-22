@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { getRequestUserId, unauthorized } from "@/lib/auth";
-import { addMessage, getApiKey, getConversation } from "@/lib/db";
-import { getSettings, openRouterHeaders, OPENROUTER_BASE } from "@/lib/openrouter";
+import { addMessage, getApiKey, getConversation, listMessages } from "@/lib/db";
+import { complete, getSettings, openRouterHeaders, OPENROUTER_BASE } from "@/lib/openrouter";
 
 export const runtime = "nodejs";
 
@@ -30,10 +30,14 @@ export async function POST(req: NextRequest) {
   }
   await addMessage(conversation.id, "user", prompt);
 
+  // Resolve references to the conversation ("make an image of that") into a
+  // self-contained prompt, so Image mode carries context like the other tools.
+  const genPrompt = await resolveImagePrompt(prompt, conversation.id, userId);
+
   const upstream = await fetch(`${OPENROUTER_BASE}/images`, {
     method: "POST",
     headers: await openRouterHeaders(userId),
-    body: JSON.stringify({ model, prompt }),
+    body: JSON.stringify({ model, prompt: genPrompt }),
     signal: req.signal,
   });
   if (!upstream.ok) {
@@ -66,6 +70,43 @@ export async function POST(req: NextRequest) {
     { images, cost: Number(data.usage?.cost) || null }
   );
   return Response.json({ message: saved }, { status: 201 });
+}
+
+// Referential/short prompts get expanded against the conversation; clearly
+// self-contained ones are used as-is (no extra model call).
+const REFERENTIAL = /\b(that|this|it|above|earlier|previous|the one|same|we (discussed|talked|said)|our|my)\b/i;
+
+async function resolveImagePrompt(
+  prompt: string,
+  conversationId: string,
+  userId: string
+): Promise<string> {
+  if (prompt.length > 80 && !REFERENTIAL.test(prompt)) return prompt;
+  try {
+    const history = await listMessages(conversationId);
+    const prior = history
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .slice(-6, -1) // exclude the just-added prompt
+      .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${(m.content || "").replace(/\s+/g, " ").slice(0, 800)}`)
+      .join("\n");
+    if (!prior) return prompt;
+    const titleModel = (await getSettings(userId)).titleModel;
+    const out = await complete(
+      titleModel,
+      [
+        {
+          role: "user",
+          content: `Recent conversation:\n${prior}\n\nThe user asked to generate an image: "${prompt}". Write a single, vivid, self-contained image-generation prompt that captures what they want, resolving any references to the conversation. Output ONLY the prompt text, no quotes or preamble.`,
+        },
+      ],
+      { temperature: 0.4, max_tokens: 200 },
+      userId
+    );
+    const cleaned = out.trim().replace(/^["']|["']$/g, "");
+    return cleaned || prompt;
+  } catch {
+    return prompt; // never block image generation on context resolution
+  }
 }
 
 /** Turn a raw upstream image-API error into a short, actionable message. */
