@@ -96,7 +96,8 @@ export default function ModelsPanel({
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">
-      <header className="border-b border-line px-6 py-4">
+      {/* max-md:pl-14 clears the floating mobile hamburger (AppShell, left-3). */}
+      <header className="border-b border-line px-6 py-4 max-md:pl-14">
         <h1 className="font-display text-2xl font-semibold tracking-tight">Models</h1>
         <p className="mt-0.5 text-sm text-ink-muted">
           Live catalog from OpenRouter — {models.length} models, prices per 1M tokens.

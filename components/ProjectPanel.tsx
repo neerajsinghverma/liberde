@@ -94,7 +94,8 @@ export default function ProjectPanel({
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 overflow-y-auto px-6 py-8">
       <div className="flex items-start justify-between">
-        <div>
+        {/* max-md:pl-9 clears the floating mobile hamburger (AppShell, left-3). */}
+        <div className="max-md:pl-9">
           <h1 className="font-display text-3xl font-semibold tracking-tight">
             <Icon name="folder" size={26} className="mb-1 inline text-ink-muted" /> {project.name}
           </h1>

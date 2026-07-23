@@ -77,7 +77,8 @@ export default function UsagePanel() {
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 overflow-y-auto px-6 py-8">
-      <div>
+      {/* max-md:pl-9 clears the floating mobile hamburger (AppShell, left-3). */}
+      <div className="max-md:pl-9">
         <h1 className="font-display text-2xl font-semibold tracking-tight">Usage</h1>
         <p className="mt-0.5 text-sm text-ink-muted">
           Your spend and tokens across every model, from real per-reply costs.
