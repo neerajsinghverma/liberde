@@ -1896,6 +1896,43 @@ type AskPart =
   | { type: "md"; value: string }
   | { type: "ask"; questions: AskQuestion[] };
 
+/** Parse an ask payload leniently — models emit arrays, bare objects,
+ *  {questions:[...]} wrappers, and code-fenced JSON. */
+function parseAskPayload(raw: string): AskQuestion[] | null {
+  let s = raw.trim();
+  s = s.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  const coerce = (parsed: unknown): AskQuestion[] | null => {
+    const qs = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray((parsed as { questions?: unknown[] })?.questions)
+        ? (parsed as { questions: unknown[] }).questions
+        : parsed && typeof parsed === "object" && typeof (parsed as AskQuestion).q === "string"
+          ? [parsed]
+          : null;
+    if (!qs) return null;
+    const clean = qs.filter(
+      (q): q is AskQuestion => Boolean(q) && typeof (q as AskQuestion).q === "string"
+    );
+    return clean.length ? clean : null;
+  };
+  try {
+    const result = coerce(JSON.parse(s));
+    if (result) return result;
+  } catch {
+    /* fall through to extraction */
+  }
+  // Salvage: first JSON array or object embedded in surrounding prose.
+  const embedded = s.match(/\[[\s\S]*\]/)?.[0] ?? s.match(/\{[\s\S]*\}/)?.[0];
+  if (embedded) {
+    try {
+      return coerce(JSON.parse(embedded));
+    } catch {
+      /* truly malformed */
+    }
+  }
+  return null;
+}
+
 /** Split assistant text into markdown and interactive <liberdeAsk> question blocks. */
 function splitAsk(text: string): AskPart[] {
   const parts: AskPart[] = [];
@@ -1904,12 +1941,16 @@ function splitAsk(text: string): AskPart[] {
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
     if (m.index > last) parts.push({ type: "md", value: text.slice(last, m.index) });
-    try {
-      const parsed = JSON.parse(m[1].trim());
-      const qs: AskQuestion[] = Array.isArray(parsed) ? parsed : parsed.questions;
-      if (Array.isArray(qs) && qs.length) parts.push({ type: "ask", questions: qs });
-    } catch {
-      /* malformed — drop it */
+    const qs = parseAskPayload(m[1]);
+    if (qs) {
+      parts.push({ type: "ask", questions: qs });
+    } else {
+      // Unsalvageable payload: show the questions' text as plain markdown
+      // rather than raw tags/JSON.
+      const qTexts = [...m[1].matchAll(/"q"\s*:\s*"([^"]+)"/g)].map((x) => x[1]);
+      if (qTexts.length) {
+        parts.push({ type: "md", value: qTexts.map((q) => `**${q}**`).join("\n\n") });
+      }
     }
     last = re.lastIndex;
   }
@@ -1917,7 +1958,10 @@ function splitAsk(text: string): AskPart[] {
   // Hide an unterminated block still streaming in.
   rest = rest.replace(/<liberdeAsk\b[\s\S]*$/, "");
   if (rest) parts.push({ type: "md", value: rest });
-  return parts.length ? parts : [{ type: "md", value: text }];
+  // Fallback for a fully-dropped message: never show raw <liberdeAsk> tags.
+  return parts.length
+    ? parts
+    : [{ type: "md", value: text.replace(/<\/?liberdeAsk>/g, "").trim() }];
 }
 
 function QuestionCard({

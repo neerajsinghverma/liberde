@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { getRequestUserId, unauthorized } from "@/lib/auth";
 import { deletePushSubscription, savePushSubscription } from "@/lib/db";
-import { pushConfigured } from "@/lib/push";
+import { pushConfigured, sendPushToUser } from "@/lib/push";
 
 export const runtime = "nodejs";
 
@@ -15,11 +15,21 @@ export async function GET() {
   });
 }
 
-/** Register this browser's push subscription for the signed-in user. */
+/** Register this browser's push subscription for the signed-in user — or,
+ *  with { action: "test" }, fire a test notification at every registered
+ *  device so delivery can be verified in one click. */
 export async function POST(req: NextRequest) {
   const userId = await getRequestUserId();
   if (!userId) return unauthorized();
   const body = await req.json().catch(() => null);
+  if (body?.action === "test") {
+    await sendPushToUser(userId, {
+      title: "Liberde",
+      body: "Test notification — push is working on this device 🎉",
+      url: "/",
+    });
+    return Response.json({ ok: true });
+  }
   if (!body?.endpoint || typeof body.endpoint !== "string") {
     return Response.json({ error: "Invalid subscription" }, { status: 400 });
   }

@@ -46,8 +46,9 @@ export async function sendPushToUser(
       await webpush.sendNotification(JSON.parse(sub.subscription), JSON.stringify(payload));
     } catch (e) {
       const status = (e as { statusCode?: number }).statusCode;
-      if (status === 404 || status === 410) {
-        // Subscription expired or was revoked — stop trying.
+      if (status === 404 || status === 410 || status === 403) {
+        // Expired, revoked, or bound to a previous VAPID key (403 mismatch) —
+        // it can never succeed again; prune so the device can re-register.
         try {
           await deletePushSubscription(sub.endpoint);
         } catch {}

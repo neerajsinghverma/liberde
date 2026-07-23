@@ -2458,6 +2458,40 @@ function PushToggle() {
         setPublicKey(info.publicKey ?? null);
         const reg = await navigator.serviceWorker.ready;
         const sub = await reg.pushManager.getSubscription();
+        if (sub && info.publicKey && !subMatchesKey(sub, info.publicKey)) {
+          // Bound to a previous server key (keys were rotated) — sends can
+          // never reach this subscription. Re-subscribe under the new key.
+          try {
+            await sub.unsubscribe();
+            if (Notification.permission === "granted") {
+              const fresh = await reg.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: urlB64ToUint8Array(info.publicKey) as BufferSource,
+              });
+              await fetch("/api/push", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(fresh.toJSON()),
+              });
+              setOn(true);
+              setNote("Notifications were re-registered on this device (server keys had changed).");
+              return;
+            }
+          } catch {
+            /* fall through to off */
+          }
+          setOn(false);
+          setNote("Notifications needed re-enabling after a server update — flip the toggle back on.");
+          return;
+        }
+        if (sub) {
+          // Make sure the server still has this device on file (idempotent).
+          fetch("/api/push", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(sub.toJSON()),
+          }).catch(() => {});
+        }
         setOn(Boolean(sub));
       })
       .catch(() => {});
@@ -2474,6 +2508,12 @@ function PushToggle() {
         if (permission !== "granted") {
           setNote("Notifications are blocked for this site in your browser settings.");
           return;
+        }
+        // subscribe() throws InvalidStateError if a subscription under a
+        // different (old) key still exists — clear it first.
+        const existing = await reg.pushManager.getSubscription();
+        if (existing && !subMatchesKey(existing, publicKey)) {
+          await existing.unsubscribe().catch(() => {});
         }
         const sub = await reg.pushManager.subscribe({
           userVisibleOnly: true,
@@ -2517,10 +2557,45 @@ function PushToggle() {
       </label>
       <p className="mt-1 text-xs text-ink-muted">
         {serverEnabled
-          ? "Get notified on this device when an agent run or scheduled task finishes."
+          ? "Get notified on this device when a Plan or scheduled task finishes."
           : "Not configured on this server (VAPID keys missing)."}
       </p>
+      {on && serverEnabled && (
+        <button
+          onClick={async () => {
+            setNote(null);
+            try {
+              await fetch("/api/push", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "test" }),
+              });
+              setNote("Test sent — you should see a notification within a few seconds.");
+            } catch {
+              setNote("Couldn't send the test — try again.");
+            }
+          }}
+          className="mt-1.5 rounded-lg border border-line px-2.5 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink"
+        >
+          Send test notification
+        </button>
+      )}
       {note && <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">{note}</p>}
     </div>
   );
+}
+
+/** True when an existing browser subscription was created with `key`. */
+function subMatchesKey(sub: PushSubscription, key: string): boolean {
+  try {
+    const current = sub.options?.applicationServerKey;
+    if (!current) return true; // can't tell — assume fine rather than churn
+    const a = new Uint8Array(current);
+    const b = urlB64ToUint8Array(key);
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    return true;
+  } catch {
+    return true;
+  }
 }
