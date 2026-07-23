@@ -13,7 +13,7 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   const userId = await getRequestUserId();
   if (!userId) return unauthorized();
-  const { prompt } = await req.json();
+  const { prompt, model } = await req.json();
   if (!prompt?.trim()) return Response.json({ error: "Describe the skill first" }, { status: 400 });
 
   const settings = await getSettings(userId);
@@ -44,7 +44,12 @@ Reply with ONLY minified JSON: {"name":"...","description":"...","instructions":
 
   try {
     const raw = await complete(
-      settings.plannerModel || settings.defaultModel,
+      // Explicit override from the UI, else the drafting chain — the user's
+      // default may be a weak/free model that can't produce clean JSON.
+      (typeof model === "string" && model.trim()) ||
+        settings.plannerModel ||
+        settings.titleModel ||
+        settings.defaultModel,
       [
         { role: "system", content: sys },
         { role: "user", content: `Design a skill for: ${String(prompt).slice(0, 1500)}` },

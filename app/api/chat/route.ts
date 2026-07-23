@@ -1,9 +1,11 @@
 import { NextRequest } from "next/server";
 import {
   addMessage,
+  canAccessDesignSystem,
   deleteMessagesFrom,
   getApiKey,
   getConversation,
+  getDesignSystem,
   getProject,
   listMessages,
   listProjectFiles,
@@ -290,9 +292,26 @@ When the user asks for a change, edit ONLY what they asked and PRESERVE everythi
 
 Only reply in plain text for a genuine question that clearly isn't a design request.`
       : "";
+  // Active design system: pinned per-conversation; owner or share recipient may
+  // apply it. A stale/revoked id degrades to no system rather than failing.
+  let designSystemBlock = "";
+  if (designMode && conversation.design_system_id) {
+    try {
+      const ds = await getDesignSystem(conversation.design_system_id);
+      if (ds && (await canAccessDesignSystem(ds.id, userId))) {
+        designSystemBlock = `# Active design system: ${ds.name}
+The user selected this design system for this conversation. Every artifact you build MUST follow it — declare its palette as CSS custom properties in :root, use its fonts (via Google Fonts <link>), spacing rhythm, and component styles throughout. When asking clarifying questions, skip questions the system already answers (colors, fonts, vibe). Before finishing an artifact, re-check it against the system (palette, typography, spacing, components) and fix any drift. If the user explicitly asks to deviate from the system, the user wins.
+
+${ds.spec}`;
+      }
+    } catch (e) {
+      console.error("design system load failed (continuing without):", e);
+    }
+  }
   const styleDirective = STYLE_PRESETS[settings.responseStyle]?.directive ?? "";
   const fullSystemPrompt = [
     designDirective,
+    designSystemBlock,
     styleDirective,
     systemPrompt,
     memoryActive ? await buildMemoryContext(userId) : "",
@@ -391,6 +410,10 @@ Only reply in plain text for a genuine question that clearly isn't a design requ
       let reasoningStartedAt: number | null = null;
       let reasoningEndedAt: number | null = null;
       let totalCost = preSearchCost;
+      // Cost attribution: how much of this turn went to web search vs the
+      // model itself (surfaced on the Usage page and the message tooltip).
+      let searchCost = preSearchCost;
+      let pluginResults = 0;
       let totalTokensIn = 0;
       let totalTokensOut = 0;
 
@@ -425,6 +448,20 @@ Only reply in plain text for a genuine question that clearly isn't a design requ
             reasoningStartedAt != null
               ? Math.max(0, (reasoningEndedAt ?? Date.now()) - reasoningStartedAt)
               : null;
+          // The OpenRouter web plugin bills ~$4 per 1000 results, bundled into
+          // the request cost — estimate the search share from returned results.
+          if (body.webSearch && target.isOpenRouter && pluginResults > 0) {
+            searchCost += Math.min(
+              pluginResults * 0.004,
+              Math.max(0, totalCost - searchCost)
+            );
+          }
+          const costBreakdown = totalCost
+            ? JSON.stringify({
+                model: Math.max(0, totalCost - searchCost),
+                ...(searchCost > 0 ? { search: Math.min(searchCost, totalCost) } : {}),
+              })
+            : null;
           const saved = await addMessage(conversation.id, "assistant", content, model, null, {
             reasoning: finalReasoning || null,
             annotations: finalAnnotations.length ? finalAnnotations : null,
@@ -433,6 +470,7 @@ Only reply in plain text for a genuine question that clearly isn't a design requ
             cost: totalCost || null,
             tokens_in: totalTokensIn || null,
             tokens_out: totalTokensOut || null,
+            cost_breakdown: costBreakdown,
           });
           savedId = saved.id;
           try {
@@ -627,6 +665,7 @@ Only reply in plain text for a genuine question that clearly isn't a design requ
                   choice?.delta?.annotations ?? choice?.message?.annotations;
                 if (Array.isArray(newAnnotations) && newAnnotations.length) {
                   finalAnnotations.push(...newAnnotations);
+                  pluginResults += newAnnotations.length;
                   emit({ annotations: newAnnotations });
                 }
                 const tcDeltas = choice?.delta?.tool_calls;
@@ -836,6 +875,8 @@ Only reply in plain text for a genuine question that clearly isn't a design requ
               );
               output = result.output;
               totalCost += result.cost ?? 0;
+              // Builtin tools that bill are the web tools — attribute to search.
+              searchCost += result.cost ?? 0;
               if (result.annotations.length) {
                 finalAnnotations.push(...result.annotations);
                 emit({ annotations: result.annotations });

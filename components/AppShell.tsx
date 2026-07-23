@@ -7,6 +7,7 @@ import Sidebar from "./Sidebar";
 import ChatView from "./ChatView";
 import ProjectPanel from "./ProjectPanel";
 import SettingsDialog from "./SettingsDialog";
+import SharedDialog from "./SharedDialog";
 import TasksDialog from "./TasksDialog";
 import ModelsPanel from "./ModelsPanel";
 import UsagePanel from "./UsagePanel";
@@ -47,7 +48,9 @@ export default function AppShell({ initialView }: { initialView: View }) {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<string | undefined>(undefined);
   const [tasksOpen, setTasksOpen] = useState(false);
+  const [sharedOpen, setSharedOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [booted, setBooted] = useState(false);
@@ -104,6 +107,14 @@ export default function AppShell({ initialView }: { initialView: View }) {
     api<ModelInfo[]>("/api/models").then(setModels).catch(() => {});
     const onPop = () => setViewState(pathToView(window.location.pathname));
     window.addEventListener("popstate", onPop);
+    // Deep-link into a settings tab from anywhere (e.g. the design-system chip's
+    // "+ New design system…" jumps straight to Settings → Design systems).
+    const onOpenSettings = (e: Event) => {
+      const detail = (e as CustomEvent<{ tab?: string }>).detail;
+      setSettingsTab(detail?.tab);
+      setSettingsOpen(true);
+    };
+    window.addEventListener("liberde:open-settings", onOpenSettings);
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js").catch(() => {});
     }
@@ -121,6 +132,7 @@ export default function AppShell({ initialView }: { initialView: View }) {
     return () => {
       window.removeEventListener("popstate", onPop);
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("liberde:open-settings", onOpenSettings);
     };
     // Boot once on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -183,6 +195,7 @@ export default function AppShell({ initialView }: { initialView: View }) {
         onSelect={setView}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenTasks={() => setTasksOpen(true)}
+        onOpenShared={() => setSharedOpen(true)}
         me={me}
         onLogout={async () => {
           await fetch("/api/auth", {
@@ -301,8 +314,24 @@ export default function AppShell({ initialView }: { initialView: View }) {
         <SettingsDialog
           settings={settings}
           models={models}
-          onClose={() => setSettingsOpen(false)}
+          initialTab={settingsTab}
+          onClose={() => {
+            setSettingsOpen(false);
+            setSettingsTab(undefined);
+          }}
           onSaved={(s) => setSettings(s)}
+        />
+      )}
+
+      {sharedOpen && (
+        <SharedDialog
+          onClose={() => setSharedOpen(false)}
+          onOpenCopy={(conversationId) => {
+            // Copies are design conversations — land in the Design workspace.
+            setWorkspace("design");
+            refreshConversations();
+            setView({ kind: "chat", conversationId });
+          }}
         />
       )}
 

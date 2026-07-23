@@ -1019,9 +1019,51 @@ function ShareMenu({
   onClose: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [recipients, setRecipients] = useState<
+    { user_id: string; email: string; name: string }[]
+  >([]);
+  const [sendEmail, setSendEmail] = useState("");
+  const [sendBusy, setSendBusy] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const shareUrl = record.share_id
     ? `${window.location.origin}/a/${record.share_id}`
     : null;
+
+  useEffect(() => {
+    api<{ user_id: string; email: string; name: string }[]>(
+      `/api/artifacts/${record.id}/share`
+    )
+      .then(setRecipients)
+      .catch(() => {});
+  }, [record.id]);
+
+  const sendToUser = async () => {
+    if (!sendEmail.trim()) return;
+    setSendBusy(true);
+    setSendError(null);
+    try {
+      setRecipients(
+        await api<{ user_id: string; email: string; name: string }[]>(
+          `/api/artifacts/${record.id}/share`,
+          { method: "POST", body: JSON.stringify({ email: sendEmail }) }
+        )
+      );
+      setSendEmail("");
+    } catch (e) {
+      setSendError(String((e as Error).message || e));
+    } finally {
+      setSendBusy(false);
+    }
+  };
+
+  const removeRecipient = async (userId: string) => {
+    setRecipients(
+      await api<{ user_id: string; email: string; name: string }[]>(
+        `/api/artifacts/${record.id}/share`,
+        { method: "DELETE", body: JSON.stringify({ userId }) }
+      ).catch(() => recipients)
+    );
+  };
 
   const publish = async (mode: "latest" | "pinned") => {
     setBusy(true);
@@ -1115,6 +1157,53 @@ function ShareMenu({
               Unpublish
               <span className="block text-xs text-ink-muted">The link stops working</span>
             </button>
+          )}
+        </div>
+
+        {/* User-to-user: the recipient gets it in "Shared with you" and opens
+            their own editable copy — no public link involved. */}
+        <div className="mt-3 border-t border-line pt-2.5">
+          <p className="font-medium">Send to a Liberde user</p>
+          <p className="mb-1.5 text-xs text-ink-muted">
+            They&apos;ll get it under “Shared with you” and can edit their own copy.
+          </p>
+          {recipients.length > 0 && (
+            <div className="mb-1.5 flex flex-wrap gap-1.5">
+              {recipients.map((r) => (
+                <span
+                  key={r.user_id}
+                  className="flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-xs"
+                >
+                  {r.name || r.email}
+                  <button
+                    onClick={() => removeRecipient(r.user_id)}
+                    className="text-ink-muted hover:text-ink"
+                    aria-label={`Stop sharing with ${r.email}`}
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <input
+              value={sendEmail}
+              onChange={(e) => setSendEmail(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && sendToUser()}
+              placeholder="teammate@email.com"
+              className="min-w-0 flex-1 rounded border border-line bg-bg px-2 py-1 text-xs outline-none focus:border-accent"
+            />
+            <button
+              disabled={!sendEmail.trim() || sendBusy}
+              onClick={sendToUser}
+              className="rounded bg-accent px-2 py-1 text-xs text-white hover:bg-accent-hover disabled:opacity-50"
+            >
+              {sendBusy ? "Sending…" : "Send"}
+            </button>
+          </div>
+          {sendError && (
+            <p className="mt-1 text-xs text-red-600 dark:text-red-400">{sendError}</p>
           )}
         </div>
       </div>

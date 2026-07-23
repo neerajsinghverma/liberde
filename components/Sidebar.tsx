@@ -19,6 +19,7 @@ interface Props {
   onSelect: (view: View) => void;
   onOpenSettings: () => void;
   onOpenTasks: () => void;
+  onOpenShared?: () => void;
   me?: { name: string; email: string } | null;
   onLogout?: () => void;
   onConversationsChanged: () => void;
@@ -48,6 +49,7 @@ export default function Sidebar({
   onSelect,
   onOpenSettings,
   onOpenTasks,
+  onOpenShared,
   me,
   onLogout,
   onConversationsChanged,
@@ -443,6 +445,14 @@ export default function Sidebar({
         >
           <Icon name="clock" size={15} /> Scheduled tasks
         </button>
+        {onOpenShared && (
+          <button
+            onClick={onOpenShared}
+            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-ink-muted hover:bg-surface hover:text-ink"
+          >
+            <Icon name="users" size={15} /> Shared with you
+          </button>
+        )}
         <button
           onClick={() => onSelect({ kind: "help" })}
           className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-ink-muted hover:bg-surface hover:text-ink"

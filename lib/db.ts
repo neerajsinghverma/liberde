@@ -5,6 +5,7 @@ import type {
   AgentStep,
   Attachment,
   Conversation,
+  DesignSystem,
   Message,
   Project,
   ProjectFile,
@@ -335,6 +336,36 @@ const SCHEMA_STATEMENTS: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)`,
   // The scheduler polls due tasks every minute.
   `CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_due ON scheduled_tasks(enabled, next_run)`,
+  // Design systems: named, reusable brand specs applied to Design-mode builds.
+  `CREATE TABLE IF NOT EXISTS design_systems (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL DEFAULT 'local',
+    name TEXT NOT NULL,
+    spec TEXT NOT NULL,
+    palette TEXT,
+    is_default INTEGER NOT NULL DEFAULT 0,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
+  )`,
+  // User-to-user shares (same shape as project_members).
+  `CREATE TABLE IF NOT EXISTS design_system_shares (
+    design_system_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    added_at BIGINT NOT NULL,
+    PRIMARY KEY (design_system_id, user_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS artifact_shares (
+    artifact_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    added_at BIGINT NOT NULL,
+    PRIMARY KEY (artifact_id, user_id)
+  )`,
+  `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS design_system_id TEXT`,
+  // Cost attribution: JSON {"model":n,"search":n,"image":n} per assistant turn.
+  `ALTER TABLE messages ADD COLUMN IF NOT EXISTS cost_breakdown TEXT`,
+  `CREATE INDEX IF NOT EXISTS idx_design_systems_user ON design_systems(user_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_design_system_shares_user ON design_system_shares(user_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_artifact_shares_user ON artifact_shares(user_id)`,
 ];
 
 async function initSchema(): Promise<void> {
@@ -479,6 +510,8 @@ export interface UsageStats {
   total: { cost: number; tokensIn: number; tokensOut: number; messages: number };
   byModel: { model: string; n: number; cost: number; tin: number; tout: number }[];
   byDay: { day: number; cost: number; n: number }[];
+  /** Spend by category: model | search | image (from per-message breakdowns). */
+  byCategory: Record<string, number>;
 }
 
 /** Aggregate this user's assistant-message spend for the usage dashboard. */
@@ -508,7 +541,36 @@ export async function usageStats(userId: string = DEFAULT_USER): Promise<UsageSt
     }),
     { cost: 0, tokensIn: 0, tokensOut: 0, messages: 0 }
   );
-  return { total, byModel: byModel.map((r) => ({ ...r, model: r.model || "unknown" })), byDay };
+  // Where the money goes: sum per-message cost_breakdown JSON. Messages from
+  // before attribution existed (no breakdown) count as plain model spend.
+  const bdRows = (await q(
+    `SELECT m.cost, m.cost_breakdown FROM messages m
+     JOIN conversations c ON c.id = m.conversation_id
+     WHERE c.user_id = $1 AND m.role = 'assistant' AND m.cost > 0`,
+    [userId]
+  )) as unknown as { cost: number; cost_breakdown: string | null }[];
+  const byCategory: Record<string, number> = {};
+  for (const r of bdRows) {
+    let bd: Record<string, number> | null = null;
+    try {
+      bd = r.cost_breakdown ? JSON.parse(r.cost_breakdown) : null;
+    } catch {
+      bd = null;
+    }
+    if (bd && typeof bd === "object") {
+      for (const [k, v] of Object.entries(bd)) {
+        if (typeof v === "number" && v > 0) byCategory[k] = (byCategory[k] ?? 0) + v;
+      }
+    } else {
+      byCategory.model = (byCategory.model ?? 0) + (r.cost || 0);
+    }
+  }
+  return {
+    total,
+    byModel: byModel.map((r) => ({ ...r, model: r.model || "unknown" })),
+    byDay,
+    byCategory,
+  };
 }
 
 export interface PromptRecord {
@@ -682,7 +744,10 @@ export async function createConversation(
 export async function updateConversation(
   id: string,
   fields: Partial<
-    Pick<Conversation, "title" | "model" | "project_id" | "starred" | "archived">
+    Pick<
+      Conversation,
+      "title" | "model" | "project_id" | "starred" | "archived" | "design_system_id"
+    >
   >
 ) {
   const conv = await getConversation(id);
@@ -690,18 +755,20 @@ export async function updateConversation(
   const merged = {
     starred: 0,
     archived: 0,
+    design_system_id: null as string | null,
     ...conv,
     ...fields,
     updated_at: now(),
   };
   await q(
-    "UPDATE conversations SET title = $1, model = $2, project_id = $3, starred = $4, archived = $5, updated_at = $6 WHERE id = $7",
+    "UPDATE conversations SET title = $1, model = $2, project_id = $3, starred = $4, archived = $5, design_system_id = $6, updated_at = $7 WHERE id = $8",
     [
       merged.title,
       merged.model,
       merged.project_id,
       merged.starred,
       merged.archived,
+      merged.design_system_id,
       merged.updated_at,
       id,
     ]
@@ -756,6 +823,7 @@ export async function addMessage(
     cost?: number | null;
     tokens_in?: number | null;
     tokens_out?: number | null;
+    cost_breakdown?: string | null;
   } = {}
 ): Promise<Message> {
   const msg: Message = {
@@ -774,10 +842,11 @@ export async function addMessage(
     cost: extras.cost ?? null,
     tokens_in: extras.tokens_in ?? null,
     tokens_out: extras.tokens_out ?? null,
+    cost_breakdown: extras.cost_breakdown ?? null,
     created_at: now(),
   };
   await q(
-    "INSERT INTO messages (id, conversation_id, role, content, model, attachments, reasoning, annotations, images, tool_calls, tool_call_id, reasoning_ms, cost, tokens_in, tokens_out, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)",
+    "INSERT INTO messages (id, conversation_id, role, content, model, attachments, reasoning, annotations, images, tool_calls, tool_call_id, reasoning_ms, cost, tokens_in, tokens_out, cost_breakdown, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)",
     [
       msg.id,
       msg.conversation_id,
@@ -794,6 +863,7 @@ export async function addMessage(
       msg.cost,
       msg.tokens_in,
       msg.tokens_out,
+      msg.cost_breakdown,
       msg.created_at,
     ]
   );
@@ -1198,6 +1268,196 @@ export async function removeProjectMember(projectId: string, userId: string) {
     projectId,
     userId,
   ]);
+}
+
+// ---------------------------------------------------------------------------
+// Design systems — named brand specs applied to Design-mode builds. A user can
+// have many; at most one is the default. Shares follow the project_members
+// pattern: recipients get read-only access (they can apply or copy, not edit).
+
+export async function createDesignSystem(
+  userId: string,
+  data: { name: string; spec: string; palette?: string | null; isDefault?: boolean }
+): Promise<DesignSystem> {
+  const ds: DesignSystem = {
+    id: newId(),
+    user_id: userId,
+    name: data.name,
+    spec: data.spec,
+    palette: data.palette ?? null,
+    is_default: data.isDefault ? 1 : 0,
+    created_at: now(),
+    updated_at: now(),
+  };
+  if (data.isDefault) {
+    await q("UPDATE design_systems SET is_default = 0 WHERE user_id = $1", [userId]);
+  }
+  await q(
+    `INSERT INTO design_systems (id, user_id, name, spec, palette, is_default, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [ds.id, ds.user_id, ds.name, ds.spec, ds.palette, ds.is_default, ds.created_at, ds.updated_at]
+  );
+  return ds;
+}
+
+/** Own systems plus ones shared with the user (marked shared + owner name). */
+export async function listDesignSystems(userId: string): Promise<DesignSystem[]> {
+  const own = (await q(
+    "SELECT * FROM design_systems WHERE user_id = $1 ORDER BY is_default DESC, updated_at DESC",
+    [userId]
+  )) as unknown as DesignSystem[];
+  const shared = (await q(
+    `SELECT d.*, u.name AS owner_name FROM design_system_shares s
+     JOIN design_systems d ON d.id = s.design_system_id
+     JOIN users u ON u.id = d.user_id
+     WHERE s.user_id = $1 ORDER BY d.updated_at DESC`,
+    [userId]
+  )) as unknown as DesignSystem[];
+  return [...own, ...shared.map((s) => ({ ...s, shared: true, is_default: 0 }))];
+}
+
+export async function getDesignSystem(id: string): Promise<DesignSystem | undefined> {
+  const rows = await q("SELECT * FROM design_systems WHERE id = $1", [id]);
+  return rows[0] as unknown as DesignSystem | undefined;
+}
+
+/** Owner or share recipient can read/apply the system. */
+export async function canAccessDesignSystem(id: string, userId: string): Promise<boolean> {
+  const ds = await getDesignSystem(id);
+  if (!ds) return false;
+  if (ds.user_id === userId) return true;
+  const rows = await q(
+    "SELECT 1 FROM design_system_shares WHERE design_system_id = $1 AND user_id = $2",
+    [id, userId]
+  );
+  return rows.length > 0;
+}
+
+export async function updateDesignSystem(
+  id: string,
+  fields: Partial<Pick<DesignSystem, "name" | "spec" | "palette">>
+) {
+  const ds = await getDesignSystem(id);
+  if (!ds) return;
+  const merged = { ...ds, ...fields, updated_at: now() };
+  await q(
+    "UPDATE design_systems SET name = $1, spec = $2, palette = $3, updated_at = $4 WHERE id = $5",
+    [merged.name, merged.spec, merged.palette, merged.updated_at, id]
+  );
+}
+
+/** Make `id` the user's default (or clear the default entirely with null). */
+export async function setDefaultDesignSystem(userId: string, id: string | null) {
+  await q("UPDATE design_systems SET is_default = 0 WHERE user_id = $1", [userId]);
+  if (id) {
+    await q(
+      "UPDATE design_systems SET is_default = 1 WHERE id = $1 AND user_id = $2",
+      [id, userId]
+    );
+  }
+}
+
+export async function deleteDesignSystem(id: string) {
+  await q("DELETE FROM design_system_shares WHERE design_system_id = $1", [id]);
+  await q("DELETE FROM design_systems WHERE id = $1", [id]);
+}
+
+export async function shareDesignSystem(id: string, recipientId: string) {
+  await q(
+    "INSERT INTO design_system_shares (design_system_id, user_id, added_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+    [id, recipientId, now()]
+  );
+}
+
+export async function unshareDesignSystem(id: string, recipientId: string) {
+  await q(
+    "DELETE FROM design_system_shares WHERE design_system_id = $1 AND user_id = $2",
+    [id, recipientId]
+  );
+}
+
+export async function listDesignSystemShares(
+  id: string
+): Promise<{ user_id: string; email: string; name: string }[]> {
+  return (await q(
+    `SELECT s.user_id, u.email, u.name FROM design_system_shares s
+     JOIN users u ON u.id = s.user_id WHERE s.design_system_id = $1 ORDER BY s.added_at ASC`,
+    [id]
+  )) as unknown as { user_id: string; email: string; name: string }[];
+}
+
+// ---------------------------------------------------------------------------
+// Artifact shares — user-to-user. Recipients see the artifact in "Shared with
+// you" and can open it as an editable copy in their own Design workspace.
+
+export async function shareArtifactWithUser(artifactId: string, recipientId: string) {
+  await q(
+    "INSERT INTO artifact_shares (artifact_id, user_id, added_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+    [artifactId, recipientId, now()]
+  );
+}
+
+export async function unshareArtifactWithUser(artifactId: string, recipientId: string) {
+  await q("DELETE FROM artifact_shares WHERE artifact_id = $1 AND user_id = $2", [
+    artifactId,
+    recipientId,
+  ]);
+}
+
+export async function listArtifactShares(
+  artifactId: string
+): Promise<{ user_id: string; email: string; name: string }[]> {
+  return (await q(
+    `SELECT s.user_id, u.email, u.name FROM artifact_shares s
+     JOIN users u ON u.id = s.user_id WHERE s.artifact_id = $1 ORDER BY s.added_at ASC`,
+    [artifactId]
+  )) as unknown as { user_id: string; email: string; name: string }[];
+}
+
+/** True when the artifact was shared to this user (not ownership). */
+export async function isArtifactSharedWith(
+  artifactId: string,
+  userId: string
+): Promise<boolean> {
+  const rows = await q(
+    "SELECT 1 FROM artifact_shares WHERE artifact_id = $1 AND user_id = $2",
+    [artifactId, userId]
+  );
+  return rows.length > 0;
+}
+
+/** Artifacts shared with the user, newest first, with the owner's name. */
+export async function listArtifactsSharedWith(userId: string): Promise<
+  {
+    artifact_id: string;
+    identifier: string;
+    type: string;
+    title: string;
+    language: string | null;
+    owner_name: string;
+    shared_at: number;
+    updated_at: number;
+  }[]
+> {
+  return (await q(
+    `SELECT a.id AS artifact_id, a.identifier, a.type, a.title, a.language,
+            u.name AS owner_name, s.added_at AS shared_at, a.updated_at
+     FROM artifact_shares s
+     JOIN artifacts a ON a.id = s.artifact_id
+     JOIN conversations c ON c.id = a.conversation_id
+     JOIN users u ON u.id = c.user_id
+     WHERE s.user_id = $1 ORDER BY s.added_at DESC`,
+    [userId]
+  )) as unknown as {
+    artifact_id: string;
+    identifier: string;
+    type: string;
+    title: string;
+    language: string | null;
+    owner_name: string;
+    shared_at: number;
+    updated_at: number;
+  }[];
 }
 
 export async function getProject(id: string): Promise<Project | undefined> {

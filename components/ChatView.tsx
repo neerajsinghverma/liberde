@@ -5,6 +5,7 @@ import type {
   AppSettings,
   Attachment,
   Conversation,
+  DesignSystem,
   Message,
   ModelInfo,
   Project,
@@ -22,6 +23,8 @@ import Markdown, { type CodePreview } from "./Markdown";
 import Icon from "./Icon";
 import ModelPicker from "./ModelPicker";
 import ModelAdvisor from "./ModelAdvisor";
+import ComparePanel from "./ComparePanel";
+import DesignSystemChip from "./DesignSystemChip";
 import ArtifactPanel, {
   typeIcon,
   type ArtifactWithVersions,
@@ -90,6 +93,14 @@ export default function ChatView({
   const [memoryToast, setMemoryToast] = useState(false);
   const [modelNote, setModelNote] = useState<string | null>(null);
   const [showAdvisor, setShowAdvisor] = useState(false);
+  const [compareFor, setCompareFor] = useState<{
+    messageId: string;
+    question: string;
+  } | null>(null);
+  const [designSystems, setDesignSystems] = useState<DesignSystem[]>([]);
+  const [designSystemId, setDesignSystemId] = useState<string | null>(null);
+  const designSystemsRef = useRef<DesignSystem[]>([]);
+  const dsDefaultApplied = useRef(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -181,6 +192,7 @@ export default function ChatView({
       setConversation(data);
       setMessages(data.messages);
       setModel(data.model);
+      setDesignSystemId(data.design_system_id ?? null);
       loadArtifacts(id);
       // If a response is being generated but we're not the streaming client,
       // surface a working indicator and poll for the result.
@@ -208,6 +220,24 @@ export default function ChatView({
     isStreamingRef.current = isStreaming;
     if (isStreaming) stopBgPoll();
   }, [isStreaming, stopBgPoll]);
+
+  // Design systems: load the picker list in design mode; a brand-new design
+  // starts on the user's default system (existing conversations keep their
+  // stored choice, loaded in loadConversation).
+  useEffect(() => {
+    if (mode !== "design") return;
+    api<DesignSystem[]>("/api/design-systems")
+      .then((list) => {
+        setDesignSystems(list);
+        designSystemsRef.current = list;
+        if (!convIdRef.current && !dsDefaultApplied.current) {
+          dsDefaultApplied.current = true;
+          const def = list.find((s) => s.is_default);
+          if (def) setDesignSystemId((cur) => cur ?? def.id);
+        }
+      })
+      .catch(() => {});
+  }, [mode]);
 
   // Clean up the poll on unmount.
   useEffect(() => () => stopBgPoll(), [stopBgPoll]);
@@ -247,6 +277,9 @@ export default function ChatView({
       setConversation(null);
       setMessages([]);
       setModel("");
+      // A fresh design starts back on the user's default design system.
+      const def = designSystemsRef.current.find((s) => s.is_default);
+      setDesignSystemId(def ? def.id : null);
     }
   }, [conversationId, loadConversation, stopBgPoll]);
 
@@ -480,7 +513,12 @@ export default function ChatView({
       if (!id) {
         const conv = await api<Conversation>("/api/conversations", {
           method: "POST",
-          body: JSON.stringify({ model, temp: tempMode, mode }),
+          body: JSON.stringify({
+            model,
+            temp: tempMode,
+            mode,
+            ...(mode === "design" && designSystemId ? { designSystemId } : {}),
+          }),
         });
         id = conv.id;
         setConvId(id);
@@ -604,6 +642,7 @@ export default function ChatView({
       agentMode,
       designImages,
       designImageModel,
+      designSystemId,
       mode,
       onConversationCreated,
       onConversationsChanged,
@@ -723,6 +762,16 @@ export default function ChatView({
     }
   };
 
+  const changeDesignSystem = (id: string | null) => {
+    setDesignSystemId(id);
+    if (convId) {
+      api(`/api/conversations/${convId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ designSystemId: id }),
+      }).catch(() => {});
+    }
+  };
+
   const projectName = conversation?.project_id
     ? projects.find((p) => p.id === conversation.project_id)?.name
     : null;
@@ -788,6 +837,14 @@ export default function ChatView({
             models={models.filter((m) => m.outputsImages)}
             value={designImageModel || settings?.imageModel || ""}
             onChange={setDesignImageModel}
+          />
+        )}
+        {mode === "design" && (
+          <DesignSystemChip
+            systems={designSystems}
+            value={designSystemId}
+            onChange={changeDesignSystem}
+            compact
           />
         )}
         {projectName && (
@@ -904,6 +961,21 @@ export default function ChatView({
         />
       )}
 
+      {compareFor && convId && (
+        <ComparePanel
+          models={models}
+          conversationId={convId}
+          truncateFromMessageId={compareFor.messageId}
+          currentModel={model}
+          question={compareFor.question}
+          onClose={() => setCompareFor(null)}
+          onCommitted={(picked) => {
+            setModel(picked);
+            loadConversation(convId);
+          }}
+        />
+      )}
+
       {shareUrl && (
         <div className="flex items-center gap-2 border-b border-line bg-surface-2 px-4 py-2 text-sm">
           <span className="text-ink-muted">Public snapshot link (copied):</span>
@@ -947,6 +1019,13 @@ export default function ChatView({
               questions, then build an interactive design on the canvas — tweak it in
               plain language after.
             </p>
+            <div className="mt-5">
+              <DesignSystemChip
+                systems={designSystems}
+                value={designSystemId}
+                onChange={changeDesignSystem}
+              />
+            </div>
             {settings?.hasApiKey && (
               <div className="mt-8 grid w-full max-w-3xl grid-cols-1 gap-2 sm:grid-cols-3">
                 {DESIGN_TEMPLATES.map((t) => (
@@ -1134,7 +1213,7 @@ export default function ChatView({
                     <Citations annotations={msg.annotations} />
                   )}
                   <div
-                    className={`mt-1.5 items-center gap-3 text-xs text-ink-muted ${
+                    className={`mt-1.5 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-muted ${
                       !isStreaming && messages[messages.length - 1]?.id === msg.id
                         ? "flex"
                         : "hidden group-hover:flex"
@@ -1142,15 +1221,7 @@ export default function ChatView({
                   >
                     {msg.model && <span>{msg.model}</span>}
                     {msg.cost != null && msg.cost > 0 && (
-                      <span
-                        title={
-                          msg.tokens_in
-                            ? `${msg.tokens_in} tokens in · ${msg.tokens_out ?? 0} tokens out`
-                            : undefined
-                        }
-                      >
-                        {fmtCost(msg.cost)}
-                      </span>
+                      <span title={costTooltip(msg)}>{fmtCost(msg.cost)}</span>
                     )}
                     <button
                       onClick={() => navigator.clipboard.writeText(msg.content)}
@@ -1159,14 +1230,29 @@ export default function ChatView({
                     >
                       <Icon name="copy" size={13} /> Copy
                     </button>
-                    <ReadAloudButton text={msg.content} />
                     {!isStreaming &&
                       messages[messages.length - 1]?.id === msg.id && (
-                        <RegenerateControl
-                          models={models}
-                          currentModel={model}
-                          onRegenerate={regenerate}
-                        />
+                        <>
+                          <RegenerateControl
+                            models={models}
+                            currentModel={model}
+                            onRegenerate={regenerate}
+                          />
+                          <button
+                            onClick={() => {
+                              const idx = messages.findIndex((m) => m.id === msg.id);
+                              const question =
+                                [...messages.slice(0, idx)]
+                                  .reverse()
+                                  .find((m) => m.role === "user")?.content ?? "";
+                              setCompareFor({ messageId: msg.id, question });
+                            }}
+                            title="Compare other models' answers to this question"
+                            className="inline-flex items-center gap-1 hover:text-ink"
+                          >
+                            <Icon name="sparkles" size={13} /> Second opinion
+                          </button>
+                        </>
                       )}
                   </div>
                 </div>
@@ -1493,6 +1579,31 @@ function fmtCost(cost: number): string {
   if (cost < 0.01) return `$${cost.toFixed(4)}`;
   if (cost < 1) return `$${cost.toFixed(3)}`;
   return `$${cost.toFixed(2)}`;
+}
+
+/** Hover text for a message's cost: tokens + where the money went. */
+function costTooltip(msg: Message): string | undefined {
+  const parts: string[] = [];
+  if (msg.tokens_in) {
+    parts.push(`${msg.tokens_in} tokens in · ${msg.tokens_out ?? 0} tokens out`);
+  }
+  try {
+    const bd = msg.cost_breakdown ? JSON.parse(msg.cost_breakdown) : null;
+    if (bd && typeof bd === "object") {
+      const labels: Record<string, string> = {
+        model: "model",
+        search: "web search",
+        image: "image",
+      };
+      const bits = Object.entries(bd)
+        .filter(([, v]) => typeof v === "number" && (v as number) > 0)
+        .map(([k, v]) => `${labels[k] ?? k} ${fmtCost(v as number)}`);
+      if (bits.length > 1) parts.push(bits.join(" · "));
+    }
+  } catch {
+    /* ignore malformed breakdown */
+  }
+  return parts.length ? parts.join("\n") : undefined;
 }
 
 function exportChat(title: string, messages: Message[]) {
@@ -2147,36 +2258,6 @@ function Citations({ annotations }: { annotations: NonNullable<Message["annotati
         );
       })}
     </div>
-  );
-}
-
-function ReadAloudButton({ text }: { text: string }) {
-  const [speaking, setSpeaking] = useState(false);
-  const toggle = () => {
-    if (typeof speechSynthesis === "undefined") return;
-    if (speaking) {
-      speechSynthesis.cancel();
-      setSpeaking(false);
-      return;
-    }
-    // Strip markdown/code noise for listenable output.
-    const plain = text
-      .replace(/<liberdeArtifact[\s\S]*?(<\/liberdeArtifact>|$)/g, " (artifact) ")
-      .replace(/```[\s\S]*?```/g, " (code block) ")
-      .replace(/[*_#`>|-]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-    const utterance = new SpeechSynthesisUtterance(plain.slice(0, 4000));
-    utterance.onend = () => setSpeaking(false);
-    utterance.onerror = () => setSpeaking(false);
-    speechSynthesis.speak(utterance);
-    setSpeaking(true);
-  };
-  return (
-    <button onClick={toggle} className="inline-flex items-center gap-1 hover:text-ink">
-      <Icon name={speaking ? "stop" : "volume"} size={13} />
-      {speaking ? "Stop" : "Read aloud"}
-    </button>
   );
 }
 

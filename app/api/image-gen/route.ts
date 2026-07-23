@@ -67,7 +67,13 @@ export async function POST(req: NextRequest) {
     `Generated image for: "${prompt}"`,
     model,
     null,
-    { images, cost: Number(data.usage?.cost) || null }
+    {
+      images,
+      cost: Number(data.usage?.cost) || null,
+      cost_breakdown: Number(data.usage?.cost)
+        ? JSON.stringify({ image: Number(data.usage.cost) })
+        : null,
+    }
   );
   return Response.json({ message: saved }, { status: 201 });
 }

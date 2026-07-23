@@ -85,6 +85,9 @@ export async function POST(req: NextRequest) {
       };
 
       let totalCost = 0;
+      // The web-search rounds (search plugin + reader model) vs the synthesis
+      // model — attributed separately on the Usage page.
+      let searchCost = 0;
       try {
         // 1. Plan
         emit({ status: "Planning research…" });
@@ -133,6 +136,7 @@ export async function POST(req: NextRequest) {
                 if (!res.ok) throw new Error(`search failed (${res.status})`);
                 const data = await res.json();
                 totalCost += Number(data.usage?.cost) || 0;
+                searchCost += Number(data.usage?.cost) || 0;
                 const message = data.choices?.[0]?.message;
                 return {
                   query: q,
@@ -255,6 +259,12 @@ export async function POST(req: NextRequest) {
           {
             annotations: allAnnotations.length ? allAnnotations : null,
             cost: totalCost || null,
+            cost_breakdown: totalCost
+              ? JSON.stringify({
+                  model: Math.max(0, totalCost - searchCost),
+                  ...(searchCost > 0 ? { search: searchCost } : {}),
+                })
+              : null,
           }
         );
         if (conversation.title === "New chat") {

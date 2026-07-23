@@ -64,10 +64,13 @@ For development: `npm run dev`.
 - **Streaming chat** with stop, regenerate, and edit-and-resend
 - **Any OpenRouter model**, searchable picker with pricing and context size;
   switch models mid-conversation
-- **Bring your own clouds** (Settings → Providers) — add **Azure AI Foundry**
-  deployments, **AWS Bedrock** models (via Bedrock API keys), **Google
-  Gemini/Vertex**, or any **custom OpenAI-compatible endpoint** (Groq, Ollama,
-  vLLM…). Their models appear in the picker as “Provider · model”, route
+- **Second opinion** — run the same question through 2–4 models side by side
+  (streaming columns, per-model cost/tokens), then swap the reply you prefer
+  into the thread; the original is kept as a switchable branch
+- **Bring your own clouds** (Settings → Providers) — add **OpenAI (direct)**,
+  **Anthropic (direct)**, **Azure AI Foundry** deployments, **AWS Bedrock**
+  models (via Bedrock API keys), **Google Gemini/Vertex**, or any **custom
+  OpenAI-compatible endpoint** (Groq, Ollama, vLLM…). Their models appear in the picker as “Provider · model”, route
   directly to that cloud with your credentials, work with the tool loop, and
   are per-user — with **full feature parity**: the 🌐 Search toggle injects
   Liberde-run web results, PDFs are text-extracted server-side (pdf-parse),
@@ -87,12 +90,13 @@ For development: `npm run dev`.
 - **Deep Research** (🔬 toggle) — plans search queries, runs parallel web
   searches, and streams a synthesized, citation-numbered report with a live
   progress trail
-- **Agent mode** (🤖 toggle) — plan-then-execute: breaks your goal into steps,
+- **Plan mode** (✦ toggle) — plan-then-execute: breaks your goal into steps,
   executes each with the full tool belt (web search, page reading, MCP
   connectors, skills), shows the live plan checklist, then streams a final
-  deliverable (often an artifact) with the executed plan recorded on it
+  deliverable (often an artifact) with the executed plan recorded on it —
+  resumable across serverless invocations if it runs long
 - **Voice conversations** (🎧 in the header) — hands-free loop: speak, hear the
-  reply read aloud, speak again (plus 🎤 dictation and 🔊 read-aloud per reply)
+  reply, speak again (plus 🎤 dictation)
 - **Editable artifacts** — ✏ edit any artifact yourself (saves as a new
   version), or select text and hit 💬 to ask for a targeted change
 - **Office exports** — slides → **.pptx** (PowerPoint-editable, best-effort
@@ -135,21 +139,42 @@ For development: `npm run dev`.
   id handle, so "actually I switched teams" updates the fact instead of
   duplicating it); non-tool models fall back to the `<liberdeMemory>` tag;
   view/delete everything in Settings → Personalization; never active in
-  temporary chats. Agent-mode runs share the same memory tools.
+  temporary chats. Plan-mode runs share the same memory tools.
+- **Recall** (Settings → Personal toggle) — the model can search your own past
+  conversations as a tool, so "what did we decide last week?" actually works
 - **Planner/executor model split** — optional Settings fields route agent &
   research *planning* and agent *step execution* to cheaper models while the
   final deliverable keeps your main model — big cost savings on long runs
 - **Personalization** — "about you" and "response style" custom instructions
-- **Voice** — 🎤 dictation (Web Speech API) and 🔊 read-aloud on any reply
+- **Web push notifications** — enable per device in Settings → Personal
+  (VAPID); get notified when a Plan finishes or a scheduled task completes
 - **Share chats** — publish an immutable public snapshot at `/share/<id>`
 - **Temporary chats** — hidden from history, no memory, auto-purged after 24h
 - **Full-text search** across chat titles *and* message content
 - **Cost tracking** — every reply records its real OpenRouter cost and tokens
   (including tool rounds, web searches, research pipelines, and image gen);
-  hover a reply for its cost, and the chat header shows the conversation total
+  hover a reply for its cost, and the chat header shows the conversation total.
+  Costs are **attributed by category** (model vs web search vs image) — the
+  Usage page's "Where it goes" section shows the split, and each reply's
+  tooltip shows its own breakdown
 - **Auto-titled conversations** (configurable cheap "title model")
 - **Projects** — group chats under shared custom instructions + knowledge files
 - **Artifacts** — first-class, versioned, publishable (see below)
+- **Design studio** — a separate workspace (Chat/Design switcher) for
+  interactive prototypes, slide decks, landing pages, and apps: it asks one
+  round of clarifying questions (clickable options), builds on a live canvas,
+  and supports element-select commenting, per-slide edits, live color/spacing
+  sliders, and AI-generated imagery
+- **Design systems** — save named brand specs (palette, typography, spacing,
+  components, voice) and pick one from the 🎨 chip so every design stays on
+  brand; create by describing the brand **or by attaching screenshots/brand
+  assets** (a vision model extracts real colors/fonts — model selectable),
+  "Remix with AI" to revise, one default, many systems per user
+- **User-to-user sharing** — share design systems *and* artifacts to another
+  Liberde user by email: systems appear in their picker (read-only), artifacts
+  land in their "Shared with you" sidebar view where **"Open & edit a copy"**
+  clones the artifact into their own Design conversation (the original is
+  untouched)
 - **Attachments** — paste images anywhere on the page (screenshots included),
   drag & drop files onto the window, or upload: images (auto-downscaled to
   ~1568px like Claude, thumbnail previews, vision-model warning), **PDFs**
@@ -244,5 +269,9 @@ Set `LIBERDE_URL` to point the shell at a remote Liberde server.
 
 - The OpenRouter key is stored server-side (Postgres or env) and never sent to clients
 - Platform keys are shown once at creation; only hashes are stored
-- The web UI itself has no login — bind it to localhost or put it behind a
-  reverse proxy with auth if you expose it beyond your machine
+- Multi-user auth: DB-backed sessions (httpOnly, Secure cookies), bcrypt-hashed
+  passwords, per-user row isolation on every table; once the first account
+  exists, sign-in is required and signups can be closed from Admin
+- Public share links (`/share/<id>`, `/a/<id>`) are intentionally public;
+  user-to-user shares (projects, design systems, artifacts) resolve strictly by
+  account and are read-only for recipients

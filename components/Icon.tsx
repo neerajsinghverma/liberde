@@ -75,6 +75,9 @@ const PATHS: Record<string, React.ReactNode> = {
     </>
   ),
   pencil: <path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3ZM13.5 6.5l3 3" />,
+  palette: (
+    <path d="M12 21a9 9 0 1 1 9-9c0 2.5-2 3-3.5 3H16a2 2 0 0 0-1.5 3.3c.4.5.2 1.7-1 1.7H12ZM7.5 11.5h.01M10.5 7.5h.01M15 8h.01" />
+  ),
   trash: <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7v13a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7M10 11v6M14 11v6" />,
   x: <path d="M6 6l12 12M18 6 6 18" />,
   share: (

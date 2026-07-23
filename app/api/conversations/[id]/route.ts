@@ -47,6 +47,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     ...("projectId" in body ? { project_id: body.projectId } : {}),
     ...(typeof body.starred === "boolean" ? { starred: body.starred ? 1 : 0 } : {}),
     ...(typeof body.archived === "boolean" ? { archived: body.archived ? 1 : 0 } : {}),
+    ...("designSystemId" in body ? { design_system_id: body.designSystemId ?? null } : {}),
   });
   return Response.json(await getConversation(id));
 }

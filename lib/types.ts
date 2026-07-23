@@ -72,7 +72,25 @@ export interface Message {
   cost?: number | null;
   tokens_in?: number | null;
   tokens_out?: number | null;
+  /** JSON {"model":n,"search":n,"image":n} — where this turn's cost went. */
+  cost_breakdown?: string | null;
   created_at: number;
+}
+
+export interface DesignSystem {
+  id: string;
+  user_id: string;
+  name: string;
+  /** Markdown spec the model consumes: palette, typography, spacing, components, voice. */
+  spec: string;
+  /** JSON array of hex colors for UI preview swatches. */
+  palette: string | null;
+  is_default: number;
+  created_at: number;
+  updated_at: number;
+  /** Present on systems shared with the requesting user (read-only for them). */
+  owner_name?: string;
+  shared?: boolean;
 }
 
 export interface Conversation {
@@ -86,6 +104,8 @@ export interface Conversation {
   user_id?: string;
   /** "chat" (default) or "design" — the Design workspace scopes to its own convos. */
   mode?: string;
+  /** Design mode: the design system applied to artifacts built in this conversation. */
+  design_system_id?: string | null;
   /** Set while a response is generating (lock timestamp); cleared when done. */
   locked_at?: number | null;
   /** Computed by the conversation GET: a response is currently being generated. */

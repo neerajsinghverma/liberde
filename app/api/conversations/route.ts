@@ -1,9 +1,11 @@
 import { NextRequest } from "next/server";
 import {
   createConversation,
+  getConversation,
   listArchivedConversations,
   listConversations,
   searchConversations,
+  updateConversation,
 } from "@/lib/db";
 import { getSettings } from "@/lib/openrouter";
 import { getRequestUserId, unauthorized } from "@/lib/auth";
@@ -36,5 +38,11 @@ export async function POST(req: NextRequest) {
     userId,
     body.mode === "design" ? "design" : "chat"
   );
+  // Design mode: pin the chosen design system to the conversation (access is
+  // validated at generation time, so a stale id degrades gracefully).
+  if (body.designSystemId && typeof body.designSystemId === "string") {
+    await updateConversation(conv.id, { design_system_id: body.designSystemId });
+    return Response.json(await getConversation(conv.id), { status: 201 });
+  }
   return Response.json(conv, { status: 201 });
 }

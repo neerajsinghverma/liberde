@@ -26,7 +26,15 @@ type Task = (typeof TASKS)[number]["key"];
 type Priority = (typeof PRIORITIES)[number]["key"];
 
 const MAJOR = /^(anthropic|openai|google|x-ai|deepseek|meta-llama|mistralai|qwen)\//;
-const priceOf = (m: ModelInfo) => parseFloat(m.pricing?.completion || "0") || 0;
+// Completion price per token, or NaN for "variable/unknown" pricing — e.g. the
+// Auto Router reports a negative sentinel, which must never count as cheapest.
+const priceOf = (m: ModelInfo) => {
+  const p = parseFloat(m.pricing?.completion ?? "");
+  return Number.isFinite(p) && p >= 0 ? p : NaN;
+};
+const knownPrice = (m: ModelInfo) => Number.isFinite(priceOf(m));
+// Sort key for "cheapest": models with unknown/variable pricing sort last.
+const cheapKey = (m: ModelInfo) => (knownPrice(m) ? priceOf(m) : Number.POSITIVE_INFINITY);
 const idName = (m: ModelInfo) => `${m.id} ${m.name}`.toLowerCase();
 const isFast = (m: ModelInfo) =>
   /(flash|mini|haiku|lite|nano|turbo|small|8b|instant)/.test(idName(m));
@@ -46,11 +54,11 @@ function recommend(
     const imgs = models.filter((m) => m.outputsImages);
     return [...imgs]
       .sort((a, b) => {
-        if (priority === "cheap") return priceOf(a) - priceOf(b);
+        if (priority === "cheap") return cheapKey(a) - cheapKey(b);
         if (priority === "fast") return (isFast(b) ? 1 : 0) - (isFast(a) ? 1 : 0);
         // quality/balanced: prefer pro/flagship image models, then by price desc
         const q = (m: ModelInfo) => (/pro|gpt-5/.test(idName(m)) ? 1 : 0);
-        return q(b) - q(a) || priceOf(b) - priceOf(a);
+        return q(b) - q(a) || (priceOf(b) || 0) - (priceOf(a) || 0);
       })
       .slice(0, 3);
   }
@@ -61,9 +69,11 @@ function recommend(
 
   const score = (m: ModelInfo) => {
     let s = MAJOR.test(m.id) ? 10 : 0;
-    const p = priceOf(m);
+    // Unknown/variable pricing (e.g. Auto Router): neutral for quality, and no
+    // "cheap" bonus — so a variable-price router never wins "lowest cost".
+    const p = knownPrice(m) ? priceOf(m) : 0;
     if (priority === "quality") s += (isFlagship(m) ? 100 : 0) + Math.min(60, p * 2);
-    if (priority === "cheap") s += 120 - Math.min(120, p * 30);
+    if (priority === "cheap") s += knownPrice(m) ? 120 - Math.min(120, p * 30) : 0;
     if (priority === "fast") s += isFast(m) ? 100 : 0;
     if (priority === "balanced") {
       s += isFast(m) ? 30 : 0;
@@ -185,6 +195,7 @@ export default function ModelAdvisor({
 
   const money = (m: ModelInfo) => {
     const n = priceOf(m);
+    if (!Number.isFinite(n)) return "variable pricing";
     return n ? `$${(n * 1_000_000).toFixed(2)}/M out` : "free";
   };
 

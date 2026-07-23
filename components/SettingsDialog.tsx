@@ -3,7 +3,7 @@
 import { confirmDialog } from "@/lib/ui";
 import { useEffect, useState } from "react";
 import type { AppSettings, ModelInfo } from "@/lib/types";
-import { api } from "@/lib/client";
+import { api, fileToUploadAttachment } from "@/lib/client";
 import Icon from "./Icon";
 
 interface PlatformKey {
@@ -22,6 +22,7 @@ type SettingsTabId =
   | "connectors"
   | "skills"
   | "prompts"
+  | "design-systems"
   | "keys"
   | "admin";
 
@@ -42,6 +43,7 @@ const SETTINGS_TABS: {
   { id: "connectors", label: "Connectors", icon: "globe", group: "Customize", keywords: "mcp server tools deepwiki context7 remote http stdio" },
   { id: "skills", label: "Skills", icon: "book", group: "Customize", keywords: "skill instructions reusable" },
   { id: "prompts", label: "Prompts", icon: "message", group: "Customize", keywords: "prompt template saved snippet" },
+  { id: "design-systems", label: "Design systems", icon: "palette", group: "Customize", keywords: "brand colors palette typography fonts design system style guide share" },
 ];
 
 export default function SettingsDialog({
@@ -49,13 +51,19 @@ export default function SettingsDialog({
   models,
   onClose,
   onSaved,
+  initialTab,
 }: {
   settings: AppSettings;
   models: ModelInfo[];
   onClose: () => void;
   onSaved: (s: AppSettings) => void;
+  initialTab?: string;
 }) {
-  const [tab, setTab] = useState<SettingsTabId>("general");
+  const [tab, setTab] = useState<SettingsTabId>(
+    SETTINGS_TABS.some((t) => t.id === initialTab)
+      ? (initialTab as SettingsTabId)
+      : "general"
+  );
   const [tabSearch, setTabSearch] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [defaultModel, setDefaultModel] = useState(settings.defaultModel);
@@ -301,7 +309,7 @@ export default function SettingsDialog({
 
               <Field
                 label="Planner model (optional)"
-                hint="Cheap model that plans 🤖 Agent and 🔬 Research runs. Blank = use the chat's model."
+                hint="Cheap model that plans 🤖 Agent and 🔬 Research runs, and powers the “Draft with AI” helpers (Skills, Design systems). Blank = title model for drafting, the chat's model elsewhere."
               >
                 <ModelSelect models={models} value={plannerModel} onChange={setPlannerModel} />
               </Field>
@@ -551,9 +559,11 @@ export default function SettingsDialog({
           ) : tab === "connectors" ? (
             <ConnectorsTab />
           ) : tab === "skills" ? (
-            <SkillsTab />
+            <SkillsTab models={models} />
           ) : tab === "prompts" ? (
             <PromptsTab />
+          ) : tab === "design-systems" ? (
+            <DesignSystemsTab models={models} />
           ) : (
             <div className="space-y-4">
               <p className="text-sm text-ink-muted">
@@ -1587,7 +1597,459 @@ interface SkillConnLite {
   tools: { name: string; description: string }[];
 }
 
-function SkillsTab() {
+interface DesignSystemRow {
+  id: string;
+  user_id: string;
+  name: string;
+  spec: string;
+  palette: string | null;
+  is_default: number;
+  shared?: boolean;
+  owner_name?: string;
+  sharedWith: { user_id: string; email: string; name: string }[];
+}
+
+function dsSwatches(palette: string | null): string[] {
+  try {
+    const arr = palette ? JSON.parse(palette) : [];
+    return Array.isArray(arr) ? arr.slice(0, 6) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Design systems: create (describe → AI drafts the spec), edit/remix, set a
+ * default, share with other Liberde users by email. Applied from the Design
+ * workspace's picker chip.
+ */
+function DesignSystemsTab({ models }: { models: ModelInfo[] }) {
+  const [systems, setSystems] = useState<DesignSystemRow[]>([]);
+  const [editing, setEditing] = useState<DesignSystemRow | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState("");
+  const [spec, setSpec] = useState("");
+  const [palette, setPalette] = useState<string | null>(null);
+  const [describe, setDescribe] = useState("");
+  const [draftImages, setDraftImages] = useState<{ name: string; dataUrl: string }[]>([]);
+  const [draftModel, setDraftModel] = useState("");
+  const [drafting, setDrafting] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [shareEmails, setShareEmails] = useState<Record<string, string>>({});
+  const [shareBusyId, setShareBusyId] = useState<string | null>(null);
+
+  const load = () =>
+    api<DesignSystemRow[]>("/api/design-systems").then(setSystems).catch(() => {});
+  useEffect(() => {
+    load();
+  }, []);
+
+  const startCreate = () => {
+    setCreating(true);
+    setEditing(null);
+    setName("");
+    setSpec("");
+    setPalette(null);
+    setDescribe("");
+    setError(null);
+  };
+  const startEdit = (s: DesignSystemRow) => {
+    setEditing(s);
+    setCreating(false);
+    setName(s.name);
+    setSpec(s.spec);
+    setPalette(s.palette);
+    setDescribe("");
+    setError(null);
+  };
+  const closeForm = () => {
+    setCreating(false);
+    setEditing(null);
+  };
+
+  const addImages = async (files: FileList | null) => {
+    if (!files) return;
+    const next = [...draftImages];
+    for (const f of Array.from(files).slice(0, 4 - next.length)) {
+      if (!f.type.startsWith("image/")) continue;
+      try {
+        const att = await fileToUploadAttachment(f);
+        if (att.dataUrl) next.push({ name: f.name, dataUrl: att.dataUrl });
+      } catch {
+        /* skip unreadable file */
+      }
+    }
+    setDraftImages(next.slice(0, 4));
+  };
+
+  // Describe and/or screenshots → AI drafts (create); instruction + current
+  // spec → AI remixes. Optional model override for vision extraction.
+  const draft = async () => {
+    if (!describe.trim() && draftImages.length === 0) return;
+    setDrafting(true);
+    setError(null);
+    try {
+      const res = await api<{ name: string; spec: string; palette: string }>(
+        "/api/design-systems/draft",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            prompt: describe,
+            ...(spec.trim() ? { current: spec, name } : {}),
+            ...(draftImages.length
+              ? { images: draftImages.map((d) => d.dataUrl) }
+              : {}),
+            ...(draftModel ? { model: draftModel } : {}),
+          }),
+        }
+      );
+      if (res.name && !name.trim()) setName(res.name);
+      else if (res.name && !spec.trim()) setName(res.name);
+      setSpec(res.spec);
+      setPalette(res.palette);
+      setDescribe("");
+    } catch (e) {
+      setError(String((e as Error).message || e));
+    } finally {
+      setDrafting(false);
+    }
+  };
+
+  const save = async () => {
+    if (!name.trim() || !spec.trim()) {
+      setError("Name and spec are both required — use Draft with AI or write the spec.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      if (editing) {
+        await api("/api/design-systems", {
+          method: "PATCH",
+          body: JSON.stringify({ id: editing.id, name, spec, palette }),
+        });
+      } else {
+        await api("/api/design-systems", {
+          method: "POST",
+          body: JSON.stringify({ name, spec, palette, isDefault: systems.length === 0 }),
+        });
+      }
+      closeForm();
+      await load();
+    } catch (e) {
+      setError(String((e as Error).message || e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const setDefault = async (s: DesignSystemRow, on: boolean) => {
+    await api("/api/design-systems", {
+      method: "PATCH",
+      body: JSON.stringify({ id: s.id, isDefault: on }),
+    }).catch(() => {});
+    load();
+  };
+
+  const remove = async (s: DesignSystemRow) => {
+    if (!(await confirmDialog(`Delete design system "${s.name}"?`))) return;
+    await api(`/api/design-systems?id=${s.id}`, { method: "DELETE" }).catch(() => {});
+    if (editing?.id === s.id) closeForm();
+    load();
+  };
+
+  const share = async (s: DesignSystemRow) => {
+    const email = (shareEmails[s.id] ?? "").trim();
+    if (!email) return;
+    setShareBusyId(s.id);
+    setError(null);
+    try {
+      await api("/api/design-systems/share", {
+        method: "POST",
+        body: JSON.stringify({ id: s.id, email }),
+      });
+      setShareEmails((m) => ({ ...m, [s.id]: "" }));
+      await load();
+    } catch (e) {
+      setError(String((e as Error).message || e));
+    } finally {
+      setShareBusyId(null);
+    }
+  };
+
+  const unshare = async (s: DesignSystemRow, userId: string) => {
+    await api("/api/design-systems/share", {
+      method: "DELETE",
+      body: JSON.stringify({ id: s.id, userId }),
+    }).catch(() => {});
+    load();
+  };
+
+  const formOpen = creating || editing;
+
+  return (
+    <div className="space-y-4">
+      {/* pr-10 keeps the button clear of the dialog's ✕ close control. */}
+      <div className="flex items-center justify-between gap-2 pr-10">
+        <p className="text-sm text-ink-muted">
+          Reusable brand specs — colors, fonts, spacing, components. Pick one in the
+          Design workspace and every design follows it.
+        </p>
+        {!formOpen && (
+          <button
+            onClick={startCreate}
+            className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover"
+          >
+            + New
+          </button>
+        )}
+      </div>
+      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+
+      {formOpen && (
+        <div className="space-y-2.5 rounded-xl border border-line p-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium">
+              {editing ? `Edit ${editing.name}` : "New design system"}
+            </p>
+            <button onClick={closeForm} className="text-xs text-ink-muted hover:text-ink">
+              Cancel
+            </button>
+          </div>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Name (e.g. MyBrand, Acme Deck)"
+            className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+          />
+          <div className="flex gap-2">
+            <input
+              value={describe}
+              onChange={(e) => setDescribe(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && draft()}
+              placeholder={
+                spec.trim()
+                  ? "Remix: e.g. make the primary a deeper blue, swap to a serif"
+                  : "Describe the brand: e.g. warm minimal SaaS, terracotta + cream, friendly"
+              }
+              className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+            />
+            <button
+              onClick={draft}
+              disabled={(!describe.trim() && draftImages.length === 0) || drafting}
+              className="flex shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-40"
+            >
+              <Icon
+                name={drafting ? "refresh" : "sparkles"}
+                size={13}
+                className={drafting ? "animate-spin" : ""}
+              />
+              {drafting ? "Drafting…" : spec.trim() ? "Remix with AI" : "Draft with AI"}
+            </button>
+          </div>
+          {/* Extract from screenshots/brand assets — like Claude Design's import. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-dashed border-line px-2.5 py-1.5 text-xs text-ink-muted hover:border-accent hover:text-ink">
+              <Icon name="image" size={13} />
+              {draftImages.length ? "Add more" : "Attach screenshots / brand assets"}
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  addImages(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            {draftImages.map((img, i) => (
+              <span key={i} className="relative inline-block">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={img.dataUrl}
+                  alt={img.name}
+                  title={img.name}
+                  className="h-10 w-10 rounded-lg border border-line object-cover"
+                />
+                <button
+                  onClick={() =>
+                    setDraftImages((arr) => arr.filter((_, j) => j !== i))
+                  }
+                  className="absolute -right-1.5 -top-1.5 grid h-4 w-4 place-items-center rounded-full bg-surface-2 text-[9px] text-ink-muted shadow hover:text-ink"
+                  aria-label={`Remove ${img.name}`}
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+            <label className="flex items-center gap-1.5 text-[11px] text-ink-muted">
+              Draft model
+              <select
+                value={draftModel}
+                onChange={(e) => setDraftModel(e.target.value)}
+                title={
+                  draftImages.length
+                    ? "Screenshots need a model that understands images"
+                    : "Which model writes the spec. Auto = your planner model, falling back to title, then default."
+                }
+                className="rounded-lg border border-line bg-bg px-2 py-1.5 text-xs text-ink outline-none focus:border-accent"
+              >
+                <option value="">Auto (planner → title → default)</option>
+                {models
+                  // Screenshots require vision; text-only drafting can use anything.
+                  .filter((m) => (draftImages.length ? m.supportsImages : true))
+                  .slice(0, 60)
+                  .map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          </div>
+          {draftImages.length > 0 && draftModel && !models.find((m) => m.id === draftModel)?.supportsImages && (
+            <p className="text-[11px] text-amber-600 dark:text-amber-400">
+              That model can&apos;t read images — pick a vision model for screenshot
+              extraction.
+            </p>
+          )}
+          {dsSwatches(palette).length > 0 && (
+            <div className="flex items-center gap-1.5">
+              {dsSwatches(palette).map((c, i) => (
+                <span
+                  key={i}
+                  title={c}
+                  className="h-5 w-5 rounded-full border border-black/10 dark:border-white/20"
+                  style={{ background: c }}
+                />
+              ))}
+            </div>
+          )}
+          <textarea
+            value={spec}
+            onChange={(e) => setSpec(e.target.value)}
+            rows={10}
+            placeholder="The spec (markdown): palette, typography, spacing, components, voice. Draft with AI fills this in."
+            className="w-full resize-y rounded-lg border border-line bg-bg px-3 py-2 font-mono text-xs outline-none focus:border-accent"
+          />
+          <button
+            onClick={save}
+            disabled={busy}
+            className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-40"
+          >
+            {busy ? "Saving…" : editing ? "Save changes" : "Create design system"}
+          </button>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {systems.map((s) => (
+          <div key={s.id} className="rounded-xl border border-line p-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="inline-flex shrink-0">
+                  {dsSwatches(s.palette).map((c, i) => (
+                    <span
+                      key={i}
+                      className="h-3.5 w-3.5 rounded-full border border-black/10 dark:border-white/20"
+                      style={{ background: c, marginLeft: i === 0 ? 0 : -5 }}
+                    />
+                  ))}
+                </span>
+                <span className="truncate text-sm font-medium">{s.name}</span>
+                {s.shared ? (
+                  <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] text-ink-muted">
+                    shared by {s.owner_name ?? "a teammate"}
+                  </span>
+                ) : s.is_default ? (
+                  <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[11px] text-accent">
+                    default
+                  </span>
+                ) : null}
+              </span>
+              <span className="flex shrink-0 items-center gap-2 text-xs">
+                {!s.shared && (
+                  <>
+                    <button
+                      onClick={() => setDefault(s, !s.is_default)}
+                      title={s.is_default ? "Unset default" : "Use for every new design"}
+                      className="text-ink-muted hover:text-ink"
+                    >
+                      {s.is_default ? "★" : "☆"}
+                    </button>
+                    <button
+                      onClick={() => startEdit(s)}
+                      className="text-ink-muted hover:text-ink"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => remove(s)}
+                      className="text-ink-muted hover:text-red-500"
+                    >
+                      Delete
+                    </button>
+                  </>
+                )}
+              </span>
+            </div>
+            {!s.shared && (
+              <div className="mt-2 border-t border-line pt-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] text-ink-muted">Shared with:</span>
+                  {s.sharedWith.length === 0 && (
+                    <span className="text-[11px] text-ink-muted">nobody yet</span>
+                  )}
+                  {s.sharedWith.map((m) => (
+                    <span
+                      key={m.user_id}
+                      className="flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-[11px]"
+                    >
+                      {m.name || m.email}
+                      <button
+                        onClick={() => unshare(s, m.user_id)}
+                        className="text-ink-muted hover:text-ink"
+                        aria-label={`Stop sharing with ${m.email}`}
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  ))}
+                  <input
+                    value={shareEmails[s.id] ?? ""}
+                    onChange={(e) =>
+                      setShareEmails((m) => ({ ...m, [s.id]: e.target.value }))
+                    }
+                    onKeyDown={(e) => e.key === "Enter" && share(s)}
+                    placeholder="teammate@email.com"
+                    className="w-44 rounded-lg border border-line bg-bg px-2 py-1 text-[11px] outline-none focus:border-accent"
+                  />
+                  <button
+                    onClick={() => share(s)}
+                    disabled={!(shareEmails[s.id] ?? "").trim() || shareBusyId === s.id}
+                    className="rounded-lg border border-line px-2 py-1 text-[11px] hover:bg-surface-2 disabled:opacity-40"
+                  >
+                    Share
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+        {systems.length === 0 && !formOpen && (
+          <p className="rounded-xl border border-dashed border-line p-6 text-center text-sm text-ink-muted">
+            No design systems yet. Create one and every design you build will stay on
+            brand.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SkillsTab({ models }: { models: ModelInfo[] }) {
   const [skills, setSkills] = useState<SkillRow[]>([]);
   const [conns, setConns] = useState<SkillConnLite[]>([]);
   const [editId, setEditId] = useState<string | null>(null);
@@ -1596,6 +2058,7 @@ function SkillsTab() {
   const [instructions, setInstructions] = useState("");
   const [connectorIds, setConnectorIds] = useState<string[]>([]);
   const [idea, setIdea] = useState("");
+  const [draftModel, setDraftModel] = useState("");
   const [drafting, setDrafting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -1634,7 +2097,10 @@ function SkillsTab() {
         description: string;
         instructions: string;
         connectorIds: string[];
-      }>("/api/skills/draft", { method: "POST", body: JSON.stringify({ prompt: idea }) });
+      }>("/api/skills/draft", {
+        method: "POST",
+        body: JSON.stringify({ prompt: idea, ...(draftModel ? { model: draftModel } : {}) }),
+      });
       setName(d.name);
       setDescription(d.description);
       setInstructions(d.instructions);
@@ -1735,14 +2201,32 @@ function SkillsTab() {
             placeholder="e.g. Research a company using DeepWiki and Microsoft Learn, then write a one-page brief"
             className="w-full resize-y rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
           />
-          <button
-            onClick={draft}
-            disabled={!idea.trim() || drafting}
-            className="mt-1.5 flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-surface-2 disabled:opacity-40"
-          >
-            <Icon name={drafting ? "refresh" : "sparkles"} size={14} className={drafting ? "animate-spin" : ""} />
-            {drafting ? "Drafting…" : "Draft skill"}
-          </button>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <button
+              onClick={draft}
+              disabled={!idea.trim() || drafting}
+              className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-surface-2 disabled:opacity-40"
+            >
+              <Icon name={drafting ? "refresh" : "sparkles"} size={14} className={drafting ? "animate-spin" : ""} />
+              {drafting ? "Drafting…" : "Draft skill"}
+            </button>
+            <label className="flex items-center gap-1.5 text-[11px] text-ink-muted">
+              Draft model
+              <select
+                value={draftModel}
+                onChange={(e) => setDraftModel(e.target.value)}
+                title="Which model writes the skill. Auto = your planner model, falling back to title, then default."
+                className="rounded-lg border border-line bg-bg px-2 py-1.5 text-xs text-ink outline-none focus:border-accent"
+              >
+                <option value="">Auto (planner → title → default)</option>
+                {models.slice(0, 60).map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
 
         {/* Editable fields */}

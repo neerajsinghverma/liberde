@@ -29,6 +29,7 @@ const DOCS: Doc[] = [
     blurb: "Every model on OpenRouter (plus any providers you add) in one place.",
     points: [
       { h: "Switch mid-chat", d: "Change the model any time — the full conversation and artifacts carry over to the new model." },
+      { h: "Second opinion", d: "On any answer, click Second opinion to run the same question through 2–4 models side by side — with each one's cost — and swap in the reply you like best." },
       { h: "Set a default", d: "Settings → General, or “Set as my default” inside Help me pick." },
       { h: "Browse the catalog", d: "The Models view lists everything with pricing, context window, and capabilities." },
     ],
@@ -40,7 +41,7 @@ const DOCS: Doc[] = [
     blurb: "Toggle these under the composer for different kinds of work.",
     points: [
       { h: "🌐 Web search", d: "Pulls live results with citations. Answers link straight to sources." },
-      { h: "🤖 Agent", d: "Plans a goal into steps, uses tools, and delivers a finished result — resumable if it runs long." },
+      { h: "✦ Plan", d: "Plans a goal into steps, uses tools, and delivers a finished result — resumable if it runs long." },
       { h: "🔬 Research", d: "Deep multi-round research: plans queries, searches, chases gaps in a second pass, then writes a long, cited report." },
       { h: "🎨 Image", d: "Generates images with an image-capable model (set one in Settings)." },
     ],
@@ -55,6 +56,7 @@ const DOCS: Doc[] = [
       { h: "Versions", d: "Every edit is a version — step back through them, or pin one." },
       { h: "Canvas edits", d: "Select text or use quick-actions to ask for scoped changes without retyping context." },
       { h: "Share & remix", d: "Publish a read-only link, or remix a shared artifact into your own chat." },
+      { h: "Send to a person", d: "Share → “Send to a Liberde user” by email. It lands in their “Shared with you” (sidebar), where they open their own editable copy — your original stays untouched." },
       { h: "Publish live", d: "Once published, hit Live for a real hosted public URL that serves the app/page/deck full-screen." },
       { h: "Export files", d: "Tables export to Excel (.xlsx), docs to Word, decks to PDF/PowerPoint — right from the panel." },
     ],
@@ -67,6 +69,9 @@ const DOCS: Doc[] = [
     points: [
       { h: "Start from a template", d: "Pitch deck, dashboard, SaaS landing, mobile flow, explainer deck, roadmap — or just describe what you want." },
       { h: "It interviews you first", d: "On a new design it asks a quick round of questions (purpose, style, palette, scope) as clickable options, then builds." },
+      { h: "Design systems", d: "Save your brand — palette, fonts, spacing, components — and every design follows it. Pick one from the 🎨 chip on the Design welcome; manage them in Settings → Design systems." },
+      { h: "Create from anything", d: "Describe the brand, or attach screenshots/brand assets and a vision model extracts the real colors and fonts. Remix with AI to tweak (“deeper blue, serif headings”)." },
+      { h: "Share your system", d: "Share a design system to a teammate's email — it shows up in their picker, ready to apply (read-only for them)." },
       { h: "Interactive & on an artboard", d: "The design builds live and floats on a canvas — clickable prototypes, arrow-key slide decks, real states." },
       { h: "Adjust (live sliders)", d: "Open Adjust to tune the design's colors and spacing with sliders/pickers in real time, then Save." },
       { h: "Comment to edit", d: "Click Comment, click any element on the canvas, and describe the change — it edits just that part." },
@@ -92,7 +97,7 @@ const DOCS: Doc[] = [
     title: "Skills",
     blurb: "Reusable know-how the model loads only when a task matches.",
     points: [
-      { h: "Train with AI", d: "Settings → Skills → describe it → Draft. It writes the instructions and attaches the right tools." },
+      { h: "Train with AI", d: "Settings → Skills → describe it → Draft. It writes the instructions and attaches the right tools. Pick which model drafts with the “Draft model” selector (Auto = your planner model)." },
       { h: "Bundle tools", d: "Attach connectors to a skill; when it loads, the model is told exactly which functions to use." },
       { h: "Always available", d: "The model sees each skill's name + when-to-use in every chat and pulls the full instructions on demand." },
     ],
@@ -115,6 +120,8 @@ const DOCS: Doc[] = [
     points: [
       { h: "About you & style", d: "Settings → Personal — tell it who you are, pick a response style (Concise / Explanatory / Formal / Learning), and add custom instructions; applied to every chat." },
       { h: "Memory", d: "Durable facts are saved from chats and recalled everywhere. Add, edit, or forget them in Personal." },
+      { h: "Search past chats", d: "Turn on recall in Personal and the model can look things up in your own chat history (“who am I?”, “what did we decide?”)." },
+      { h: "Push notifications", d: "Enable in Personal on your phone — get notified when a Plan finishes or a scheduled task completes, even with the tab closed." },
       { h: "Prompts", d: "Save reusable prompts; type “/” in the composer to insert one by name." },
     ],
   },
@@ -125,9 +132,9 @@ const DOCS: Doc[] = [
     blurb: "Small things that add up.",
     points: [
       { h: "Command palette", d: "Ctrl/⌘+K to jump to any chat, project, model, or action." },
-      { h: "Voice", d: "Dictate with the mic, hear replies with Read aloud, or go fully hands-free with voice mode." },
+      { h: "Voice", d: "Dictate with the mic, or go fully hands-free with voice mode." },
       { h: "Fork / export", d: "Duplicate a chat to branch an idea, or export any chat to Markdown or PDF." },
-      { h: "Budgets & usage", d: "Set a monthly cap in Settings; track spend, tokens, and your OpenRouter balance in Usage." },
+      { h: "Budgets & usage", d: "Set a monthly cap in Settings; Usage shows spend, tokens, your balance, and “Where it goes” — model vs web search vs images. Hover any reply's cost for its own split." },
     ],
   },
   {

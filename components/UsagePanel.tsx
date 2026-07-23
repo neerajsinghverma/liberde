@@ -16,7 +16,15 @@ interface Usage {
   total: { cost: number; tokensIn: number; tokensOut: number; messages: number };
   byModel: { model: string; n: number; cost: number; tin: number; tout: number }[];
   byDay: { day: number; cost: number; n: number }[];
+  byCategory?: Record<string, number>;
 }
+
+// Cost-attribution categories (per-message cost_breakdown JSON keys).
+const CATEGORY_META: Record<string, { label: string; icon: string; hint: string }> = {
+  model: { label: "Model responses", icon: "message", hint: "Chat, research, and planning replies" },
+  search: { label: "Web search", icon: "globe", hint: "Live web lookups" },
+  image: { label: "Image generation", icon: "image", hint: "Generated images" },
+};
 
 const money = (n: number) =>
   n >= 1 ? `$${n.toFixed(2)}` : n > 0 ? `$${n.toFixed(4)}` : "$0";
@@ -152,6 +160,51 @@ export default function UsagePanel() {
           </div>
         ))}
       </div>
+
+      {usage.byCategory &&
+        Object.values(usage.byCategory).some((v) => v > 0) &&
+        (() => {
+          const entries = Object.entries(usage.byCategory!)
+            .filter(([, v]) => v > 0)
+            .sort((a, b) => b[1] - a[1]);
+          const catTotal = entries.reduce((s, [, v]) => s + v, 0);
+          return (
+            <section>
+              <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-ink-muted">
+                <Icon name="target" size={14} /> Where it goes
+              </h2>
+              <div className="space-y-2.5 rounded-xl border border-line bg-surface p-4">
+                {entries.map(([key, value]) => {
+                  const meta = CATEGORY_META[key] ?? {
+                    label: key,
+                    icon: "sparkles",
+                    hint: "",
+                  };
+                  const pct = Math.round((value / catTotal) * 100);
+                  return (
+                    <div key={key} title={meta.hint}>
+                      <div className="flex items-baseline justify-between text-sm">
+                        <span className="flex items-center gap-1.5">
+                          <Icon name={meta.icon} size={13} className="text-ink-muted" />
+                          {meta.label}
+                        </span>
+                        <span className="text-ink-muted">
+                          {money(value)} · {pct}%
+                        </span>
+                      </div>
+                      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-2">
+                        <div
+                          className="h-full rounded-full bg-accent"
+                          style={{ width: `${Math.max(2, pct)}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          );
+        })()}
 
       <section>
         <div className="flex items-center justify-between">

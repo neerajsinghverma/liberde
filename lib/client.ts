@@ -110,6 +110,93 @@ export function streamChat(
   return () => controller.abort();
 }
 
+export interface CompareCallbacks {
+  onDelta: (col: number, text: string) => void;
+  onColumnDone: (
+    col: number,
+    info: { model: string; cost: number; tokens_in: number; tokens_out: number }
+  ) => void;
+  onColumnError: (col: number, message: string) => void;
+  onDone: () => void;
+  onError: (message: string) => void;
+}
+
+/**
+ * POST /api/chat/compare — run the same context through N models and consume
+ * the multiplexed SSE (events carry a `col` index). Returns an abort function.
+ */
+export function streamCompare(
+  body: {
+    conversationId: string;
+    truncateFromMessageId?: string;
+    models: string[];
+  },
+  callbacks: CompareCallbacks
+): () => void {
+  const controller = new AbortController();
+
+  (async () => {
+    let sawDone = false;
+    let sawError = false;
+    try {
+      const res = await fetch("/api/chat/compare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      if (!res.ok || !res.body) {
+        const err = await res.json().catch(() => ({}));
+        sawError = true;
+        callbacks.onError(err.error || `Compare request failed (${res.status})`);
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const evt = JSON.parse(line.slice(6));
+            if (typeof evt.col === "number") {
+              if (evt.error) callbacks.onColumnError(evt.col, evt.error);
+              else if (evt.delta) callbacks.onDelta(evt.col, evt.delta);
+              if (evt.done) {
+                callbacks.onColumnDone(evt.col, {
+                  model: evt.model ?? "",
+                  cost: Number(evt.cost) || 0,
+                  tokens_in: Number(evt.tokens_in) || 0,
+                  tokens_out: Number(evt.tokens_out) || 0,
+                });
+              }
+            } else if (evt.done) {
+              sawDone = true;
+              callbacks.onDone();
+            } else if (evt.error) {
+              sawError = true;
+              callbacks.onError(evt.error);
+            }
+          } catch {
+            /* skip malformed line */
+          }
+        }
+      }
+      if (!sawDone && !sawError) callbacks.onDone();
+    } catch (e) {
+      if ((e as Error).name === "AbortError") callbacks.onDone();
+      else if (!sawError) callbacks.onError(String(e));
+    }
+  })();
+
+  return () => controller.abort();
+}
+
 /** POST /api/research and consume the SSE stream (statuses + report deltas). */
 export function streamResearch(
   body: { conversationId: string; query: string; model?: string },
