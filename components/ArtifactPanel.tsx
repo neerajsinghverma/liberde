@@ -88,10 +88,12 @@ export default function ArtifactPanel({
   // Resizable panel (desktop only): a draggable divider on the left edge sets
   // the panel width; persisted so it sticks. On mobile the panel is a
   // full-screen overlay, so the custom width is ignored there.
-  const CANVAS_MIN = 360;
+  const CANVAS_MIN = 360; // smallest the canvas panel itself may shrink to
+  const CHAT_MIN = 420; // the chat column must always keep at least this much
   const [panelWidth, setPanelWidth] = useState<number | null>(null);
   const [isDesktop, setIsDesktop] = useState(true);
   const [dragging, setDragging] = useState(false);
+  const asideRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const saved = Number(localStorage.getItem("liberde-canvas-width"));
@@ -106,9 +108,16 @@ export default function ArtifactPanel({
   const startResize = (e: React.PointerEvent) => {
     e.preventDefault();
     setDragging(true);
+    // Clamp against the chat+panel container (NOT window.innerWidth — that
+    // includes the sidebar, which let the chat get squeezed to a sliver).
+    const container = asideRef.current?.parentElement;
+    const rect = container?.getBoundingClientRect();
+    const avail = rect?.width ?? window.innerWidth;
+    const rightEdge = rect ? rect.right : window.innerWidth;
     const onMove = (ev: PointerEvent) => {
-      const w = window.innerWidth - ev.clientX;
-      const clamped = Math.max(CANVAS_MIN, Math.min(window.innerWidth - CANVAS_MIN, w));
+      const w = rightEdge - ev.clientX;
+      const maxPanel = Math.max(CANVAS_MIN, avail - CHAT_MIN);
+      const clamped = Math.max(CANVAS_MIN, Math.min(maxPanel, w));
       setPanelWidth(clamped);
     };
     const onUp = () => {
@@ -277,8 +286,16 @@ export default function ArtifactPanel({
 
   return (
     <div
+      ref={asideRef}
       className="relative flex w-[46%] min-w-[380px] shrink-0 flex-col border-l border-line bg-surface max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 max-lg:w-full max-lg:min-w-0"
-      style={isDesktop && panelWidth ? { width: panelWidth } : undefined}
+      // maxWidth's % resolves against the flex parent (chat+panel row), so the
+      // chat column always keeps >= CHAT_MIN even if a stale saved width or a
+      // drag would otherwise overshoot. Only enforced on desktop.
+      style={
+        isDesktop
+          ? { ...(panelWidth ? { width: panelWidth } : {}), maxWidth: `calc(100% - ${CHAT_MIN}px)` }
+          : undefined
+      }
     >
       {/* Drag-to-resize divider (desktop only). */}
       <div
@@ -296,9 +313,18 @@ export default function ArtifactPanel({
       {/* While dragging, an overlay swallows pointer events so the iframe
           doesn't capture them and the drag stays smooth. */}
       {dragging && <div className="fixed inset-0 z-50 cursor-col-resize" />}
-      <div className="flex items-center gap-2 border-b border-line px-3 py-2">
-        <span className="text-base">{typeIcon(type)}</span>
-        <span className="min-w-0 flex-1 truncate text-sm font-medium" title={title}>
+      <div className="flex items-center gap-2 border-b border-line px-3 py-2 max-lg:overflow-x-auto">
+        {/* Mobile: the panel is a full-screen overlay and the toolbar overflows,
+            pushing the close ✕ off-screen. Pin an always-visible Done button at
+            the far left so there's a clear way back to the chat. */}
+        <button
+          onClick={onClose}
+          className="sticky left-0 z-10 flex shrink-0 items-center gap-1 rounded-lg bg-surface-2 px-2.5 py-1 text-sm font-medium text-ink lg:hidden"
+        >
+          <Icon name="x" size={15} /> Done
+        </button>
+        <span className="text-base max-lg:hidden">{typeIcon(type)}</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-medium max-lg:hidden" title={title}>
           {title}
           {streaming && <span className="ml-2 text-xs text-accent">generating…</span>}
         </span>
