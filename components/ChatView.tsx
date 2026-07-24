@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
+import { createRoot } from "react-dom/client";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type {
   AppSettings,
   Attachment,
@@ -1625,34 +1629,98 @@ function escapeHtml(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-/** Open a clean printable window and trigger print (user picks "Save as PDF"). */
+/** Render markdown to static HTML using the app's own renderer (GFM tables,
+ *  lists, code fences) — synchronously, via an offscreen React root. */
+function mdToStaticHtml(md: string): string {
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    flushSync(() => {
+      root.render(<ReactMarkdown remarkPlugins={[remarkGfm]}>{md}</ReactMarkdown>);
+    });
+    return host.innerHTML;
+  } catch {
+    return `<p style="white-space:pre-wrap">${escapeHtml(md)}</p>`;
+  } finally {
+    root.unmount();
+  }
+}
+
+/** Open a nicely typeset printable window and trigger print ("Save as PDF"). */
 function exportChatPDF(title: string, messages: Message[]) {
   const body = messages
     .filter((m) => m.role === "user" || m.role === "assistant")
     .map((m) => {
-      const who = m.role === "user" ? "You" : `Liberde${m.model ? ` · ${m.model}` : ""}`;
-      // Strip artifact/run tags to keep the printout readable.
-      const text = escapeHtml(
-        m.content
-          .replace(/<liberdeArtifact[\s\S]*?(<\/liberdeArtifact>|$)/g, "[artifact]")
-          .replace(/<liberde(Run|Ask|Memory)>[\s\S]*?(<\/liberde\1>|$)/g, "")
-      );
-      return `<div class="msg ${m.role}"><div class="who">${who}</div><div class="body">${text}</div></div>`;
+      const who =
+        m.role === "user" ? "You" : `Liberde${m.model ? ` · ${escapeHtml(m.model)}` : ""}`;
+      // Replace machine tags with readable placeholders before rendering.
+      const cleaned = m.content
+        .replace(
+          /<liberdeArtifact\b[^>]*?title="([^"]*)"[\s\S]*?(<\/liberdeArtifact>|$)/g,
+          (_s, t) => `\n> 🖼 **Artifact:** ${t || "untitled"}\n`
+        )
+        .replace(/<liberdeArtifact[\s\S]*?(<\/liberdeArtifact>|$)/g, "\n> 🖼 **Artifact**\n")
+        .replace(/<liberde(Run|Ask|Memory)>[\s\S]*?(<\/liberde\1>|$)/g, "")
+        .trim();
+      const imgs = (m.images ?? [])
+        .map((src) => `<img class="genimg" src="${escapeHtml(src)}" alt="Generated image">`)
+        .join("");
+      return `<section class="msg ${m.role}">
+  <div class="who">${who}</div>
+  <div class="body md">${mdToStaticHtml(cleaned)}${imgs}</div>
+</section>`;
     })
     .join("\n");
+  const date = new Date().toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+  const replies = messages.filter((m) => m.role === "assistant").length;
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
 <style>
-  body{font:14px/1.6 -apple-system,system-ui,sans-serif;max-width:720px;margin:32px auto;padding:0 20px;color:#1a1a1a}
-  h1{font-size:22px}
-  .msg{margin:18px 0;padding-bottom:14px;border-bottom:1px solid #eee}
-  .who{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#888;margin-bottom:4px}
-  .body{white-space:pre-wrap}
-  .user .body{font-weight:500}
-  @media print{ .no-print{display:none} }
+  *{box-sizing:border-box}
+  html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{font:14px/1.65 -apple-system,"Segoe UI",system-ui,sans-serif;max-width:760px;margin:0 auto;padding:40px 24px;color:#1f1e1b;background:#fff}
+  header.doc{border-bottom:2px solid #d97757;padding-bottom:14px;margin-bottom:8px}
+  .wordmark{font-family:Georgia,serif;font-weight:700;font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:#d97757}
+  h1.doc{font-family:Georgia,serif;font-size:26px;line-height:1.25;margin:6px 0 4px}
+  .meta{font-size:12px;color:#8a857c}
+  .msg{margin:22px 0}
+  .who{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:#8a857c;margin-bottom:6px;break-after:avoid}
+  .user .body{background:#f5f1e9;border:1px solid #ebe5d8;border-radius:12px;padding:12px 16px}
+  .genimg{display:block;max-width:100%;border-radius:10px;margin:10px 0;border:1px solid #e6e2da}
+  footer.doc{margin-top:36px;padding-top:12px;border-top:1px solid #e6e2da;font-size:11px;color:#8a857c;text-align:center}
+  /* Markdown typography */
+  .md>:first-child{margin-top:0}.md>:last-child{margin-bottom:0}
+  .md p{margin:.6em 0}
+  .md h1,.md h2,.md h3,.md h4{font-family:Georgia,serif;line-height:1.3;margin:1.1em 0 .45em;break-after:avoid}
+  .md h1{font-size:20px}.md h2{font-size:17px}.md h3{font-size:15px}.md h4{font-size:14px}
+  .md ul,.md ol{margin:.5em 0;padding-left:1.5em}
+  .md li{margin:.25em 0}
+  .md li>p{margin:.2em 0}
+  .md a{color:#b05730;text-decoration:none;border-bottom:1px solid #e0b7a3}
+  .md strong{font-weight:650}
+  .md code{background:#f4f1ea;border:1px solid #eae5da;border-radius:4px;padding:1px 5px;font:12px/1.5 ui-monospace,Consolas,monospace}
+  .md pre{background:#f7f4ee;border:1px solid #e8e3d8;border-radius:10px;padding:12px 14px;overflow:hidden;white-space:pre-wrap;word-break:break-word}
+  .md pre code{background:none;border:none;padding:0}
+  .md blockquote{border-left:3px solid #d97757;margin:.7em 0;padding:.1em 0 .1em 14px;color:#5f5a51}
+  .md table{border-collapse:collapse;margin:.8em 0;width:100%;font-size:13px}
+  .md th{background:#f4f1ea;text-align:left}
+  .md th,.md td{border:1px solid #e2ddd2;padding:6px 10px;vertical-align:top}
+  .md tr{break-inside:avoid}
+  .md hr{border:none;border-top:1px solid #e6e2da;margin:1.2em 0}
+  .md img{max-width:100%}
+  @page{margin:18mm 15mm}
 </style></head><body>
-  <h1>${escapeHtml(title)}</h1>
+  <header class="doc">
+    <div class="wordmark">Liberde</div>
+    <h1 class="doc">${escapeHtml(title)}</h1>
+    <div class="meta">${date} · ${replies} ${replies === 1 ? "reply" : "replies"}</div>
+  </header>
   ${body}
-  <script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script>
+  <footer class="doc">Exported from Liberde — liberde.ai</footer>
+  <script>window.onload=()=>setTimeout(()=>window.print(),400)<\/script>
 </body></html>`;
   const w = window.open("", "_blank");
   if (w) {
