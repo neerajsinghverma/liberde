@@ -50,13 +50,13 @@ export default function ArtifactPanel({
   onClose,
   onRecordUpdated,
   onVersionSaved,
-  designCanvas = false,
 }: {
   content: PanelContent;
   onClose: () => void;
   onRecordUpdated: (record: ArtifactRecord) => void;
   onVersionSaved?: (artifactId: string) => void;
-  /** Design workspace: present the preview floating on an artboard backdrop. */
+  /** Kept for compatibility with ChatView's prop pass; design tools now gate on
+   *  the artifact type (isVisual), not the workspace. */
   designCanvas?: boolean;
 }) {
   const isRenderable = (t: ArtifactType | null) =>
@@ -180,13 +180,20 @@ export default function ArtifactPanel({
       : body;
 
   const canPreview = isRenderable(type) && !streaming;
+  // "Visual" artifacts have a rendered canvas you can point at and restyle
+  // (elements to click, CSS tokens to tweak) — so the design tools (Adjust,
+  // Comment-to-edit) apply to them in ANY workspace, not just Design mode.
+  // Markdown/mermaid/code render but have nothing to design-edit.
+  const isVisual =
+    type === "html" || type === "react" || type === "svg" || type === "slides";
   const lc = (language || "").toLowerCase();
   const canXlsx =
     !streaming && (lc === "csv" || lc === "tsv" || /(^|\n)\s*\|[^\n]*\|/.test(shownBody));
 
-  // Listen for the design-canvas bridge (token read-out + element clicks).
+  // Listen for the canvas bridge (token read-out + element clicks) for any
+  // visual artifact — the design tools now work in Chat mode too.
   useEffect(() => {
-    if (!designCanvas) return;
+    if (!isVisual) return;
     const onMsg = (e: MessageEvent) => {
       const d = (e.data || {}) as {
         __ld?: string;
@@ -206,13 +213,13 @@ export default function ArtifactPanel({
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [designCanvas]);
+  }, [isVisual]);
 
   // Push comment-mode state into the preview.
   useEffect(() => {
-    if (designCanvas) postToIframe({ __ld: "comment", on: commentMode });
+    if (isVisual) postToIframe({ __ld: "comment", on: commentMode });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [commentMode, designCanvas, reloadKey]);
+  }, [commentMode, isVisual, reloadKey]);
 
   // Speaker-notes edits from the slides deck (always on, not just design
   // canvas): the iframe hands back the whole updated deck HTML; persist it as
@@ -441,7 +448,7 @@ export default function ArtifactPanel({
             </button>
           </>
         )}
-        {designCanvas && canPreview && record && !streaming && tab === "preview" && (
+        {isVisual && canPreview && record && !streaming && tab === "preview" && (
           <>
             <button
               onClick={() => setShowAdjust((v) => !v)}
@@ -679,10 +686,10 @@ export default function ArtifactPanel({
             </div>
           </div>
         ) : tab === "preview" && canPreview && type ? (
-          designCanvas ? (
-            // The design fills the panel edge to edge (responsive, exactly like
-            // the popped-out/published view) rather than floating in a fixed
-            // max-width card — so its own responsive CSS adapts to the panel.
+          isVisual ? (
+            // Visual artifacts fill the panel edge to edge (responsive, like the
+            // popped-out view) and carry the comment/adjust overlays — in any
+            // workspace. Non-visual (markdown/code) render bare below.
             <div ref={previewRef} className="relative flex min-h-0 flex-1 overflow-hidden bg-white">
               <ArtifactRenderer
                 type={type}
