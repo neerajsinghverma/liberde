@@ -281,7 +281,7 @@ Build the full self-contained artifact. Make it genuinely beautiful and modern: 
 
 For IMAGERY: ${
         designImages
-          ? "to create custom visuals — hero images, photos, illustrations, icons, backgrounds, slide artwork — call the generate_image tool with a vivid prompt and embed the URL it returns in an <img src=\"…\">. This uses a dedicated image model, so the design gets real, on-brief assets. Do this for images that materially improve the design; call it a few times for the key visuals."
+          ? "to create custom visuals — hero images, photos, illustrations, icons, backgrounds, slide artwork — ALWAYS call the generate_image tool with a vivid prompt and embed the URL it returns in an <img src=\"…\">. The tool routes to the user's chosen image model, so use it for EVERY generated image — never claim you cannot pick a provider, and never rely on your own native image output. Do this for images that materially improve the design; call it a few times for the key visuals."
           : "use images from images.unsplash.com or picsum.photos for any imagery (there is no image-generation tool in this mode)."
       }
 
@@ -523,8 +523,13 @@ ${ds.spec}`;
       const contextLimit = await getContextLimit(requestedModel);
       // Some models emit images natively as an output modality (Gemini image,
       // GPT-4o image, etc.) — ask for image output when the model supports it.
+      // BUT when the user has opted into design AI-images with a dedicated
+      // image model, force imagery through the generate_image tool so THAT
+      // model is used — otherwise a chat model that also outputs images would
+      // silently make them itself and ignore the chosen image model.
       const outputsImages =
         target.isOpenRouter &&
+        !designImages &&
         ((await listModels().catch(() => [])).find((m) => m.id === requestedModel)
           ?.outputsImages ??
           false);
