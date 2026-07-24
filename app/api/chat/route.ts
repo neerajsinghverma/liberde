@@ -279,6 +279,8 @@ Give each 2–4 concrete options (the user can also type their own), and lead wi
 ## 2. Build
 Build the full self-contained artifact. Make it genuinely beautiful and modern: deliberate type scale, spacing rhythm, a cohesive palette declared as CSS custom properties in :root (so it's trivially tweakable), strong hierarchy, depth, responsive, accessible contrast. Real interactivity — working buttons/tabs/nav, hover/press states, transitions — it must feel like a real working app, not a static mockup. You may use Google Fonts via <link>.
 
+FILL THE VIEWPORT: for full-page designs — apps, dashboards, landing pages, web-app clones, tools — set html,body{margin:0} and make the top-level layout span the whole viewport (width:100%; min-height:100vh), so it fills the canvas edge to edge like a real product. Do NOT wrap the entire UI in a centered fixed max-width card floating on a background — that "small window" look is only appropriate when the design IS deliberately a device/phone mockup or a single centered widget (e.g. a login card). Inner content may still use max-width containers for readability; it's the OUTER shell that must fill the screen.
+
 For IMAGERY: ${
         designImages
           ? "to create custom visuals — hero images, photos, illustrations, icons, backgrounds, slide artwork — ALWAYS call the generate_image tool with a vivid prompt and embed the URL it returns in an <img src=\"…\">. The tool routes to the user's chosen image model, so use it for EVERY generated image — never claim you cannot pick a provider, and never rely on your own native image output. Do this for images that materially improve the design; call it a few times for the key visuals."
