@@ -407,6 +407,18 @@ ${ds.spec}`;
       // mid-synthesis loses the artifact and wedges the conversation lock.
       const turnStart = Date.now();
       const FORCE_SYNTH_DEADLINE_MS = 180_000;
+      // Hard turn deadline: a zombie upstream stream (accepted the request,
+      // then drips error frames forever — seen with saturated free endpoints)
+      // otherwise pins the read loop until Vercel hard-kills the function at
+      // maxDuration, which persists nothing and strands the lock. Abort the
+      // upstream ourselves with time to spare so partials persist and the
+      // lock releases.
+      const turnAbort = new AbortController();
+      const hardStop = setTimeout(() => turnAbort.abort(), 270_000);
+      const turnSignal =
+        typeof AbortSignal.any === "function"
+          ? AbortSignal.any([req.signal, turnAbort.signal])
+          : req.signal;
       let reasoningStartedAt: number | null = null;
       let reasoningEndedAt: number | null = null;
       let totalCost = preSearchCost;
@@ -421,6 +433,7 @@ ${ds.spec}`;
         errored = false,
         clientGone = false,
       }: { errored?: boolean; clientGone?: boolean } = {}) => {
+        clearTimeout(hardStop);
         // External clouds report tokens, not dollars — estimate from configured
         // prices here (not on the happy path only) so aborted/errored turns
         // still record cost and count toward the monthly budget.
@@ -520,6 +533,18 @@ ${ds.spec}`;
 
       try {
         for (let round = 0; round < MAX_TOOL_ROUNDS + 1; round++) {
+          // Wall-clock budget: starting another upstream round too close to the
+          // function's maxDuration (300s) risks a hard kill that persists
+          // NOTHING — the turn silently vanishes on reload (seen with slow free
+          // models + PDFs + multiple tool rounds). Wrap up instead.
+          if (round > 0 && Date.now() - turnStart > 200_000) {
+            emit({ toolEvent: { status: "Out of time for more steps this turn — wrapping up" } });
+            if (!finalText.trim() && !finalImages.length) {
+              finalText =
+                "I ran out of time this turn (slow model + long inputs) after the tool steps above — their results are saved. Say **continue** to pick up from here, or switch to a faster model and retry.";
+            }
+            break;
+          }
           const reqBody = JSON.stringify({
               model: target.bodyModel,
               messages: apiMessages,
@@ -556,7 +581,7 @@ ${ds.spec}`;
             method: "POST",
             headers: targetHeaders(target, reqBody),
             body: reqBody,
-          }, { signal: req.signal });
+          }, { signal: turnSignal });
 
           if (!upstream.ok || !upstream.body) {
             const detail = await upstream.text();
@@ -756,7 +781,7 @@ ${ds.spec}`;
                 const fbRes = await fetchWithRetry(
                   target.url,
                   { method: "POST", headers: targetHeaders(target, fbBody), body: fbBody },
-                  { signal: req.signal }
+                  { signal: turnSignal }
                 );
                 if (fbRes.ok && fbRes.body) {
                   const rd = fbRes.body.getReader();
@@ -903,10 +928,16 @@ ${ds.spec}`;
         await finalize();
       } catch (e) {
         // Persist whatever we have. Distinguish a client disconnect (nobody to
-        // notify) from a real upstream/tool failure (surface a terminal error).
+        // notify) and our own turn deadline (persist a friendly note, no error)
+        // from a real upstream/tool failure (surface a terminal error).
         const clientGone = req.signal.aborted;
-        if (!clientGone) console.error("chat stream failed:", e);
-        await finalize({ errored: !clientGone, clientGone });
+        const deadline = turnAbort.signal.aborted && !clientGone;
+        if (deadline && !finalText.trim() && !finalImages.length) {
+          finalText =
+            "I ran out of time this turn — the steps above are saved. Say **continue** to pick up from here, or switch to a faster model and retry.";
+        }
+        if (!clientGone && !deadline) console.error("chat stream failed:", e);
+        await finalize({ errored: !clientGone && !deadline, clientGone });
       }
     },
   });

@@ -1269,6 +1269,42 @@ export default function ChatView({
               );
             })}
 
+            {/* A turn that died mid-tool-loop (timeout/crash) leaves the tail
+                on a tool step with no final reply — offer to pick it back up
+                instead of looking like the work silently vanished. */}
+            {!isStreaming &&
+              !bgWorking &&
+              (() => {
+                const tail = messages[messages.length - 1];
+                const interrupted =
+                  tail &&
+                  (tail.role === "tool" ||
+                    (tail.role === "assistant" &&
+                      (tail.tool_calls?.length ?? 0) > 0 &&
+                      !tail.content.trim()));
+                if (!interrupted) return null;
+                return (
+                  <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+                    <span className="min-w-0">
+                      This turn was interrupted before the reply finished — the tool
+                      steps above are saved.
+                    </span>
+                    <button
+                      onClick={() =>
+                        convId &&
+                        startStream({ conversationId: convId, model, webSearch, think })
+                      }
+                      className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover"
+                    >
+                      Continue from here
+                    </button>
+                    <span className="shrink-0 text-xs text-ink-muted">
+                      (a faster model helps — switch above, then continue)
+                    </span>
+                  </div>
+                );
+              })()}
+
             {isStreaming && (
               <div className="mb-6">
                 {researchStatuses.length > 0 && (
