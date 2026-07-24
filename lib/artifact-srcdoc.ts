@@ -82,8 +82,16 @@ html,body{margin:0;height:100%;font-family:ui-sans-serif,system-ui,sans-serif}
 #liberde-ctl{position:fixed;right:14px;bottom:12px;z-index:9999;display:flex;gap:6px;align-items:center;font:13px/1 ui-sans-serif,system-ui;background:rgba(0,0,0,.55);color:#fff;border-radius:999px;padding:6px 10px}
 #liberde-ctl button{all:unset;cursor:pointer;padding:2px 8px;border-radius:999px}
 #liberde-ctl button:hover{background:rgba(255,255,255,.2)}
+/* Speaker notes: authored as <aside class="notes"> inside each slide — never
+   visible on the slide itself; surfaced only via the notes panel below. */
+#liberde-deck .notes{display:none !important}
+#liberde-notes{position:fixed;left:0;right:0;bottom:0;z-index:9998;display:none;background:rgba(17,17,17,.94);color:#eee;border-top:1px solid #3a3a3a;padding:10px 16px 12px;box-sizing:border-box}
+#liberde-notes.open{display:block}
+#lb-notes-head{font:600 10px/1 ui-sans-serif,system-ui;letter-spacing:.1em;text-transform:uppercase;color:#9a9a9a;margin-bottom:6px}
+#lb-notes-text{width:100%;min-height:64px;max-height:32vh;box-sizing:border-box;background:transparent;color:#eee;border:none;outline:none;resize:vertical;font:13px/1.55 ui-sans-serif,system-ui}
+#lb-notes-text::placeholder{color:#777}
 @media print{
-  #liberde-ctl{display:none}
+  #liberde-ctl,#liberde-notes{display:none !important}
   #liberde-deck{height:auto;overflow:visible;background:#fff}
   #liberde-deck .slide{display:flex !important;position:relative;inset:auto;height:100vh;page-break-after:always}
 }
@@ -94,7 +102,12 @@ html,body{margin:0;height:100%;font-family:ui-sans-serif,system-ui,sans-serif}
   <button id="lb-prev" title="Previous (←)">‹</button>
   <span id="lb-count"></span>
   <button id="lb-next" title="Next (→ or space)">›</button>
+  <button id="lb-notes" title="Speaker notes (N)">🗒</button>
   <button id="lb-print" title="Print / save as PDF">⎙</button>
+</div>
+<div id="liberde-notes">
+  <div id="lb-notes-head">Speaker notes · slide <span id="lb-notes-n"></span> — saved with the deck</div>
+  <textarea id="lb-notes-text" placeholder="Notes for this slide… (only you see these; they stay out of PDF/PPTX slides)"></textarea>
 </div>
 <script>
 (function(){
@@ -107,11 +120,61 @@ html,body{margin:0;height:100%;font-family:ui-sans-serif,system-ui,sans-serif}
   }
   if(slides.length===0)return;
   var i=0;
+  var notesPanel=document.getElementById('liberde-notes');
+  var notesText=document.getElementById('lb-notes-text');
+  var notesN=document.getElementById('lb-notes-n');
+  function noteEl(create){
+    var a=slides[i].querySelector('aside.notes,.notes');
+    if(!a&&create){a=document.createElement('aside');a.className='notes';slides[i].appendChild(a);}
+    return a;
+  }
+  function loadNotes(){
+    if(!notesPanel.classList.contains('open'))return;
+    notesN.textContent=(i+1);
+    var a=noteEl(false);
+    notesText.value=a?a.textContent.trim():'';
+  }
   function show(n){
+    pushSave();
     i=Math.max(0,Math.min(slides.length-1,n));
     slides.forEach(function(el,j){el.classList.toggle('active',j===i)});
     document.getElementById('lb-count').textContent=(i+1)+' / '+slides.length;
+    loadNotes();
   }
+  // Edits write into the slide's <aside class="notes">; the updated deck HTML
+  // is handed to the host app (saved as a new version) when you pause — on
+  // blur, panel close, slide change, or leaving the page — so the deck never
+  // reloads under your cursor. In a standalone tab/download there is no host;
+  // edits then last for the session only.
+  var notesDirty=false;
+  function pushSave(){
+    if(!notesDirty)return;
+    notesDirty=false;
+    try{
+      var clone=deck.cloneNode(true);
+      clone.querySelectorAll('.slide').forEach(function(s){s.classList.remove('active');if(!s.className)s.removeAttribute('class');});
+      parent.postMessage({__ld:'notesSaved',content:clone.innerHTML},'*');
+    }catch(e){}
+  }
+  notesText.addEventListener('input',function(){
+    var v=notesText.value;
+    var a=noteEl(true);
+    if(v.trim()===''){a.remove();}else{a.textContent=v;}
+    notesDirty=true;
+  });
+  notesText.addEventListener('change',pushSave);
+  notesText.addEventListener('blur',pushSave);
+  window.addEventListener('pagehide',pushSave);
+  document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')pushSave();});
+  // Typing in the notes box must not flip slides.
+  notesText.addEventListener('keydown',function(e){e.stopPropagation();});
+  function toggleNotes(){
+    var open=notesPanel.classList.toggle('open');
+    if(!open)pushSave();
+    loadNotes();
+    if(open)notesText.focus();
+  }
+  document.getElementById('lb-notes').onclick=toggleNotes;
   document.getElementById('lb-prev').onclick=function(){show(i-1)};
   document.getElementById('lb-next').onclick=function(){show(i+1)};
   document.getElementById('lb-print').onclick=function(){window.print()};
@@ -120,6 +183,7 @@ html,body{margin:0;height:100%;font-family:ui-sans-serif,system-ui,sans-serif}
     else if(e.key==='ArrowLeft'||e.key==='PageUp')show(i-1);
     else if(e.key==='Home')show(0);
     else if(e.key==='End')show(slides.length-1);
+    else if(e.key==='n'||e.key==='N')toggleNotes();
   });
   deck.addEventListener('click',function(e){
     if(e.target.closest('a,button,input,textarea,select,video,audio'))return;

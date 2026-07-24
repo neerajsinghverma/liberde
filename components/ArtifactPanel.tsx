@@ -205,6 +205,38 @@ export default function ArtifactPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [commentMode, designCanvas, reloadKey]);
 
+  // Speaker-notes edits from the slides deck (always on, not just design
+  // canvas): the iframe hands back the whole updated deck HTML; persist it as
+  // a new version so notes travel with the artifact. Deliberately SILENT — no
+  // onVersionSaved/refresh, or the deck iframe would reload under the cursor;
+  // the server holds the latest version and the iframe holds the live state.
+  const notesSaveBusy = useRef(false);
+  useEffect(() => {
+    if (type !== "slides") return;
+    const onNotes = async (e: MessageEvent) => {
+      const d = (e.data || {}) as { __ld?: string; content?: string };
+      if (d.__ld !== "notesSaved" || typeof d.content !== "string") return;
+      if (!record || streaming || notesSaveBusy.current) return;
+      const content = d.content.trim();
+      if (!content || content === shownBody.trim()) return;
+      notesSaveBusy.current = true;
+      try {
+        // Identical-content saves are a server-side no-op, so this is cheap.
+        await api(`/api/artifacts/${record.id}/versions`, {
+          method: "POST",
+          body: JSON.stringify({ content }),
+        });
+      } catch {
+        /* iframe stays dirty-capable; a later blur/close retries */
+      } finally {
+        notesSaveBusy.current = false;
+      }
+    };
+    window.addEventListener("message", onNotes);
+    return () => window.removeEventListener("message", onNotes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [type, record?.id, streaming, shownBody]);
+
   const setToken = (name: string, value: string) => {
     setChangedTokens((c) => ({ ...c, [name]: value }));
     postToIframe({ __ld: "setToken", name, value });
@@ -880,6 +912,7 @@ async function exportSlidesToPptx(deckHtml: string, filename: string) {
   const PptxGenJS = (mod.default ?? mod) as new () => {
     addSlide: () => {
       addText: (text: unknown, opts: Record<string, unknown>) => void;
+      addNotes: (text: string) => void;
     };
     writeFile: (opts: { fileName: string }) => Promise<void>;
   };
@@ -890,6 +923,17 @@ async function exportSlidesToPptx(deckHtml: string, filename: string) {
   for (const section of sections) {
     if (section.tagName === "STYLE" || section.tagName === "SCRIPT") continue;
     const slide = pptx.addSlide();
+    // Speaker notes export as real PowerPoint presenter notes — never as
+    // slide body content.
+    const notes = section.querySelector("aside.notes, .notes");
+    if (notes?.textContent?.trim()) {
+      try {
+        slide.addNotes(notes.textContent.trim());
+      } catch {
+        /* older pptxgenjs — skip notes rather than fail the export */
+      }
+    }
+    const inNotes = (el: Element) => Boolean(el.closest("aside.notes, .notes"));
     const heading = section.querySelector("h1, h2, h3");
     if (heading?.textContent?.trim()) {
       slide.addText(heading.textContent.trim(), {
@@ -897,9 +941,11 @@ async function exportSlidesToPptx(deckHtml: string, filename: string) {
       });
     }
     const bullets = Array.from(section.querySelectorAll("li"))
+      .filter((li) => !inNotes(li))
       .map((li) => li.textContent?.trim())
       .filter(Boolean) as string[];
     const paragraphs = Array.from(section.querySelectorAll("p"))
+      .filter((p) => !inNotes(p))
       .map((p) => p.textContent?.trim())
       .filter((t) => t && t !== heading?.textContent?.trim()) as string[];
     const body = [
