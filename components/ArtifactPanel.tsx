@@ -680,17 +680,17 @@ export default function ArtifactPanel({
           </div>
         ) : tab === "preview" && canPreview && type ? (
           designCanvas ? (
-            // Claude-Design-style artboard: the design floats as a card.
-            <div ref={previewRef} className="relative min-h-0 flex-1 overflow-auto bg-surface-2 p-5">
-              <div className="mx-auto flex h-full min-h-[420px] w-full max-w-5xl overflow-hidden rounded-2xl border border-line bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_32px_rgba(0,0,0,0.10)]">
-                <ArtifactRenderer
-                  type={type}
-                  language={language}
-                  content={shownBody}
-                  onRuntimeError={setRuntimeError}
-                  reloadKey={reloadKey}
-                />
-              </div>
+            // The design fills the panel edge to edge (responsive, exactly like
+            // the popped-out/published view) rather than floating in a fixed
+            // max-width card — so its own responsive CSS adapts to the panel.
+            <div ref={previewRef} className="relative flex min-h-0 flex-1 overflow-hidden bg-white">
+              <ArtifactRenderer
+                type={type}
+                language={language}
+                content={shownBody}
+                onRuntimeError={setRuntimeError}
+                reloadKey={reloadKey}
+              />
 
               {commentMode && (
                 <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">

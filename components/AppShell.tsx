@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppSettings, Conversation, ModelInfo, Project } from "@/lib/types";
 import { api } from "@/lib/client";
 import Sidebar from "./Sidebar";
@@ -55,6 +55,9 @@ export default function AppShell({ initialView }: { initialView: View }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [booted, setBooted] = useState(false);
   const [workspace, setWorkspace] = useState<"chat" | "design">("chat");
+  // Once the user picks a workspace, the async mount-time mode sync (which
+  // reads the opened conversation's mode) must not stomp their choice.
+  const workspacePicked = useRef(false);
 
   const setView = useCallback((next: View) => {
     setViewState(next);
@@ -146,7 +149,9 @@ export default function AppShell({ initialView }: { initialView: View }) {
     let cancelled = false;
     api<Conversation>(`/api/conversations/${initialView.conversationId}`)
       .then((c) => {
-        if (!cancelled && c?.mode === "design") setWorkspace("design");
+        if (!cancelled && !workspacePicked.current && c?.mode === "design") {
+          setWorkspace("design");
+        }
       })
       .catch(() => {});
     return () => {
@@ -189,6 +194,7 @@ export default function AppShell({ initialView }: { initialView: View }) {
         view={view}
         workspace={workspace}
         onWorkspaceChange={(w) => {
+          workspacePicked.current = true;
           setWorkspace(w);
           setView({ kind: "chat", conversationId: null });
         }}

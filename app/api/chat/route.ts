@@ -899,6 +899,13 @@ ${ds.spec}`;
               }
             } else if (call.function.name === "artifact_read") {
               output = await execArtifactRead(conversation.id, call.function.arguments);
+            } else if (/^(liberde_?run|run_?(js|javascript|code|python)|code_?(execution|interpreter)|execute_?(code|javascript))$/i.test(call.function.name)) {
+              // The analysis tool is a <liberdeRun>…</liberdeRun> TAG the client
+              // runs in a browser sandbox — NOT a callable function. Weaker
+              // models sometimes invoke it as a tool; steer them to the tag
+              // instead of dead-ending on "no connected server provides…".
+              output =
+                "There is no runnable function for code — the analysis tool works by writing a <liberdeRun>…</liberdeRun> block directly in your reply (JavaScript, runs in the browser sandbox, result comes back automatically). Do NOT call a tool for this. Put your code inside <liberdeRun></liberdeRun> in your next message instead.";
             } else if (isMemoryTool(call.function.name)) {
               output = await execMemoryTool(call.function.name, call.function.arguments, userId);
             } else if (isRecallTool(call.function.name)) {
