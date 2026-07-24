@@ -74,6 +74,8 @@ export interface Message {
   tokens_out?: number | null;
   /** JSON {"model":n,"search":n,"image":n} — where this turn's cost went. */
   cost_breakdown?: string | null;
+  /** Wall-clock generation time for this assistant turn. */
+  duration_ms?: number | null;
   created_at: number;
 }
 

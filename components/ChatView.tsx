@@ -1227,6 +1227,12 @@ export default function ChatView({
                     {msg.cost != null && msg.cost > 0 && (
                       <span title={costTooltip(msg)}>{fmtCost(msg.cost)}</span>
                     )}
+                    {msg.tokens_out != null && msg.tokens_out > 0 && (
+                      <span title="Output tokens">{num(msg.tokens_out)} tok</span>
+                    )}
+                    {msg.duration_ms != null && msg.duration_ms > 0 && (
+                      <span title="Generation time">{fmtDuration(msg.duration_ms)}</span>
+                    )}
                     <button
                       onClick={() => navigator.clipboard.writeText(msg.content)}
                       title="Copy"
@@ -1619,6 +1625,14 @@ function fmtCost(cost: number): string {
   if (cost < 0.01) return `$${cost.toFixed(4)}`;
   if (cost < 1) return `$${cost.toFixed(3)}`;
   return `$${cost.toFixed(2)}`;
+}
+
+const num = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
+
+function fmtDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;
 }
 
 /** Hover text for a message's cost: tokens + where the money went. */

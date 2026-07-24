@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
     );
   }
   await addMessage(conversation.id, "user", prompt);
+  const runStart = Date.now();
 
   // Resolve references to the conversation ("make an image of that") into a
   // self-contained prompt, so Image mode carries context like the other tools.
@@ -73,6 +74,7 @@ export async function POST(req: NextRequest) {
       cost_breakdown: Number(data.usage?.cost)
         ? JSON.stringify({ image: Number(data.usage.cost) })
         : null,
+      duration_ms: Date.now() - runStart,
     }
   );
   return Response.json({ message: saved }, { status: 201 });

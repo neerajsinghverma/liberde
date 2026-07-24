@@ -363,6 +363,8 @@ const SCHEMA_STATEMENTS: string[] = [
   `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS design_system_id TEXT`,
   // Cost attribution: JSON {"model":n,"search":n,"image":n} per assistant turn.
   `ALTER TABLE messages ADD COLUMN IF NOT EXISTS cost_breakdown TEXT`,
+  // Wall-clock generation time per assistant turn (footer: cost · tok · ms).
+  `ALTER TABLE messages ADD COLUMN IF NOT EXISTS duration_ms INTEGER`,
   `CREATE INDEX IF NOT EXISTS idx_design_systems_user ON design_systems(user_id)`,
   `CREATE INDEX IF NOT EXISTS idx_design_system_shares_user ON design_system_shares(user_id)`,
   `CREATE INDEX IF NOT EXISTS idx_artifact_shares_user ON artifact_shares(user_id)`,
@@ -824,6 +826,7 @@ export async function addMessage(
     tokens_in?: number | null;
     tokens_out?: number | null;
     cost_breakdown?: string | null;
+    duration_ms?: number | null;
   } = {}
 ): Promise<Message> {
   const msg: Message = {
@@ -843,10 +846,11 @@ export async function addMessage(
     tokens_in: extras.tokens_in ?? null,
     tokens_out: extras.tokens_out ?? null,
     cost_breakdown: extras.cost_breakdown ?? null,
+    duration_ms: extras.duration_ms ?? null,
     created_at: now(),
   };
   await q(
-    "INSERT INTO messages (id, conversation_id, role, content, model, attachments, reasoning, annotations, images, tool_calls, tool_call_id, reasoning_ms, cost, tokens_in, tokens_out, cost_breakdown, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)",
+    "INSERT INTO messages (id, conversation_id, role, content, model, attachments, reasoning, annotations, images, tool_calls, tool_call_id, reasoning_ms, cost, tokens_in, tokens_out, cost_breakdown, duration_ms, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)",
     [
       msg.id,
       msg.conversation_id,
@@ -864,6 +868,7 @@ export async function addMessage(
       msg.tokens_in,
       msg.tokens_out,
       msg.cost_breakdown,
+      msg.duration_ms,
       msg.created_at,
     ]
   );

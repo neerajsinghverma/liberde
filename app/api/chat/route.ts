@@ -285,7 +285,7 @@ For IMAGERY: ${
           : "use images from images.unsplash.com or picsum.photos for any imagery (there is no image-generation tool in this mode)."
       }
 
-For SLIDE DECKS: emit the artifact as a slides type (<liberdeArtifact type="slides" …>), with each slide as a top-level \`<section class="slide">\` element — this unlocks the built-in deck player, arrow-key/on-screen navigation, print-to-PDF, and PowerPoint (.pptx) export. Put a clear heading (h1/h2) and concise bullet/paragraph content in each slide (one idea per slide) and keep the text as plain static HTML so it stays editable and exports cleanly. Define the theme via CSS custom properties in :root. End each slide with speaker notes — <aside class="notes">1–3 sentences the presenter would say</aside> — hidden on the slide itself, editable in the player's 🗒 notes panel, exported as PowerPoint presenter notes.
+For SLIDE DECKS: emit the artifact as a slides type (<liberdeArtifact type="slides" …>), with each slide as a top-level \`<section class="slide">\` element — this unlocks the built-in deck player (each slide is a FIXED 1920×1080 canvas scaled to fit — design in absolute pixels for it and make every slide's content fit; overflow is clipped), arrow-key/on-screen navigation, print-to-PDF, and PowerPoint (.pptx) export. Put a clear heading (h1/h2) and concise bullet/paragraph content in each slide (one idea per slide) and keep the text as plain static HTML so it stays editable and exports cleanly. Define the theme via CSS custom properties in :root. End each slide with speaker notes — <aside class="notes">1–3 sentences the presenter would say</aside> — hidden on the slide itself, editable in the player's 🗒 notes panel, exported as PowerPoint presenter notes.
 
 ## 3. Tweak surgically
 When the user asks for a change, edit ONLY what they asked and PRESERVE everything else — layout, spacing, fonts, positions, and colors you weren't asked to touch. Update the CURRENT artifact with a targeted change; never rewrite from scratch or "improve" unrelated parts. Common tweaks: recolor the palette, restyle a single slide/screen, rewrite copy, add/remove a slide, swap an image, change the vibe.
@@ -394,6 +394,9 @@ ${ds.spec}`;
       const finalImages: string[] = [];
       let useExtReasoning = body.think && !target.isOpenRouter;
       let useTools = tools.length > 0;
+      // Set when OpenRouter 402s on pre-authorization (low balance can't cover
+      // the model's maximum output reservation) — retry with an affordable cap.
+      let maxTokensCap: number | null = null;
       // Last-resort fallback: some models/providers reject optional features
       // (web/pdf plugins, reasoning, tools) with an error that isn't specific
       // enough to pattern-match. When set, we resend a bare request.
@@ -484,6 +487,7 @@ ${ds.spec}`;
             tokens_in: totalTokensIn || null,
             tokens_out: totalTokensOut || null,
             cost_breakdown: costBreakdown,
+            duration_ms: Date.now() - turnStart,
           });
           savedId = saved.id;
           try {
@@ -550,6 +554,7 @@ ${ds.spec}`;
               messages: apiMessages,
               stream: true,
               temperature: settings.temperature,
+              ...(maxTokensCap ? { max_tokens: maxTokensCap } : {}),
               ...(useTools && round < MAX_TOOL_ROUNDS && !minimalMode ? { tools } : {}),
               // Provider-specific extras.
               ...(target.isOpenRouter
@@ -585,6 +590,28 @@ ${ds.spec}`;
 
           if (!upstream.ok || !upstream.body) {
             const detail = await upstream.text();
+            // OpenRouter pre-authorizes the model's MAX output length: with a
+            // low balance it 402s even though the actual reply would cost
+            // pennies ("requested up to 65536 tokens, but can only afford N").
+            // Retry once with an affordable max_tokens cap.
+            const afford = detail.match(/can only afford (\d+)/i);
+            if (upstream.status === 402 && afford && !maxTokensCap) {
+              maxTokensCap = Math.max(1024, Math.floor(Number(afford[1]) * 0.9));
+              emit({
+                toolEvent: {
+                  status: `OpenRouter balance is low — capping this reply at ${maxTokensCap.toLocaleString()} tokens so it can run`,
+                },
+              });
+              round--;
+              continue;
+            }
+            if (upstream.status === 402) {
+              emit({
+                error:
+                  "Your OpenRouter balance is too low to reserve this model's output. Top up at openrouter.ai/settings/credits, or switch to a cheaper/free model.",
+              });
+              break;
+            }
             // Models that don't take reasoning_effort get a retry without it.
             if (useExtReasoning && /reasoning/i.test(detail)) {
               useExtReasoning = false;

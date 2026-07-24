@@ -85,6 +85,7 @@ export async function POST(req: NextRequest) {
       };
 
       let totalCost = 0;
+      const runStart = Date.now();
       // The web-search rounds (search plugin + reader model) vs the synthesis
       // model — attributed separately on the Usage page.
       let searchCost = 0;
@@ -265,6 +266,7 @@ export async function POST(req: NextRequest) {
                   ...(searchCost > 0 ? { search: searchCost } : {}),
                 })
               : null,
+            duration_ms: Date.now() - runStart,
           }
         );
         if (conversation.title === "New chat") {

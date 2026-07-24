@@ -77,7 +77,10 @@ export function buildSlidesSrcDoc(content: string): string {
 <style>
 html,body{margin:0;height:100%;font-family:ui-sans-serif,system-ui,sans-serif}
 #liberde-deck{height:100vh;position:relative;overflow:hidden;background:#111}
-#liberde-deck .slide{position:absolute;inset:0;display:none;flex-direction:column;justify-content:center;padding:7vh 9vw;box-sizing:border-box;overflow:auto;background:#fff}
+/* Claude-style slide geometry: every slide is a fixed 1920x1080 (16:9) canvas,
+   transform-scaled to fit whatever viewport the deck gets (canvas panel, full
+   screen). Typography and layout never reflow — the slide scales as a whole. */
+#liberde-deck .slide{position:absolute;left:50%;top:50%;width:1920px;height:1080px;transform:translate(-50%,-50%) scale(var(--lbs,1));display:none;flex-direction:column;justify-content:center;padding:96px 128px;box-sizing:border-box;overflow:hidden;background:#fff;box-shadow:0 12px 48px rgba(0,0,0,.55)}
 #liberde-deck .slide.active{display:flex}
 #liberde-ctl{position:fixed;right:14px;bottom:12px;z-index:9999;display:flex;gap:6px;align-items:center;font:13px/1 ui-sans-serif,system-ui;background:rgba(0,0,0,.55);color:#fff;border-radius:999px;padding:6px 10px}
 #liberde-ctl button{all:unset;cursor:pointer;padding:2px 8px;border-radius:999px}
@@ -91,9 +94,11 @@ html,body{margin:0;height:100%;font-family:ui-sans-serif,system-ui,sans-serif}
 #lb-notes-text{width:100%;min-height:64px;max-height:32vh;box-sizing:border-box;background:transparent;color:#eee;border:none;outline:none;resize:vertical;font:13px/1.55 ui-sans-serif,system-ui}
 #lb-notes-text::placeholder{color:#777}
 @media print{
+  /* 10in x 5.625in = 960x540 CSS px — exactly half the 1920x1080 canvas. */
+  @page{size:10in 5.625in;margin:0}
   #liberde-ctl,#liberde-notes{display:none !important}
   #liberde-deck{height:auto;overflow:visible;background:#fff}
-  #liberde-deck .slide{display:flex !important;position:relative;inset:auto;height:100vh;page-break-after:always}
+  #liberde-deck .slide{display:flex !important;position:relative;inset:auto;left:auto;top:auto;transform:none;zoom:0.5;width:1920px;height:1080px;box-shadow:none;page-break-after:always}
 }
 </style>
 </head><body>${ERROR_OVERLAY}
@@ -120,6 +125,14 @@ html,body{margin:0;height:100%;font-family:ui-sans-serif,system-ui,sans-serif}
   }
   if(slides.length===0)return;
   var i=0;
+  // Fit the fixed 1920x1080 canvas to the viewport (Claude-style photographic
+  // scaling — the slide shrinks/grows as a whole, never reflows).
+  function fit(){
+    var s=Math.min(window.innerWidth/1920,window.innerHeight/1080);
+    deck.style.setProperty('--lbs',String(s));
+  }
+  window.addEventListener('resize',fit);
+  fit();
   var notesPanel=document.getElementById('liberde-notes');
   var notesText=document.getElementById('lb-notes-text');
   var notesN=document.getElementById('lb-notes-n');
