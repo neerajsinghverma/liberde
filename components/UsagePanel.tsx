@@ -76,7 +76,10 @@ export default function UsagePanel() {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 overflow-y-auto px-6 py-8">
+    // Scroll the full-width container (scrollbar at the page edge, like every
+    // other page) and cap/center the content on an inner wrapper.
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-8">
       {/* max-md:pl-9 clears the floating mobile hamburger (AppShell, left-3). */}
       <div className="max-md:pl-9">
         <h1 className="font-display text-2xl font-semibold tracking-tight">Usage</h1>
@@ -329,6 +332,7 @@ export default function UsagePanel() {
           </table>
         </div>
       </section>
+      </div>
     </div>
   );
 }
