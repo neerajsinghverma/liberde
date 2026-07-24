@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ArtifactRecord, ArtifactType, ArtifactVersion } from "@/lib/artifact-shared";
 import { api } from "@/lib/client";
 import { toast } from "@/lib/ui";
-import ArtifactRenderer, { CodeView } from "./ArtifactRenderer";
+import ArtifactRenderer, { CodeView, CodeEditor } from "./ArtifactRenderer";
 import { buildSrcDoc } from "@/lib/artifact-srcdoc";
 import Icon from "./Icon";
 
@@ -636,22 +636,22 @@ export default function ArtifactPanel({
           <div className="flex min-h-0 flex-1 flex-col">
             {type === "markdown" || type === "html" || type === "svg" ? (
               <div className="grid min-h-0 flex-1 grid-cols-2 divide-x divide-line">
-                <textarea
+                <CodeEditor
                   value={editValue}
-                  onChange={(e) => setEditValue(e.target.value)}
-                  spellCheck={false}
-                  className="min-h-0 resize-none bg-surface-2 p-4 font-mono text-xs leading-relaxed outline-none"
+                  onChange={setEditValue}
+                  language={language ?? typeToHighlight(type)}
+                  className="flex-1"
                 />
                 <div className="min-h-0 overflow-auto">
                   <ArtifactRenderer type={type} language={language} content={editValue} />
                 </div>
               </div>
             ) : (
-              <textarea
+              <CodeEditor
                 value={editValue}
-                onChange={(e) => setEditValue(e.target.value)}
-                spellCheck={false}
-                className="min-h-0 flex-1 resize-none bg-surface-2 p-4 font-mono text-xs leading-relaxed outline-none"
+                onChange={setEditValue}
+                language={language ?? typeToHighlight(type)}
+                className="flex-1"
               />
             )}
             <div className="flex justify-end gap-2 border-t border-line px-3 py-2">

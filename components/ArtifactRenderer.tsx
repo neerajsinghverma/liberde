@@ -71,6 +71,92 @@ export default function ArtifactRenderer({
   return <CodeView content={content} language={language} />;
 }
 
+/**
+ * A syntax-highlighted code editor: a highlighted <pre> layer sits behind a
+ * transparent-text <textarea>, so you type into a real, editable field that
+ * looks color-coded (highlight.js + the app's github-dark theme). Both layers
+ * share identical typography/padding/wrapping so the caret stays aligned.
+ */
+export function CodeEditor({
+  value,
+  onChange,
+  language,
+  className,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  language: string | null;
+  className?: string;
+}) {
+  const codeRef = useRef<HTMLElement>(null);
+  const preRef = useRef<HTMLPreElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const el = codeRef.current;
+    if (!el) return;
+    try {
+      const result =
+        language && hljs.getLanguage(language)
+          ? hljs.highlight(value, { language })
+          : hljs.highlightAuto(value);
+      // Trailing newline keeps the highlighted layer's height in lockstep with
+      // the textarea when the content ends without one.
+      el.innerHTML = result.value + "\n";
+    } catch {
+      el.textContent = value + "\n";
+    }
+  }, [value, language]);
+
+  const syncScroll = () => {
+    const ta = taRef.current;
+    const pre = preRef.current;
+    if (ta && pre) {
+      pre.scrollTop = ta.scrollTop;
+      pre.scrollLeft = ta.scrollLeft;
+    }
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const ta = e.currentTarget;
+      const s = ta.selectionStart;
+      const en = ta.selectionEnd;
+      onChange(value.slice(0, s) + "  " + value.slice(en));
+      requestAnimationFrame(() => {
+        ta.selectionStart = ta.selectionEnd = s + 2;
+      });
+    }
+  };
+
+  // Identical box model on both layers so the highlight sits exactly under the text.
+  const shared =
+    "m-0 border-0 p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words";
+
+  return (
+    <div className={`hljs relative min-h-0 overflow-hidden ${className ?? ""}`}>
+      <pre
+        ref={preRef}
+        aria-hidden
+        className={`pointer-events-none absolute inset-0 overflow-hidden ${shared}`}
+        style={{ background: "transparent" }}
+      >
+        <code ref={codeRef} />
+      </pre>
+      <textarea
+        ref={taRef}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onScroll={syncScroll}
+        onKeyDown={onKeyDown}
+        spellCheck={false}
+        className={`absolute inset-0 resize-none overflow-auto bg-transparent text-transparent caret-white outline-none ${shared}`}
+      />
+    </div>
+  );
+}
+
 export function CodeView({
   content,
   language,
