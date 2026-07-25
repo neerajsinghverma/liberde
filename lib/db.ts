@@ -368,6 +368,17 @@ const SCHEMA_STATEMENTS: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_design_systems_user ON design_systems(user_id)`,
   `CREATE INDEX IF NOT EXISTS idx_design_system_shares_user ON design_system_shares(user_id)`,
   `CREATE INDEX IF NOT EXISTS idx_artifact_shares_user ON artifact_shares(user_id)`,
+  // Email flows: short-lived password-reset / email-verify tokens (hashed), and
+  // a per-user verified flag.
+  `CREATE TABLE IF NOT EXISTS auth_tokens (
+    token_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    expires_at BIGINT NOT NULL,
+    created_at BIGINT NOT NULL
+  )`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified INTEGER NOT NULL DEFAULT 0`,
+  `CREATE INDEX IF NOT EXISTS idx_auth_tokens_user ON auth_tokens(user_id)`,
 ];
 
 async function initSchema(): Promise<void> {
@@ -380,6 +391,23 @@ async function initSchema(): Promise<void> {
     } catch (e) {
       console.error("[liberde] schema statement failed (continuing):", String(e).slice(0, 200));
     }
+  }
+
+  // One-time grandfather: accounts that existed BEFORE email verification was
+  // introduced must not be locked out by the new login gate. Runs exactly once
+  // (guarded by a marker), so genuinely-unverified future signups stay gated.
+  try {
+    const done = (await sqlClient().query(
+      "SELECT 1 FROM settings WHERE user_id = 'global' AND key = 'email_verify_backfill' LIMIT 1"
+    )).rows;
+    if (done.length === 0) {
+      await sqlClient().query("UPDATE users SET email_verified = 1");
+      await sqlClient().query(
+        "INSERT INTO settings (user_id, key, value) VALUES ('global', 'email_verify_backfill', '1') ON CONFLICT(user_id, key) DO NOTHING"
+      );
+    }
+  } catch (e) {
+    console.error("[liberde] email-verify backfill failed (continuing):", String(e).slice(0, 200));
   }
 
   // Temporary chats are ephemeral by contract: purge stale ones on boot.

@@ -22,6 +22,7 @@ export interface User {
   email: string;
   name: string;
   is_admin: number;
+  email_verified?: number;
   created_at: number;
 }
 
@@ -64,9 +65,13 @@ export async function createUser(
   // Decide is_admin ATOMICALLY at insert time (first account = admin) instead of
   // a separate earlier countUsers() read — closing the race where two concurrent
   // first-signups could both read 0 and both become admin.
+  // The first account is admin AND auto-verified (bootstrap — the operator must
+  // never be locked out behind email verification). Both decided atomically.
   await q(
-    `INSERT INTO users (id, email, name, password_hash, is_admin, created_at)
-     VALUES ($1, $2, $3, $4, (SELECT CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END FROM users), $5)`,
+    `INSERT INTO users (id, email, name, password_hash, is_admin, email_verified, created_at)
+     VALUES ($1, $2, $3, $4,
+        (SELECT CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END FROM users),
+        (SELECT CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END FROM users), $5)`,
     [id, emailNorm, nameNorm, hashPassword(password), createdAt]
   );
   const row = (await q("SELECT is_admin FROM users WHERE id = $1", [id]))[0] as
@@ -74,7 +79,14 @@ export async function createUser(
     | undefined;
   const isFirst = row?.is_admin === 1;
   if (isFirst) await claimLegacyData(id);
-  return { id, email: emailNorm, name: nameNorm, is_admin: isFirst ? 1 : 0, created_at: createdAt };
+  return {
+    id,
+    email: emailNorm,
+    name: nameNorm,
+    is_admin: isFirst ? 1 : 0,
+    email_verified: isFirst ? 1 : 0,
+    created_at: createdAt,
+  };
 }
 
 /** The first real account inherits everything created in single-user mode. */
@@ -120,9 +132,62 @@ export async function destroySession(token: string) {
 
 const sha256 = (s: string) => crypto.createHash("sha256").update(s).digest("hex");
 
+// ---------------------------------------------------------------------------
+// Email flows: password reset + email verification.
+
+/** Email features are active only when Resend is configured. */
+export const emailEnabled = () => Boolean(process.env.RESEND_API_KEY);
+
+type TokenKind = "reset" | "verify";
+const TOKEN_TTL: Record<TokenKind, number> = {
+  reset: 60 * 60 * 1000, // 1 hour
+  verify: 24 * 60 * 60 * 1000, // 24 hours
+};
+
+/** Mint a single-use token (stored hashed), return the raw token for the link. */
+export async function createAuthToken(userId: string, kind: TokenKind): Promise<string> {
+  const token = crypto.randomBytes(32).toString("base64url");
+  await q(
+    "INSERT INTO auth_tokens (token_hash, user_id, kind, expires_at, created_at) VALUES ($1, $2, $3, $4, $5)",
+    [sha256(token), userId, kind, Date.now() + TOKEN_TTL[kind], Date.now()]
+  );
+  return token;
+}
+
+/** Validate + consume (delete) a token; returns the userId or null. */
+export async function consumeAuthToken(
+  token: string,
+  kind: TokenKind
+): Promise<string | null> {
+  if (!token) return null;
+  const rows = await q(
+    "SELECT user_id FROM auth_tokens WHERE token_hash = $1 AND kind = $2 AND expires_at > $3",
+    [sha256(token), kind, Date.now()]
+  );
+  const userId = (rows[0] as { user_id?: string } | undefined)?.user_id;
+  if (userId) await q("DELETE FROM auth_tokens WHERE token_hash = $1", [sha256(token)]);
+  return userId ?? null;
+}
+
+export async function setUserPassword(userId: string, password: string) {
+  await q("UPDATE users SET password_hash = $1 WHERE id = $2", [
+    hashPassword(password),
+    userId,
+  ]);
+}
+
+/** Invalidate every session for a user (used after a password reset). */
+export async function deleteUserSessions(userId: string) {
+  await q("DELETE FROM sessions WHERE user_id = $1", [userId]);
+}
+
+export async function setEmailVerified(userId: string) {
+  await q("UPDATE users SET email_verified = 1 WHERE id = $1", [userId]);
+}
+
 export async function getUserByToken(token: string): Promise<User | undefined> {
   const rows = await q(
-    `SELECT u.id, u.email, u.name, u.is_admin, u.created_at FROM sessions s
+    `SELECT u.id, u.email, u.name, u.is_admin, u.email_verified, u.created_at FROM sessions s
      JOIN users u ON u.id = s.user_id
      WHERE s.token_hash = $1 AND s.expires_at > $2`,
     [sha256(token), Date.now()]
@@ -149,6 +214,7 @@ export async function getRequestUser(): Promise<User | null> {
       email: "",
       name: "Local user",
       is_admin: 1,
+      email_verified: 1,
       created_at: 0,
     };
   }
