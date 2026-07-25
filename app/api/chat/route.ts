@@ -15,7 +15,6 @@ import {
   updateConversation,
   updateMessageAttachments,
   saveGeneratedImage,
-  spendThisMonth,
 } from "@/lib/db";
 import {
   buildSystemPrompt,
@@ -50,6 +49,7 @@ import {
 } from "@/lib/memory";
 import { ANALYSIS_SYSTEM_PROMPT } from "@/lib/analysis";
 import { getRequestUserId, unauthorized } from "@/lib/auth";
+import { bodyTooLarge, attachmentsProblem, MAX_CONTENT_CHARS } from "@/lib/limits";
 import { resolveChatTarget, targetHeaders, type ChatTarget } from "@/lib/providers";
 import { assembleTools, callTool } from "@/lib/mcp";
 import {
@@ -140,7 +140,14 @@ const sse = (obj: unknown) => `data: ${JSON.stringify(obj)}\n\n`;
 export async function POST(req: NextRequest) {
   const userId = await getRequestUserId();
   if (!userId) return unauthorized();
+  const tooLarge = bodyTooLarge(req);
+  if (tooLarge) return tooLarge;
   const body = (await req.json()) as ChatRequest;
+  const attProblem = attachmentsProblem(body.attachments);
+  if (attProblem) return attProblem;
+  if (typeof body.content === "string" && body.content.length > MAX_CONTENT_CHARS) {
+    return Response.json({ error: "Message is too long." }, { status: 413 });
+  }
   const conversation = await getConversation(body.conversationId);
   if (!conversation || (conversation.user_id && conversation.user_id !== userId)) {
     return Response.json({ error: "Conversation not found" }, { status: 404 });
@@ -165,13 +172,6 @@ export async function POST(req: NextRequest) {
     target = await resolveChatTarget(requestedModel, userId);
   } catch (e) {
     return Response.json({ error: String(e) }, { status: 400 });
-  }
-
-  if (settings.monthlyBudget > 0 && (await spendThisMonth(userId)) >= settings.monthlyBudget) {
-    return Response.json(
-      { error: `Monthly budget of $${settings.monthlyBudget} reached. Raise it in Settings → General.` },
-      { status: 402 }
-    );
   }
 
   if (!(await tryLockConversation(conversation.id))) {

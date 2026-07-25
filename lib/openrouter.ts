@@ -55,7 +55,6 @@ export async function getSettings(userId?: string) {
     memoryEnabled: (await getSetting("memory_enabled", userId)) !== "0",
     /** Let the model search the user's own past chats (default on; toggleable). */
     recallEnabled: (await getSetting("recall_enabled", userId)) !== "0",
-    monthlyBudget: Number((await getSetting("monthly_budget", userId)) ?? "0") || 0,
     temperature: Number((await getSetting("temperature", userId)) ?? "1"),
   };
 }

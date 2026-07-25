@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { getRequestUserId, unauthorized } from "@/lib/auth";
+import { bodyTooLarge } from "@/lib/limits";
 import {
   complete,
   getSettings,
@@ -17,6 +18,8 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   const userId = await getRequestUserId();
   if (!userId) return unauthorized();
+  const tooLarge = bodyTooLarge(req);
+  if (tooLarge) return tooLarge;
   const { prompt, current, name, images, model } = await req.json();
   // Screenshots / brand assets to extract from (data URLs). With images, a
   // bare prompt is optional — "extract from these" is implied.

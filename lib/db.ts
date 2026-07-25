@@ -479,11 +479,14 @@ export async function setSetting(
 }
 
 export async function getApiKey(userId: string = DEFAULT_USER): Promise<string> {
-  return (
-    (await getSetting("openrouter_api_key", userId)) ||
-    process.env.OPENROUTER_API_KEY ||
-    ""
-  );
+  const own = await getSetting("openrouter_api_key", userId);
+  if (own) return own;
+  // The shared OPENROUTER_API_KEY env fallback is allowed ONLY for a
+  // single-user/local install (no auth). Any multi-user or public deploy
+  // (Vercel, or REQUIRE_AUTH set) is strictly per-user — never let one user
+  // (or the operator's key) be spent by anyone else.
+  const multiUser = Boolean(process.env.REQUIRE_AUTH ?? process.env.VERCEL);
+  return multiUser ? "" : process.env.OPENROUTER_API_KEY || "";
 }
 
 // ---------- conversations ----------
@@ -1530,8 +1533,14 @@ export async function addProjectFile(
   return file;
 }
 
-export async function deleteProjectFile(id: string) {
-  await q("DELETE FROM project_files WHERE id = $1", [id]);
+export async function deleteProjectFile(id: string, projectId?: string) {
+  // When projectId is given, scope the delete to it so a caller can't remove a
+  // file that belongs to a different (foreign) project.
+  if (projectId) {
+    await q("DELETE FROM project_files WHERE id = $1 AND project_id = $2", [id, projectId]);
+  } else {
+    await q("DELETE FROM project_files WHERE id = $1", [id]);
+  }
 }
 
 // ---------- artifacts ----------
@@ -2054,6 +2063,7 @@ export interface SkillRecord {
   instructions: string;
   connector_ids: string | null; // JSON array of connector ids this skill bundles
   enabled: number;
+  user_id: string;
   created_at: number;
 }
 

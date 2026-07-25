@@ -45,6 +45,39 @@ const importExternal = (url: string) =>
   // Bypass the bundler: resolved in the browser at click time.
   (new Function("u", "return import(u)")(url)) as Promise<{ default: unknown; [k: string]: unknown }>;
 
+/**
+ * Open an artifact in a new tab WITHOUT letting its (untrusted, model/attacker-
+ * authored) HTML run on the liberde.ai origin. The new tab is a minimal trusted
+ * shell we control; the artifact lives inside a sandboxed iframe (no
+ * allow-same-origin → opaque origin), so it can't read cookies/localStorage or
+ * call /api. This replaces the old `window.open(blob)` / `document.write(doc)`
+ * that ran the artifact same-origin.
+ */
+function openArtifactSandboxed(doc: string, autoPrint = false) {
+  // For the PDF path, ask the deck to print ITSELF from inside the sandbox
+  // (allow-modals permits the print dialog).
+  const printScript =
+    "<script>window.addEventListener('load',function(){setTimeout(function(){try{print()}catch(e){}},500)})<\/script>";
+  const inner = autoPrint
+    ? doc.includes("</body>")
+      ? doc.replace("</body>", printScript + "</body>")
+      : doc + printScript
+    : doc;
+  const w = window.open("about:blank", "_blank");
+  if (!w) return;
+  w.document.open();
+  w.document.write(
+    '<!doctype html><html><head><meta charset="utf-8"><title>Liberde artifact</title>' +
+      "<style>html,body{margin:0;height:100%;background:#111}iframe{border:0;position:fixed;inset:0;width:100%;height:100%}</style>" +
+      "</head><body></body></html>"
+  );
+  w.document.close();
+  const ifr = w.document.createElement("iframe");
+  ifr.setAttribute("sandbox", "allow-scripts allow-forms allow-popups allow-modals");
+  ifr.srcdoc = inner; // property assignment — no escaping needed
+  w.document.body.appendChild(ifr);
+}
+
 export default function ArtifactPanel({
   content,
   onClose,
@@ -472,13 +505,7 @@ export default function ArtifactPanel({
               title="Export as PDF (opens the deck and prints — choose 'Save as PDF')"
               onClick={() => {
                 const doc = buildSrcDoc("slides", shownBody);
-                if (!doc) return;
-                const w = window.open("", "_blank");
-                if (!w) return;
-                w.document.write(doc);
-                w.document.close();
-                // Give the deck a moment to lay out, then open the print dialog.
-                w.onload = () => setTimeout(() => w.print(), 400);
+                if (doc) openArtifactSandboxed(doc, true);
               }}
               className="rounded px-1.5 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink"
             >
@@ -546,9 +573,7 @@ export default function ArtifactPanel({
             title={type === "slides" ? "Present full screen (print for PDF)" : "Open full screen"}
             onClick={() => {
               const doc = buildSrcDoc(type!, shownBody);
-              if (!doc) return;
-              const blob = new Blob([doc], { type: "text/html" });
-              window.open(URL.createObjectURL(blob), "_blank");
+              if (doc) openArtifactSandboxed(doc);
             }}
             className="rounded px-1.5 py-1 text-ink-muted hover:bg-surface-2 hover:text-ink"
           >

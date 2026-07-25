@@ -21,7 +21,6 @@ export async function GET() {
     responseStyle: s.responseStyle,
     memoryEnabled: s.memoryEnabled,
     recallEnabled: s.recallEnabled,
-    monthlyBudget: s.monthlyBudget,
     temperature: s.temperature,
   });
 }
@@ -51,8 +50,6 @@ export async function PUT(req: NextRequest) {
     await setSetting("memory_enabled", body.memoryEnabled ? "1" : "0", userId);
   if (typeof body.recallEnabled === "boolean")
     await setSetting("recall_enabled", body.recallEnabled ? "1" : "0", userId);
-  if (body.monthlyBudget != null && !Number.isNaN(Number(body.monthlyBudget)))
-    await setSetting("monthly_budget", String(Math.max(0, Number(body.monthlyBudget))), userId);
   if (body.temperature != null && !Number.isNaN(Number(body.temperature))) {
     await setSetting(
       "temperature",

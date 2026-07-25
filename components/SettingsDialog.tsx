@@ -87,7 +87,6 @@ export default function SettingsDialog({
   const [editingMemText, setEditingMemText] = useState("");
   const [newMemText, setNewMemText] = useState("");
   const [temperature, setTemperature] = useState(settings.temperature);
-  const [monthlyBudget, setMonthlyBudget] = useState(String(settings.monthlyBudget ?? 0));
   const [saving, setSaving] = useState(false);
   const [keyStatus, setKeyStatus] = useState<
     "checking" | { ok: boolean; msg: string } | null
@@ -164,7 +163,6 @@ export default function SettingsDialog({
           memoryEnabled,
           recallEnabled,
           temperature,
-          monthlyBudget: Number(monthlyBudget) || 0,
         }),
       });
       onSaved(saved);
@@ -372,20 +370,6 @@ export default function SettingsDialog({
                 />
               </Field>
 
-              <Field
-                label="Monthly budget (USD)"
-                hint="Blocks new generations once this month's spend is reached. 0 = unlimited. See spend on the Usage page."
-              >
-                <input
-                  type="number"
-                  min={0}
-                  step="1"
-                  value={monthlyBudget}
-                  onChange={(e) => setMonthlyBudget(e.target.value)}
-                  placeholder="0"
-                  className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
-                />
-              </Field>
             </div>
           ) : tab === "personalization" ? (
             <div className="space-y-5">

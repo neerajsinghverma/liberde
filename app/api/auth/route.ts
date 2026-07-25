@@ -12,6 +12,7 @@ import {
   SESSION_COOKIE,
 } from "@/lib/auth";
 import { getSetting } from "@/lib/db";
+import { checkBotId } from "botid/server";
 
 /** GET: current auth state. */
 export async function GET() {
@@ -45,6 +46,18 @@ export async function POST(req: NextRequest) {
   }
 
   if (body.action === "signup") {
+    // Vercel BotID: block scripted SIGNUP floods (login brute-force is handled
+    // separately by the rate limiter). Fail OPEN — a BotID error/misconfig must
+    // never block real signups; only an explicit bot verdict is rejected.
+    // (No-op off Vercel / in dev.)
+    try {
+      const verdict = await checkBotId();
+      if (verdict.isBot) {
+        return Response.json({ error: "Automated request blocked." }, { status: 403 });
+      }
+    } catch {
+      /* fail open */
+    }
     if ((await countUsers()) > 0 && (await getSetting("allow_signups", "global")) === "0") {
       return Response.json({ error: "Signups are disabled" }, { status: 403 });
     }

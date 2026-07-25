@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { BotIdClient } from "botid/client";
 
 export default function LoginPage() {
   const [mode, setMode] = useState<"login" | "signup">("login");
@@ -48,6 +49,8 @@ export default function LoginPage() {
 
   return (
     <div className="relative grid h-dvh place-items-center overflow-hidden px-4">
+      {/* Invisible bot detection for signup/login (active on Vercel). */}
+      <BotIdClient protect={[{ path: "/api/auth", method: "POST" }]} />
       <div className="login-blob" style={{ width: 420, height: 420, top: "-12%", left: "-8%", opacity: 0.25 }} />
       <div className="login-blob" style={{ width: 360, height: 360, bottom: "-14%", right: "-6%", opacity: 0.18, animationDelay: "2.5s" }} />
       <div className="login-card relative w-full max-w-sm">

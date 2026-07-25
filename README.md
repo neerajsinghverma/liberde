@@ -52,10 +52,16 @@ npm start          # http://localhost:3000
 
 The schema is created automatically on first run. On first launch the Settings
 dialog opens — paste an OpenRouter API key (from https://openrouter.ai/keys).
-Alternatively put it in `.env.local` as `OPENROUTER_API_KEY=` (see
-`.env.local.example`). For web push, set `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`
-(`npx web-push generate-vapid-keys`); for scheduled tasks on Vercel, set
-`CRON_SECRET` and the cron in `vercel.json`.
+For a **single-user local** install you may instead set `OPENROUTER_API_KEY=` in
+`.env.local`; note this shared fallback is **deliberately ignored on any
+multi-user or public deploy** (Vercel, or `REQUIRE_AUTH=1`) — there, every user
+brings their own key so no one can spend another's. For web push, set
+`VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` (`npx web-push generate-vapid-keys`); for
+scheduled tasks on Vercel, set `CRON_SECRET` and the cron in `vercel.json`.
+
+> **Public deploys:** set `REQUIRE_AUTH=1` (auto-on for Vercel) so login is
+> enforced. Vercel BotID guards signup/login; keep signups closed in Admin until
+> you're ready to open them.
 
 For development: `npm run dev`.
 

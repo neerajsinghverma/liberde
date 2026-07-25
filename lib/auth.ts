@@ -57,23 +57,24 @@ export async function createUser(
   name: string,
   password: string
 ): Promise<User> {
-  const isFirst = (await countUsers()) === 0;
-  const user: User & { password_hash: string } = {
-    id: newId(),
-    email: email.trim().toLowerCase(),
-    name: name.trim(),
-    password_hash: hashPassword(password),
-    is_admin: isFirst ? 1 : 0,
-    created_at: Date.now(),
-  };
+  const id = newId();
+  const emailNorm = email.trim().toLowerCase();
+  const nameNorm = name.trim();
+  const createdAt = Date.now();
+  // Decide is_admin ATOMICALLY at insert time (first account = admin) instead of
+  // a separate earlier countUsers() read — closing the race where two concurrent
+  // first-signups could both read 0 and both become admin.
   await q(
-    "INSERT INTO users (id, email, name, password_hash, is_admin, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
-    [user.id, user.email, user.name, user.password_hash, user.is_admin, user.created_at]
+    `INSERT INTO users (id, email, name, password_hash, is_admin, created_at)
+     VALUES ($1, $2, $3, $4, (SELECT CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END FROM users), $5)`,
+    [id, emailNorm, nameNorm, hashPassword(password), createdAt]
   );
-  if (isFirst) await claimLegacyData(user.id);
-  const { password_hash: _ph, ...safe } = user;
-  void _ph;
-  return safe;
+  const row = (await q("SELECT is_admin FROM users WHERE id = $1", [id]))[0] as
+    | { is_admin: number }
+    | undefined;
+  const isFirst = row?.is_admin === 1;
+  if (isFirst) await claimLegacyData(id);
+  return { id, email: emailNorm, name: nameNorm, is_admin: isFirst ? 1 : 0, created_at: createdAt };
 }
 
 /** The first real account inherits everything created in single-user mode. */

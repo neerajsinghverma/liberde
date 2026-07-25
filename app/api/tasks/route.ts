@@ -45,7 +45,9 @@ export async function PATCH(req: NextRequest) {
   if (!userId) return unauthorized();
   const body = await req.json();
   const task = await getScheduledTask(body.id);
-  if (!task) return Response.json({ error: "Not found" }, { status: 404 });
+  if (!task || task.user_id !== userId) {
+    return Response.json({ error: "Not found" }, { status: 404 });
+  }
   if (typeof body.enabled === "boolean") {
     await updateScheduledTask(task.id, {
       enabled: body.enabled ? 1 : 0,
@@ -69,6 +71,10 @@ export async function DELETE(req: NextRequest) {
   if (!userId) return unauthorized();
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return Response.json({ error: "id is required" }, { status: 400 });
+  const task = await getScheduledTask(id);
+  if (!task || task.user_id !== userId) {
+    return Response.json({ error: "Not found" }, { status: 404 });
+  }
   await deleteScheduledTask(id);
   return Response.json({ ok: true });
 }
