@@ -1591,7 +1591,7 @@
       </p>
 
       <div class="cta-actions">
-        <a class="button accent" href="mailto:hello@gyria.ai?subject=I want to try Liberde">
+        <a class="button accent" href="mailto:hello@liberde.ai?subject=I want to try Liberde">
           Request access <span class="arrow">→</span>
         </a>
         <a class="button light" href="#top">Back to top ↑</a>
@@ -1614,7 +1614,7 @@
       <div class="footer-links">
         <a href="#principles">Principles</a>
         <a href="#impact">Transparency</a>
-        <a href="mailto:hello@gyria.ai">Contact</a>
+        <a href="mailto:hello@liberde.ai">Contact</a>
       </div>
     </div>
   </footer>
@@ -1696,5 +1696,12 @@
 
     document.getElementById("year").textContent = new Date().getFullYear();
   </script>
+
+  <!-- Vercel Web Analytics (static landing isn't a React route, so load the
+       insights script directly to count homepage views). No-op off Vercel. -->
+  <script>
+    window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+  </script>
+  <script defer src="/_vercel/insights/script.js"></script>
 </body>
 </html>

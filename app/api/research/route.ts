@@ -14,6 +14,7 @@ import {
   getSettings,
   openRouterHeaders,
   OPENROUTER_BASE,
+  resolveAutoModel,
 } from "@/lib/openrouter";
 import { resolveChatTarget, targetHeaders } from "@/lib/providers";
 
@@ -54,6 +55,8 @@ export async function POST(req: NextRequest) {
   try {
     settings = await getSettings(userId);
     model = body.model || conversation.model || settings.defaultModel;
+    // Resolve the Auto sentinel to a concrete model before anything uses it.
+    model = (await resolveAutoModel(model, { content: query, settings, userId })).model;
     // Pull recent conversation so research can resolve follow-ups like "ya
     // research" / "dig into that" against what was actually being discussed —
     // rather than researching the literal words of the message.

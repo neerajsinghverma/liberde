@@ -18,7 +18,7 @@ const DOCS: Doc[] = [
     blurb: "Liberde runs on your own OpenRouter key — one key, hundreds of models.",
     points: [
       { h: "Add your key", d: "Settings → General → paste your key from openrouter.ai/keys and click Verify. It's stored against your account only." },
-      { h: "Pick a model", d: "Use the selector top-left of any chat. Not sure? Click “Help me pick”, describe your need, and Liberde recommends one." },
+      { h: "Pick a model", d: "Use the selector top-left of any chat — or choose ✨ Auto to let Liberde route each message to the right model automatically. Not sure which specific model? Click “Help me pick” for a recommendation." },
       { h: "Start chatting", d: "Type below and hit Enter. New chat: the + in the sidebar, or Ctrl/⌘+Shift+O." },
     ],
   },
@@ -28,9 +28,10 @@ const DOCS: Doc[] = [
     title: "Models & switching",
     blurb: "Every model on OpenRouter (plus any providers you add) in one place.",
     points: [
+      { h: "✨ Auto routing", d: "Choose Auto in the selector and Liberde routes every message to the best model — quick asks to a fast, cheap model; hard reasoning to a frontier model; design work to a strong builder. The reply footer shows what it picked (Auto → model)." },
       { h: "Switch mid-chat", d: "Change the model any time — the full conversation and artifacts carry over to the new model." },
       { h: "Second opinion", d: "On any answer, click Second opinion to run the same question through 2–4 models side by side — with each one's cost — and swap in the reply you like best." },
-      { h: "Set a default", d: "Settings → General, or “Set as my default” inside Help me pick." },
+      { h: "Set a default", d: "Settings → General — you can even set ✨ Auto as your default so new chats route automatically. Or “Set as my default” inside Help me pick." },
       { h: "Browse the catalog", d: "The Models view lists everything with pricing, context window, and capabilities." },
     ],
   },
@@ -134,7 +135,7 @@ const DOCS: Doc[] = [
       { h: "Command palette", d: "Ctrl/⌘+K to jump to any chat, project, model, or action." },
       { h: "Voice", d: "Dictate with the mic, or go fully hands-free with voice mode." },
       { h: "Fork / export", d: "Duplicate a chat to branch an idea, or export any chat to Markdown or PDF." },
-      { h: "Budgets & usage", d: "Set a monthly cap in Settings; Usage shows spend, tokens, your balance, and “Where it goes” — model vs web search vs images. Hover any reply's cost for its own split." },
+      { h: "Usage & cost", d: "The Usage view shows spend, tokens, your balance, and “Where it goes” — model vs web search vs images. Hover any reply's cost for its own split; each reply's footer also shows its model, cost, tokens, and generation time." },
     ],
   },
   {

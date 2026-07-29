@@ -11,9 +11,10 @@ import {
   updateScheduledTask,
   type ScheduledTask,
 } from "./db";
-import { getSettings, openRouterHeaders, OPENROUTER_BASE } from "./openrouter";
+import { getSettings, openRouterHeaders, OPENROUTER_BASE, resolveAutoModel } from "./openrouter";
 import { runAgentSlice } from "./agent-runner";
 import { sendPushToUser } from "./push";
+import { purgeExpiredAuth } from "./auth";
 
 const TICK_MS = 60_000;
 
@@ -53,6 +54,12 @@ export async function runSchedulerTick(): Promise<{
     }
   }
   await resumeOrphanedAgentRuns();
+  // Best-effort housekeeping — must never break the tick if it errors.
+  try {
+    await purgeExpiredAuth();
+  } catch (e) {
+    console.error("[liberde] purgeExpiredAuth failed:", e);
+  }
   return { ranTasks, failedTasks };
 }
 
@@ -100,7 +107,9 @@ export async function runScheduledTask(task: ScheduledTask): Promise<string> {
   }
 
   const settings = await getSettings(userId);
-  const model = task.model || settings.defaultModel;
+  const rawModel = task.model || settings.defaultModel;
+  // Never let the Auto sentinel reach provider resolution in a cron run.
+  const model = (await resolveAutoModel(rawModel, { content: task.prompt, settings, userId })).model;
   const conv = await createConversation(model, null, false, userId);
   await updateConversation(conv.id, {
     title: `⏰ ${task.name} — ${new Date().toLocaleDateString()}`,

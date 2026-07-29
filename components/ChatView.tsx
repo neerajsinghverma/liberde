@@ -74,6 +74,12 @@ export default function ChatView({
   const [messages, setMessages] = useState<Message[]>([]);
   const [streamText, setStreamText] = useState("");
   const [streamReasoning, setStreamReasoning] = useState("");
+  // FLASH-FIX: mirrors of the stream buffers, readable inside the onDone closure
+  // (which has stale state). Used to swap the live overlay for a real message
+  // atomically at stream end — no blank gap / re-parse flash. Back out: delete
+  // these two refs and revert the onDelta/onReasoning/onDone FLASH-FIX blocks.
+  const streamTextRef = useRef("");
+  const streamReasoningRef = useRef("");
   const [isStreaming, setIsStreaming] = useState(false);
   // A response is generating server-side but this client isn't attached to the
   // SSE stream (e.g. after a reload or on another device) — show a working
@@ -228,20 +234,32 @@ export default function ChatView({
   // Design systems: load the picker list in design mode; a brand-new design
   // starts on the user's default system (existing conversations keep their
   // stored choice, loaded in loadConversation).
-  useEffect(() => {
-    if (mode !== "design") return;
+  const loadDesignSystems = useCallback((applyDefault: boolean) => {
     api<DesignSystem[]>("/api/design-systems")
       .then((list) => {
         setDesignSystems(list);
         designSystemsRef.current = list;
-        if (!convIdRef.current && !dsDefaultApplied.current) {
+        if (applyDefault && !convIdRef.current && !dsDefaultApplied.current) {
           dsDefaultApplied.current = true;
           const def = list.find((s) => s.is_default);
           if (def) setDesignSystemId((cur) => cur ?? def.id);
         }
       })
       .catch(() => {});
-  }, [mode]);
+  }, []);
+
+  useEffect(() => {
+    if (mode !== "design") return;
+    loadDesignSystems(true);
+  }, [mode, loadDesignSystems]);
+
+  // Refetch when the Settings dialog adds/edits/removes a system, so a system
+  // created from the picker's "+ New…" appears in the dropdown without a reload.
+  useEffect(() => {
+    const onChanged = () => loadDesignSystems(false);
+    window.addEventListener("liberde:design-systems-changed", onChanged);
+    return () => window.removeEventListener("liberde:design-systems-changed", onChanged);
+  }, [loadDesignSystems]);
 
   // Clean up the poll on unmount.
   useEffect(() => () => stopBgPoll(), [stopBgPoll]);
@@ -437,12 +455,20 @@ export default function ChatView({
       setIsStreaming(true);
       setStreamText("");
       setStreamReasoning("");
+      streamTextRef.current = ""; // FLASH-FIX
+      streamReasoningRef.current = ""; // FLASH-FIX
       streamingIdentifierRef.current = null;
       abortRef.current = streamChat(body, {
-        onDelta: (d) => setStreamText((t) => t + d),
-        onReasoning: (d) => setStreamReasoning((t) => t + d),
+        onDelta: (d) => {
+          streamTextRef.current += d; // FLASH-FIX
+          setStreamText((t) => t + d);
+        },
+        onReasoning: (d) => {
+          streamReasoningRef.current += d; // FLASH-FIX
+          setStreamReasoning((t) => t + d);
+        },
         onToolEvent: (s) => setResearchStatuses((prev) => [...prev.slice(-11), s]),
-        onDone: async (_messageId, title, memoriesSaved, aborted) => {
+        onDone: async (messageId, title, memoriesSaved, aborted) => {
           setResearchStatuses([]);
           if (!aborted) notifyDone("Liberde", "Your response is ready");
           if (memoriesSaved) {
@@ -450,9 +476,38 @@ export default function ChatView({
             setTimeout(() => setMemoryToast(false), 4000);
           }
           abortRef.current = null;
+          // FLASH-FIX: swap the live stream overlay for a real list message in ONE
+          // render, using the SAME id the server just persisted. loadConversation
+          // then reconciles that message in place (same key) instead of leaving a
+          // blank gap during the refetch or re-mounting/re-parsing it. Back out:
+          // restore this block to the original 4 lines:
+          //   setIsStreaming(false); setStreamText(""); setStreamReasoning("");
+          const finalContent = streamTextRef.current;
+          const finalReasoning = streamReasoningRef.current;
+          if (!aborted && messageId && (finalContent || finalReasoning)) {
+            setMessages((m) =>
+              m.some((x) => x.id === messageId)
+                ? m
+                : [
+                    ...m,
+                    {
+                      id: messageId,
+                      conversation_id: body.conversationId,
+                      role: "assistant",
+                      content: finalContent,
+                      reasoning: finalReasoning || null,
+                      model: body.model && body.model !== "auto" ? body.model : null,
+                      attachments: null,
+                      created_at: Date.now(),
+                    },
+                  ]
+            );
+          }
           setIsStreaming(false);
           setStreamText("");
+          streamTextRef.current = "";
           setStreamReasoning("");
+          streamReasoningRef.current = "";
           if (convIdRef.current === body.conversationId) {
             const fresh = await loadConversation(body.conversationId);
             const list = await loadArtifacts(body.conversationId);
@@ -1223,7 +1278,19 @@ export default function ChatView({
                         : "hidden group-hover:flex"
                     }`}
                   >
-                    {msg.model && <span>{msg.model}</span>}
+                    {msg.model && (
+                      <span
+                        className="inline-flex items-center gap-1"
+                        title={
+                          msg.route_reason
+                            ? `Auto-routed — ${msg.route_reason}`
+                            : undefined
+                        }
+                      >
+                        {msg.route_reason && <Icon name="sparkles" size={12} />}
+                        {msg.route_reason ? `Auto → ${msg.model}` : msg.model}
+                      </span>
+                    )}
                     {msg.cost != null && msg.cost > 0 && (
                       <span title={costTooltip(msg)}>{fmtCost(msg.cost)}</span>
                     )}

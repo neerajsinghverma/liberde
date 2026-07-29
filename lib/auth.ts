@@ -44,13 +44,17 @@ export async function countUsers(): Promise<number> {
   return Number(rows[0]?.n ?? 0);
 }
 
-export async function getUserByEmail(
-  email: string
-): Promise<(User & { password_hash: string }) | undefined> {
+type UserRow = User & {
+  password_hash: string;
+  failed_logins?: number;
+  locked_until?: number;
+};
+
+export async function getUserByEmail(email: string): Promise<UserRow | undefined> {
   const rows = await q("SELECT * FROM users WHERE email = $1", [
     email.trim().toLowerCase(),
   ]);
-  return rows[0] as unknown as (User & { password_hash: string }) | undefined;
+  return rows[0] as unknown as UserRow | undefined;
 }
 
 export async function createUser(
@@ -117,6 +121,68 @@ export async function checkLogin(email: string, password: string): Promise<User 
   return safe;
 }
 
+// Brute-force protection: after this many consecutive failed logins the account
+// is temporarily locked. The lock AUTO-EXPIRES (so an attacker who knows a
+// victim's email can't lock them out forever) and an admin can clear it
+// immediately (Settings → Admin → Unlock). This is DB-backed, so unlike the
+// in-memory IP rate limiter it holds across all serverless instances — it's the
+// real defense against online password guessing.
+export const LOGIN_MAX_FAILS = 10;
+export const LOGIN_LOCK_MS = 15 * 60 * 1000; // 15 minutes
+
+export type LoginResult =
+  | { ok: true; user: User }
+  | { ok: false; reason: "invalid" }
+  | { ok: false; reason: "locked"; until: number };
+
+/** Verify credentials with durable lockout; updates the failure counter/lock. */
+export async function attemptLogin(email: string, password: string): Promise<LoginResult> {
+  const user = await getUserByEmail(email);
+  if (!user) return { ok: false, reason: "invalid" };
+  const now = Date.now();
+  const lockedUntil = Number(user.locked_until ?? 0);
+  if (lockedUntil > now) return { ok: false, reason: "locked", until: lockedUntil };
+
+  if (verifyPassword(password, user.password_hash)) {
+    if (Number(user.failed_logins ?? 0) > 0 || lockedUntil) {
+      await q("UPDATE users SET failed_logins = 0, locked_until = 0 WHERE id = $1", [user.id]);
+    }
+    const { password_hash: _ph, ...safe } = user;
+    void _ph;
+    return { ok: true, user: safe };
+  }
+
+  // Wrong password → increment; at the cap, lock and reset the counter so the
+  // account gets a fresh set of tries once the lock expires.
+  const fails = Number(user.failed_logins ?? 0) + 1;
+  if (fails >= LOGIN_MAX_FAILS) {
+    const until = now + LOGIN_LOCK_MS;
+    await q("UPDATE users SET failed_logins = 0, locked_until = $1 WHERE id = $2", [until, user.id]);
+    return { ok: false, reason: "locked", until };
+  }
+  await q("UPDATE users SET failed_logins = $1 WHERE id = $2", [fails, user.id]);
+  return { ok: false, reason: "invalid" };
+}
+
+/** Admin action: clear a lockout + failed-attempt counter for a user. */
+export async function unlockUser(userId: string): Promise<void> {
+  await q("UPDATE users SET failed_logins = 0, locked_until = 0 WHERE id = $1", [userId]);
+}
+
+/**
+ * Admin-initiated password reset: set a fresh random temp password, sign the
+ * user out everywhere, and clear any lockout. Returns the plaintext temp
+ * password ONCE for the admin to relay out-of-band — it is stored only hashed
+ * and cannot be retrieved again.
+ */
+export async function adminResetPassword(userId: string): Promise<string> {
+  const temp = crypto.randomBytes(9).toString("base64url"); // 12 chars, > 8-char min
+  await setUserPassword(userId, temp);
+  await deleteUserSessions(userId);
+  await unlockUser(userId);
+  return temp;
+}
+
 export async function createSession(userId: string): Promise<string> {
   const token = crypto.randomBytes(32).toString("base64url");
   await q(
@@ -137,6 +203,22 @@ const sha256 = (s: string) => crypto.createHash("sha256").update(s).digest("hex"
 
 /** Email features are active only when Resend is configured. */
 export const emailEnabled = () => Boolean(process.env.RESEND_API_KEY);
+
+/** "Sign in with Google" is active only when Google OAuth creds are configured. */
+export const googleEnabled = () =>
+  Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+
+/**
+ * Create an account for an OAuth sign-in (Google): no usable password (a random
+ * one is stored so nothing can log in by password), and email is verified since
+ * the provider already authenticated it.
+ */
+export async function createOAuthUser(email: string, name: string): Promise<User> {
+  const randomPassword = crypto.randomBytes(24).toString("base64url");
+  const user = await createUser(email, name || email.split("@")[0], randomPassword);
+  await setEmailVerified(user.id);
+  return { ...user, email_verified: 1 };
+}
 
 type TokenKind = "reset" | "verify";
 const TOKEN_TTL: Record<TokenKind, number> = {
@@ -183,6 +265,18 @@ export async function deleteUserSessions(userId: string) {
 
 export async function setEmailVerified(userId: string) {
   await q("UPDATE users SET email_verified = 1 WHERE id = $1", [userId]);
+}
+
+/**
+ * Housekeeping: delete expired sessions and single-use tokens. Called from the
+ * scheduler tick so these tables don't grow unbounded (only logout/consume
+ * delete rows otherwise). Self-limiting — once it runs regularly the tables
+ * stay small, so the sweep stays cheap even without an index on expires_at.
+ */
+export async function purgeExpiredAuth(): Promise<void> {
+  const now = Date.now();
+  await q("DELETE FROM sessions WHERE expires_at < $1", [now]);
+  await q("DELETE FROM auth_tokens WHERE expires_at < $1", [now]);
 }
 
 export async function getUserByToken(token: string): Promise<User | undefined> {

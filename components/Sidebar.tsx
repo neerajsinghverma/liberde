@@ -128,6 +128,28 @@ export default function Sidebar({
     }));
   }, [filtered]);
 
+  // Collapsible date groups. Choice persists across sessions; everything starts
+  // expanded (so "Today" is always visible on load).
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      return new Set(JSON.parse(localStorage.getItem("liberde-collapsed-groups") || "[]"));
+    } catch {
+      return new Set();
+    }
+  });
+  const toggleGroup = (label: string) =>
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      next.has(label) ? next.delete(label) : next.add(label);
+      try {
+        localStorage.setItem("liberde-collapsed-groups", JSON.stringify([...next]));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+
   const activeConversationId = view.kind === "chat" ? view.conversationId : null;
   const activeProjectId = view.kind === "project" ? view.projectId : null;
 
@@ -353,14 +375,41 @@ export default function Sidebar({
           </>
         )}
 
-        {grouped.map((group) => (
-          <div key={group.label}>
-            <div className="mt-3 mb-1 px-2 text-xs font-semibold uppercase tracking-wide text-ink-muted">
-              {group.label}
+        {grouped.map((group) => {
+          const isCollapsed = collapsedGroups.has(group.label);
+          return (
+            <div key={group.label}>
+              <button
+                onClick={() => toggleGroup(group.label)}
+                className="mt-2 mb-0.5 flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted hover:bg-surface-2/60 hover:text-ink"
+              >
+                <svg
+                  width="9"
+                  height="9"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden="true"
+                  className={`shrink-0 transition-transform ${isCollapsed ? "" : "rotate-90"}`}
+                >
+                  <path
+                    d="M9 6l6 6-6 6"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                {group.label}
+                {isCollapsed && (
+                  <span className="ml-1 font-normal normal-case opacity-60">
+                    {group.items.length}
+                  </span>
+                )}
+              </button>
+              {!isCollapsed && group.items.map((c) => renderRow(c, false))}
             </div>
-            {group.items.map((c) => renderRow(c, false))}
-          </div>
-        ))}
+          );
+        })}
         {searchExtras && searchExtras.projects.length > 0 && (
           <>
             <div className="mt-3 mb-1 px-2 text-xs font-semibold uppercase tracking-wide text-ink-muted">

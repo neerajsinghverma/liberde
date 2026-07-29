@@ -5,6 +5,7 @@ import {
   deleteMessagesFrom,
   getApiKey,
   getConversation,
+  getLastAssistantModel,
   getDesignSystem,
   getProject,
   listMessages,
@@ -22,12 +23,14 @@ import {
   fetchWithRetry,
   fitContextInPlace,
   getContextLimit,
+  DEFAULT_MODEL,
   getSettings,
   historyHasPdf,
   keyProblem,
   listModels,
   openRouterHeaders,
   OPENROUTER_BASE,
+  resolveAutoModel,
   STYLE_PRESETS,
   toApiMessage,
   type ChatCompletionMessage,
@@ -52,6 +55,7 @@ import { getRequestUserId, unauthorized } from "@/lib/auth";
 import { bodyTooLarge, attachmentsProblem, MAX_CONTENT_CHARS } from "@/lib/limits";
 import { resolveChatTarget, targetHeaders, type ChatTarget } from "@/lib/providers";
 import { assembleTools, callTool } from "@/lib/mcp";
+import { assembleHttpTools, execHttpTool } from "@/lib/http-tools";
 import {
   BUILTIN_TOOL_DEFS,
   execBuiltinTool,
@@ -167,9 +171,20 @@ export async function POST(req: NextRequest) {
     const prob = keyProblem(key);
     if (prob) return Response.json({ error: prob }, { status: 400 });
   }
+  // Auto routing: ONLY when the selected model is the AUTO sentinel. An explicit
+  // model bypasses this and resolves exactly as before.
+  // eslint-disable-next-line prefer-const -- reassigned on the Auto 404 fallback below
+  let { model, routeReason } = await resolveAutoModel(requestedModel, {
+    content: body.content ?? "",
+    hasImage: body.attachments?.some((a) => a.mime?.startsWith("image/")) ?? false,
+    designMode: conversation.mode === "design",
+    priorModel: requestedModel === "auto" ? await getLastAssistantModel(conversation.id) : null,
+    settings,
+    userId,
+  });
   let target: ChatTarget;
   try {
-    target = await resolveChatTarget(requestedModel, userId);
+    target = await resolveChatTarget(model, userId);
   } catch (e) {
     return Response.json({ error: String(e) }, { status: 400 });
   }
@@ -185,7 +200,8 @@ export async function POST(req: NextRequest) {
   // assembly, PDF extraction, pre-search). Guard it so the lock is always
   // released on a setup failure — otherwise the conversation stays locked.
   try {
-  const model = requestedModel;
+  // `model` is the routed concrete model; the conversation keeps the AUTO
+  // sentinel (body.model) so every future turn re-routes.
   if (body.model && body.model !== conversation.model) {
     await updateConversation(conversation.id, { model: body.model });
   }
@@ -252,6 +268,8 @@ export async function POST(req: NextRequest) {
   const designImages = designMode && body.designImages === true && !!imageModel;
 
   const { tools: mcpTools, errors: toolErrors } = await assembleTools(userId);
+  // eslint-disable-next-line prefer-const -- re-assembled when create_http_tool adds one mid-turn
+  let { defs: httpDefs, names: httpToolNames } = await assembleHttpTools(userId);
   const tools = [
     ...BUILTIN_TOOL_DEFS,
     ...PLATFORM_TOOL_DEFS,
@@ -259,6 +277,7 @@ export async function POST(req: NextRequest) {
     ...(designImages ? [DESIGN_IMAGE_TOOL] : []),
     ...(memoryActive ? MEMORY_TOOL_DEFS : []),
     ...(recallActive ? RECALL_TOOL_DEFS : []),
+    ...httpDefs,
     ...mcpTools,
   ];
   const designDirective =
@@ -407,6 +426,10 @@ ${ds.spec}`;
       // (usually weaker) model ends up promising to build something but never
       // emits the artifact block — a common failure in design mode.
       let forcedArtifactDone = false;
+  // Auto routing can pick a model this account can't access (needs provider
+  // enablement / data policy) → 404. Fall back once to the user's default model
+  // (known-good) so an Auto pick never hard-fails on a 404.
+  let autoFellBack = false;
       // Don't start the (extra, full) forced-synthesis turn if the request is
       // already close to the function's maxDuration (300s) — being hard-killed
       // mid-synthesis loses the artifact and wedges the conversation lock.
@@ -490,6 +513,7 @@ ${ds.spec}`;
             tokens_out: totalTokensOut || null,
             cost_breakdown: costBreakdown,
             duration_ms: Date.now() - turnStart,
+            route_reason: routeReason,
           });
           savedId = saved.id;
           try {
@@ -650,6 +674,29 @@ ${ds.spec}`;
               upstream.status === 404 ||
               /no (allowed )?(endpoints|providers)|data policy|privacy settings/i.test(detail)
             ) {
+              // Auto routed to a model this account can't access — retry once on
+              // the user's default (known-good) model instead of hard-failing.
+              const fb =
+                settings.defaultModel && settings.defaultModel !== "auto"
+                  ? settings.defaultModel
+                  : DEFAULT_MODEL;
+              if (routeReason && !autoFellBack && fb !== model) {
+                autoFellBack = true;
+                try {
+                  target = await resolveChatTarget(fb, userId);
+                  model = fb;
+                  routeReason = `${routeReason} → fell back (first pick unavailable)`;
+                  emit({
+                    toolEvent: {
+                      status: "Auto's first pick wasn't available on your account — switching to your default model",
+                    },
+                  });
+                  round--;
+                  continue;
+                } catch {
+                  /* fall through to the error below */
+                }
+              }
               emit({
                 error:
                   `This model isn't available for your OpenRouter account (${upstream.status}). ` +
@@ -772,18 +819,16 @@ ${ds.spec}`;
 
           const calls = toolCalls.filter(Boolean);
           if (calls.length === 0 || round >= MAX_TOOL_ROUNDS) {
-            // Rescue: the model finished (or ran out of tool rounds) having
-            // promised an artifact but without ever emitting the block — it
-            // often loops on artifact_read/generate_image and narrates "building
-            // it now…" instead. Force exactly one tools-off turn to produce it.
+            // Rescue (DESIGN MODE ONLY): a design turn is expected to end in an
+            // artifact; if the model narrated "building it now…" but never emitted
+            // the block, force one tools-off turn to produce it. This NEVER runs in
+            // normal chat — there it wrongly discarded good answers (e.g. "Here's
+            // the comparison: …") and replaced them with a confabulated
+            // "what artifact do you want?" turn.
             const noArtifact = !/<liberdeArtifact/i.test(finalText);
-            // If the model deliberately asked clarifying questions (ask-first
-            // design flow), it is NOT trying to build yet — never override that.
+            // If the model asked clarifying questions (ask-first flow), it is NOT
+            // trying to build yet — never override that.
             const askedQuestions = /<liberdeAsk/i.test(finalText);
-            const promised =
-              /\b(build|building|here it is|here'?s the|let me build|creating|producing|generating the|no more delay|actual artifact)\b/i.test(
-                finalText
-              );
             if (
               !forcedArtifactDone &&
               useTools &&
@@ -791,7 +836,10 @@ ${ds.spec}`;
               noArtifact &&
               !askedQuestions &&
               Date.now() - turnStart < FORCE_SYNTH_DEADLINE_MS &&
-              (designMode || promised)
+              // Only when there's no real answer yet (short narration), and only
+              // in the design workspace.
+              finalText.trim().length < 600 &&
+              designMode
             ) {
               forcedArtifactDone = true;
               emit({ toolEvent: { status: "Producing the artifact…" } });
@@ -922,6 +970,9 @@ ${ds.spec}`;
               // the model can call the new tools in this same conversation turn.
               if (result.toolsChanged) {
                 const { tools: refreshedMcp } = await assembleTools(userId);
+                const refreshedHttp = await assembleHttpTools(userId);
+                httpDefs = refreshedHttp.defs;
+                httpToolNames = refreshedHttp.names;
                 tools.length = 0;
                 tools.push(
                   ...BUILTIN_TOOL_DEFS,
@@ -930,6 +981,7 @@ ${ds.spec}`;
                   ...(designImages ? [DESIGN_IMAGE_TOOL] : []),
                   ...(memoryActive ? MEMORY_TOOL_DEFS : []),
                   ...(recallActive ? RECALL_TOOL_DEFS : []),
+                  ...httpDefs,
                   ...refreshedMcp
                 );
               }
@@ -947,6 +999,8 @@ ${ds.spec}`;
                 finalAnnotations.push(...result.annotations);
                 emit({ annotations: result.annotations });
               }
+            } else if (httpToolNames.has(call.function.name)) {
+              output = await execHttpTool(call.function.name, call.function.arguments, userId);
             } else {
               output = await callTool(call.function.name, call.function.arguments, userId);
             }

@@ -6,6 +6,9 @@ import type {
   Attachment,
   Conversation,
   DesignSystem,
+  HttpTool,
+  HttpToolAuth,
+  HttpToolParam,
   Message,
   Project,
   ProjectFile,
@@ -259,6 +262,7 @@ const SCHEMA_STATEMENTS: string[] = [
   `ALTER TABLE connectors ADD COLUMN IF NOT EXISTS tools_cache TEXT`,
   `ALTER TABLE connectors ADD COLUMN IF NOT EXISTS last_tested BIGINT`,
   `ALTER TABLE skills ADD COLUMN IF NOT EXISTS connector_ids TEXT`,
+  `ALTER TABLE skills ADD COLUMN IF NOT EXISTS http_tool_ids TEXT`,
   `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS locked_at BIGINT`,
   `CREATE TABLE IF NOT EXISTS agent_runs (
     id TEXT PRIMARY KEY,
@@ -365,6 +369,8 @@ const SCHEMA_STATEMENTS: string[] = [
   `ALTER TABLE messages ADD COLUMN IF NOT EXISTS cost_breakdown TEXT`,
   // Wall-clock generation time per assistant turn (footer: cost · tok · ms).
   `ALTER TABLE messages ADD COLUMN IF NOT EXISTS duration_ms INTEGER`,
+  // Auto routing: the reason the router picked this turn's model (footer badge).
+  `ALTER TABLE messages ADD COLUMN IF NOT EXISTS route_reason TEXT`,
   `CREATE INDEX IF NOT EXISTS idx_design_systems_user ON design_systems(user_id)`,
   `CREATE INDEX IF NOT EXISTS idx_design_system_shares_user ON design_system_shares(user_id)`,
   `CREATE INDEX IF NOT EXISTS idx_artifact_shares_user ON artifact_shares(user_id)`,
@@ -378,7 +384,37 @@ const SCHEMA_STATEMENTS: string[] = [
     created_at BIGINT NOT NULL
   )`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified INTEGER NOT NULL DEFAULT 0`,
+  // Brute-force lockout: consecutive failed logins + a temporary lock timestamp.
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_logins INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until BIGINT NOT NULL DEFAULT 0`,
   `CREATE INDEX IF NOT EXISTS idx_auth_tokens_user ON auth_tokens(user_id)`,
+  // Both queried WHERE user_id (push-send on every completion; task list) but
+  // their PKs are endpoint/id — without these they sequential-scan at scale.
+  `CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_user ON scheduled_tasks(user_id)`,
+  // User-defined REST endpoints exposed to the model as callable tools.
+  `CREATE TABLE IF NOT EXISTS http_tools (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL DEFAULT 'local',
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    method TEXT NOT NULL DEFAULT 'GET',
+    url_template TEXT NOT NULL,
+    params TEXT NOT NULL DEFAULT '[]',
+    headers TEXT NOT NULL DEFAULT '{}',
+    auth TEXT NOT NULL DEFAULT '{"type":"none"}',
+    auth_secret TEXT,
+    body_mode TEXT NOT NULL DEFAULT 'auto',
+    body_template TEXT,
+    response_extract TEXT,
+    max_response_bytes INTEGER NOT NULL DEFAULT 24576,
+    auto_run INTEGER NOT NULL DEFAULT 0,
+    source TEXT NOT NULL DEFAULT 'manual',
+    openapi_group TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at BIGINT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_http_tools_user ON http_tools(user_id)`,
 ];
 
 async function initSchema(): Promise<void> {
@@ -840,6 +876,15 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
   return rows.map(rowToMessage);
 }
 
+/** Concrete model of the most recent assistant turn — used for Auto stickiness. */
+export async function getLastAssistantModel(conversationId: string): Promise<string | null> {
+  const rows = await q(
+    "SELECT model FROM messages WHERE conversation_id = $1 AND role = 'assistant' AND model IS NOT NULL AND model <> 'auto' ORDER BY created_at DESC, seq DESC LIMIT 1",
+    [conversationId]
+  );
+  return (rows[0]?.model as string | undefined) ?? null;
+}
+
 export async function addMessage(
   conversationId: string,
   role: Message["role"],
@@ -858,6 +903,7 @@ export async function addMessage(
     tokens_out?: number | null;
     cost_breakdown?: string | null;
     duration_ms?: number | null;
+    route_reason?: string | null;
   } = {}
 ): Promise<Message> {
   const msg: Message = {
@@ -878,10 +924,11 @@ export async function addMessage(
     tokens_out: extras.tokens_out ?? null,
     cost_breakdown: extras.cost_breakdown ?? null,
     duration_ms: extras.duration_ms ?? null,
+    route_reason: extras.route_reason ?? null,
     created_at: now(),
   };
   await q(
-    "INSERT INTO messages (id, conversation_id, role, content, model, attachments, reasoning, annotations, images, tool_calls, tool_call_id, reasoning_ms, cost, tokens_in, tokens_out, cost_breakdown, duration_ms, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)",
+    "INSERT INTO messages (id, conversation_id, role, content, model, attachments, reasoning, annotations, images, tool_calls, tool_call_id, reasoning_ms, cost, tokens_in, tokens_out, cost_breakdown, duration_ms, route_reason, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)",
     [
       msg.id,
       msg.conversation_id,
@@ -900,6 +947,7 @@ export async function addMessage(
       msg.tokens_out,
       msg.cost_breakdown,
       msg.duration_ms,
+      msg.route_reason,
       msg.created_at,
     ]
   );
@@ -2082,6 +2130,157 @@ export async function deleteConnector(id: string) {
   await q("DELETE FROM connectors WHERE id = $1", [id]);
 }
 
+// ---------- http tools (user-defined REST endpoints) ----------
+
+function rowToHttpTool(r: Record<string, unknown>): HttpTool & { auth_secret: string | null } {
+  const safeJson = <T,>(s: unknown, fallback: T): T => {
+    try {
+      return s ? (JSON.parse(s as string) as T) : fallback;
+    } catch {
+      return fallback;
+    }
+  };
+  return {
+    id: r.id as string,
+    user_id: r.user_id as string,
+    name: r.name as string,
+    description: (r.description as string) ?? "",
+    method: (r.method as string) ?? "GET",
+    url_template: r.url_template as string,
+    params: safeJson<HttpToolParam[]>(r.params, []),
+    headers: safeJson<Record<string, string>>(r.headers, {}),
+    auth: safeJson<HttpToolAuth>(r.auth, { type: "none" }),
+    auth_secret: (r.auth_secret as string) ?? null,
+    body_mode: ((r.body_mode as string) ?? "auto") as "auto" | "template",
+    body_template: (r.body_template as string) ?? null,
+    response_extract: (r.response_extract as string) ?? null,
+    max_response_bytes: Number(r.max_response_bytes ?? 24576),
+    auto_run: Number(r.auto_run ?? 0),
+    source: ((r.source as string) ?? "manual") as "manual" | "openapi",
+    openapi_group: (r.openapi_group as string) ?? null,
+    enabled: Number(r.enabled ?? 1),
+    created_at: Number(r.created_at ?? 0),
+  };
+}
+
+/** List a user's HTTP tools. Secrets are stripped unless withSecret is set (server-only). */
+export async function listHttpTools(
+  userId: string,
+  withSecret = false
+): Promise<HttpTool[]> {
+  const rows = await q(
+    "SELECT * FROM http_tools WHERE user_id = $1 ORDER BY created_at DESC",
+    [userId]
+  );
+  return rows.map((r) => {
+    const t = rowToHttpTool(r as Record<string, unknown>);
+    return withSecret ? t : redactHttpTool(t);
+  });
+}
+
+export async function getHttpTool(
+  id: string,
+  userId: string
+): Promise<(HttpTool & { auth_secret: string | null }) | undefined> {
+  const rows = await q("SELECT * FROM http_tools WHERE id = $1 AND user_id = $2", [id, userId]);
+  return rows[0] ? rowToHttpTool(rows[0] as Record<string, unknown>) : undefined;
+}
+
+export async function getHttpToolByName(
+  userId: string,
+  name: string
+): Promise<(HttpTool & { auth_secret: string | null }) | undefined> {
+  const rows = await q(
+    "SELECT * FROM http_tools WHERE user_id = $1 AND name = $2 AND enabled = 1",
+    [userId, name]
+  );
+  return rows[0] ? rowToHttpTool(rows[0] as Record<string, unknown>) : undefined;
+}
+
+/** Remove the stored secret + flag whether one exists, for safe client responses. */
+export function redactHttpTool(t: HttpTool & { auth_secret?: string | null }): HttpTool {
+  const { auth_secret, ...rest } = t;
+  return { ...rest, auth: { ...rest.auth, hasSecret: Boolean(auth_secret) } };
+}
+
+export async function createHttpTool(
+  userId: string,
+  t: Omit<HttpTool, "id" | "user_id" | "created_at"> & { auth_secret?: string | null }
+): Promise<HttpTool> {
+  const id = newId();
+  const createdAt = now();
+  await q(
+    `INSERT INTO http_tools
+      (id, user_id, name, description, method, url_template, params, headers, auth, auth_secret,
+       body_mode, body_template, response_extract, max_response_bytes, auto_run, source, openapi_group, enabled, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+    [
+      id,
+      userId,
+      t.name,
+      t.description,
+      t.method,
+      t.url_template,
+      JSON.stringify(t.params ?? []),
+      JSON.stringify(t.headers ?? {}),
+      JSON.stringify(t.auth ?? { type: "none" }),
+      t.auth_secret ?? null,
+      t.body_mode ?? "auto",
+      t.body_template ?? null,
+      t.response_extract ?? null,
+      t.max_response_bytes ?? 24576,
+      t.auto_run ?? 0,
+      t.source ?? "manual",
+      t.openapi_group ?? null,
+      t.enabled ?? 1,
+      createdAt,
+    ]
+  );
+  return { ...(t as HttpTool), id, user_id: userId, created_at: createdAt };
+}
+
+export async function updateHttpTool(
+  id: string,
+  userId: string,
+  fields: Partial<HttpTool & { auth_secret: string | null }>
+) {
+  const cur = await getHttpTool(id, userId);
+  if (!cur) return;
+  const m = { ...cur, ...fields };
+  await q(
+    `UPDATE http_tools SET name=$1, description=$2, method=$3, url_template=$4, params=$5, headers=$6,
+       auth=$7, auth_secret=$8, body_mode=$9, body_template=$10, response_extract=$11,
+       max_response_bytes=$12, auto_run=$13, enabled=$14 WHERE id=$15 AND user_id=$16`,
+    [
+      m.name,
+      m.description,
+      m.method,
+      m.url_template,
+      JSON.stringify(m.params ?? []),
+      JSON.stringify(m.headers ?? {}),
+      JSON.stringify(m.auth ?? { type: "none" }),
+      // keep the existing secret when the caller didn't supply a new one
+      fields.auth_secret === undefined ? cur.auth_secret : fields.auth_secret,
+      m.body_mode,
+      m.body_template ?? null,
+      m.response_extract ?? null,
+      m.max_response_bytes,
+      m.auto_run,
+      m.enabled,
+      id,
+      userId,
+    ]
+  );
+}
+
+export async function deleteHttpTool(id: string, userId: string) {
+  await q("DELETE FROM http_tools WHERE id = $1 AND user_id = $2", [id, userId]);
+}
+
+export async function deleteHttpToolGroup(openapiGroup: string, userId: string) {
+  await q("DELETE FROM http_tools WHERE openapi_group = $1 AND user_id = $2", [openapiGroup, userId]);
+}
+
 // ---------- skills ----------
 
 export interface SkillRecord {
@@ -2090,6 +2289,7 @@ export interface SkillRecord {
   description: string;
   instructions: string;
   connector_ids: string | null; // JSON array of connector ids this skill bundles
+  http_tool_ids: string | null; // JSON array of http-tool ids this skill bundles
   enabled: number;
   user_id: string;
   created_at: number;
@@ -2113,6 +2313,7 @@ export async function createSkill(
     description: string;
     instructions: string;
     connectorIds?: string[];
+    httpToolIds?: string[];
   },
   userId: string = DEFAULT_USER
 ): Promise<SkillRecord> {
@@ -2122,18 +2323,20 @@ export async function createSkill(
     description: input.description,
     instructions: input.instructions,
     connector_ids: input.connectorIds?.length ? JSON.stringify(input.connectorIds) : null,
+    http_tool_ids: input.httpToolIds?.length ? JSON.stringify(input.httpToolIds) : null,
     enabled: 1,
     user_id: userId,
     created_at: now(),
   };
   await q(
-    "INSERT INTO skills (id, name, description, instructions, connector_ids, enabled, user_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+    "INSERT INTO skills (id, name, description, instructions, connector_ids, http_tool_ids, enabled, user_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
     [
       record.id,
       record.name,
       record.description,
       record.instructions,
       record.connector_ids,
+      record.http_tool_ids,
       record.enabled,
       record.user_id,
       record.created_at,
@@ -2147,8 +2350,8 @@ export async function updateSkill(id: string, fields: Partial<SkillRecord>) {
   if (!record) return;
   const merged = { ...record, ...fields };
   await q(
-    "UPDATE skills SET name=$1, description=$2, instructions=$3, connector_ids=$4, enabled=$5 WHERE id=$6",
-    [merged.name, merged.description, merged.instructions, merged.connector_ids, merged.enabled, id]
+    "UPDATE skills SET name=$1, description=$2, instructions=$3, connector_ids=$4, http_tool_ids=$5, enabled=$6 WHERE id=$7",
+    [merged.name, merged.description, merged.instructions, merged.connector_ids, merged.http_tool_ids, merged.enabled, id]
   );
 }
 

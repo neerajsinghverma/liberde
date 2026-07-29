@@ -15,15 +15,18 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [firstUser, setFirstUser] = useState(false);
   const [remember, setRemember] = useState(true);
+  const [googleOn, setGoogleOn] = useState(false);
   // When a login/signup needs email verification, we surface a resend option.
   const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("verified") === "1") {
-      setNotice("Email verified — you can sign in now.");
+      setNotice("Email verified — you're all set.");
     } else if (params.get("verify_error") === "1") {
-      setError("That verification link is invalid or has expired. Try signing in to resend.");
+      setError("That verification link is invalid or has expired. Sign in to resend.");
+    } else if (params.get("oauth_error")) {
+      setError("Google sign-in didn't complete. Please try again.");
     }
     fetch("/api/auth")
       .then((r) => r.json())
@@ -32,6 +35,7 @@ export default function LoginPage() {
           setFirstUser(true);
           setMode("signup");
         }
+        setGoogleOn(Boolean(d.googleEnabled));
         if (d.user) window.location.href = "/";
       })
       .catch(() => {});
@@ -118,7 +122,29 @@ export default function LoginPage() {
         </h1>
         <p className="mt-2 text-center text-sm text-ink-muted">{heading}</p>
 
-        <form onSubmit={submit} className="mt-6 space-y-3">
+        {googleOn && mode !== "forgot" && (
+          <>
+            <a
+              href="/api/auth/google"
+              className="mt-6 flex w-full items-center justify-center gap-2.5 rounded-lg border border-line bg-surface px-3 py-2 text-sm font-medium text-ink transition-colors hover:bg-ink/[0.03]"
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" />
+                <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" />
+                <path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.68 9c0-.593.102-1.17.284-1.71V4.958H.957A8.997 8.997 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" />
+                <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" />
+              </svg>
+              Continue with Google
+            </a>
+            <div className="my-4 flex items-center gap-3 text-xs text-ink-muted">
+              <span className="h-px flex-1 bg-line" />
+              or
+              <span className="h-px flex-1 bg-line" />
+            </div>
+          </>
+        )}
+
+        <form onSubmit={submit} className={googleOn && mode !== "forgot" ? "space-y-3" : "mt-6 space-y-3"}>
           {mode === "signup" && (
             <input
               value={name}

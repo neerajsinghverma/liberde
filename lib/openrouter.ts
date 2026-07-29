@@ -4,8 +4,14 @@ import { retrieveRelevant } from "./rag";
 
 export const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
 
-export const DEFAULT_MODEL = "anthropic/claude-sonnet-4";
+// Fallback model for users who haven't picked one (i.e. new signups). The "~"
+// prefix is OpenRouter's floating alias that always tracks the latest GPT Mini.
+// Cheap, fast general-purpose default; users can change it in Settings any time.
+export const DEFAULT_MODEL = "~openai/gpt-mini-latest";
 export const DEFAULT_TITLE_MODEL = "openai/gpt-4o-mini";
+
+/** Sentinel model id for intelligent per-message routing ("Auto" in the picker). */
+export const AUTO_MODEL = "auto";
 
 /** Detects a value pasted into the API-key field that clearly isn't an
  *  OpenRouter key (wrong text, non-ASCII characters that would even crash the
@@ -266,6 +272,184 @@ export async function complete(
   if (!res.ok) throw new Error(`OpenRouter ${res.status}: ${await res.text()}`);
   const data = await res.json();
   return data.choices?.[0]?.message?.content ?? "";
+}
+
+// ---------------------------------------------------------------------------
+// Auto routing: pick the right model per message. Only ever invoked when the
+// selected model is the AUTO_MODEL sentinel — an explicit model always bypasses
+// this entirely.
+
+const ROUTE_MAJOR = /^(anthropic|openai|google|x-ai|deepseek|meta-llama|mistralai|qwen)\//;
+const routePrice = (m: ModelInfo) =>
+  parseFloat(m.pricing?.completion || "0") * 1e6 || 0;
+const routeIsFast = (m: ModelInfo) =>
+  /(flash|mini|haiku|lite|nano|turbo|small|8b|instant)/.test(`${m.id} ${m.name}`.toLowerCase());
+const routeIsFlagship = (m: ModelInfo) =>
+  /(opus|gpt-5|gpt-4\.1|\bo1\b|\bo3\b|sonnet-4|3\.7-sonnet|gemini-2\.5-pro|gemini-3|grok-4|deepseek-r|\br1\b|reasoner|405b|large)/.test(
+    `${m.id} ${m.name}`.toLowerCase()
+  );
+
+// The very cheapest models (lite/nano/8B/tiny variants) can't reliably follow
+// Liberde's system prompt — they mangle the memory/tool syntax or confabulate
+// the artifact instructions instead of just answering. Exclude them from
+// routing entirely; the fast tier uses a proven brand-name mini.
+const ROUTE_TINY = /(lite|nano|instant|tiny|micro|\b\d{1,2}b\b|-\d{1,2}b)/;
+const PREFERRED_FAST = /(gpt-4o-mini|gpt-4\.1-mini|gpt-5-mini|gpt-mini|o4-mini|haiku|gemini[a-z0-9.\- ]*flash)/;
+
+/** Derive fast/balanced/deep tier model ids from the live catalog. */
+function deriveTiers(models: ModelInfo[]): {
+  fast?: string;
+  balanced?: string;
+  deep?: string;
+} {
+  const idn = (m: ModelInfo) => `${m.id} ${m.name}`.toLowerCase();
+  const pool = models.filter(
+    (m) =>
+      m.context_length > 0 &&
+      ROUTE_MAJOR.test(m.id) &&
+      m.supportsTools &&
+      !ROUTE_TINY.test(idn(m))
+  );
+  const byCheap = (a: ModelInfo, b: ModelInfo) => routePrice(a) - routePrice(b);
+  const pick = (re: RegExp) => pool.filter((m) => re.test(idn(m))).sort(byCheap)[0]?.id;
+
+  // Fast = a proven mini (GPT mini first, then any reliable mini); NEVER a
+  // lite/nano/8B. Default mini as the final fallback.
+  const fast =
+    pick(/gpt-mini-latest|gpt-4o-mini|gpt-5-mini/) || pick(PREFERRED_FAST) || DEFAULT_MODEL;
+  const deep =
+    pool.filter(routeIsFlagship).sort((a, b) => routePrice(b) - routePrice(a))[0]?.id ||
+    pick(/(opus|gpt-5|sonnet)/);
+  const balanced =
+    pick(/(sonnet|gemini[a-z0-9.\- ]*pro)/) ||
+    pool.filter((m) => !routeIsFast(m) && !routeIsFlagship(m)).sort(byCheap)[0]?.id ||
+    deep;
+  return {
+    fast,
+    balanced: balanced || fast,
+    deep: deep || balanced || fast,
+  };
+}
+
+const TIER_SYS =
+  `Classify the user's request to route it to the cheapest AI model tier that will still do a good job. ` +
+  `Return ONLY minified JSON: {"tier":"fast|balanced|deep","reason":"<=6 words"}. ` +
+  `fast = short/casual/simple lookups, quick edits, small talk. ` +
+  `balanced = normal writing, explanations, everyday coding, summaries. ` +
+  `deep = complex reasoning, hard math/algorithms, tricky debugging, long analysis, nuanced judgment. ` +
+  `Prefer the cheapest tier that fits.`;
+
+/**
+ * Choose a concrete model for one message. Layer 0 handles obvious cases with
+ * zero latency; Layer 1 asks a cheap model for a tier. Never throws — any
+ * failure falls back to a concrete default so the turn is never blocked.
+ */
+export async function routeModel(opts: {
+  content: string;
+  hasImage?: boolean;
+  designMode?: boolean;
+  /** Model of the thread's last assistant turn — for stickiness (no downgrade). */
+  priorModel?: string | null;
+  settings: { defaultModel: string; titleModel: string };
+  userId: string;
+}): Promise<{ model: string; reason: string }> {
+  let models: ModelInfo[] = [];
+  try {
+    models = await listModels();
+  } catch {
+    /* fall through to fallback below */
+  }
+  const tiers = deriveTiers(models);
+  const fallback =
+    opts.settings.defaultModel && opts.settings.defaultModel !== AUTO_MODEL
+      ? opts.settings.defaultModel
+      : tiers.balanced || tiers.deep || DEFAULT_MODEL;
+
+  // Ensure the picked model can accept image input when the turn has one.
+  const ensureVision = (id: string, tier: "fast" | "balanced" | "deep"): string => {
+    if (!opts.hasImage) return id;
+    const chosen = models.find((m) => m.id === id);
+    if (chosen?.supportsImages) return id;
+    const vis = models.find(
+      (m) =>
+        ROUTE_MAJOR.test(m.id) &&
+        m.supportsImages &&
+        (tier === "deep" ? routeIsFlagship(m) : true)
+    );
+    return vis?.id ?? id;
+  };
+
+  const text = (opts.content || "").trim();
+
+  // Stickiness: if the thread's last answer used a strong (non-fast) model,
+  // don't downgrade a follow-up to the fast mini (which tends to regenerate
+  // artifacts / lose the thread's depth).
+  const priorIsFast = opts.priorModel
+    ? /(flash|mini|haiku|lite|nano|turbo|small|8b|instant)/.test(opts.priorModel.toLowerCase())
+    : true;
+  const strongPrior = Boolean(opts.priorModel) && !priorIsFast;
+  const clampFast = (tier: "fast" | "balanced" | "deep"): "fast" | "balanced" | "deep" =>
+    tier === "fast" && strongPrior ? "balanced" : tier;
+
+  // Layer 0 — heuristics, no API call.
+  if (opts.designMode) return { model: tiers.deep || fallback, reason: "design work" };
+  if (text && text.length < 24 && !text.includes("?")) {
+    const t = clampFast("fast");
+    return {
+      model: ensureVision(tiers[t] || fallback, t),
+      reason: t === "fast" ? "quick follow-up" : "follow-up in a detailed thread",
+    };
+  }
+
+  // Layer 1 — cheap tier classifier. Router model is always a concrete cheap
+  // model (never the AUTO sentinel).
+  try {
+    const routerModel =
+      opts.settings.titleModel && opts.settings.titleModel !== AUTO_MODEL
+        ? opts.settings.titleModel
+        : DEFAULT_TITLE_MODEL;
+    const raw = await complete(
+      routerModel,
+      [
+        { role: "system", content: TIER_SYS },
+        { role: "user", content: text.slice(0, 1200) },
+      ],
+      { temperature: 0, max_tokens: 60, timeoutMs: 7000 },
+      opts.userId
+    );
+    const j = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] ?? "{}");
+    const classified: "fast" | "balanced" | "deep" = ["fast", "balanced", "deep"].includes(j.tier)
+      ? j.tier
+      : "balanced";
+    const tier = clampFast(classified);
+    const model = ensureVision(tiers[tier] || fallback, tier);
+    const reason =
+      tier !== classified ? "follow-up in a detailed thread" : String(j.reason || tier).slice(0, 80);
+    return { model, reason };
+  } catch {
+    return { model: ensureVision(fallback, "balanced"), reason: "auto" };
+  }
+}
+
+/**
+ * If `id` is the AUTO sentinel, route it to a concrete model; otherwise return
+ * it unchanged (routeReason null). The single choke point so "auto" never
+ * reaches resolveChatTarget anywhere.
+ */
+export async function resolveAutoModel(
+  id: string,
+  opts: {
+    content: string;
+    hasImage?: boolean;
+    designMode?: boolean;
+    priorModel?: string | null;
+    settings: { defaultModel: string; titleModel: string };
+    userId: string;
+  }
+): Promise<{ model: string; routeReason: string | null }> {
+  if (id !== AUTO_MODEL) return { model: id, routeReason: null };
+  const routed = await routeModel(opts);
+  return { model: routed.model, routeReason: routed.reason };
 }
 
 let modelCache: { at: number; models: ModelInfo[] } | null = null;

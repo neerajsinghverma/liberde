@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
       description: body.description.trim().slice(0, 300),
       instructions: body.instructions.trim(),
       connectorIds: Array.isArray(body.connectorIds) ? body.connectorIds.map(String) : [],
+      httpToolIds: Array.isArray(body.httpToolIds) ? body.httpToolIds.map(String) : [],
     }, userId),
     { status: 201 }
   );
@@ -57,6 +58,9 @@ export async function PATCH(req: NextRequest) {
     ...(body.instructions?.trim() ? { instructions: body.instructions.trim() } : {}),
     ...(Array.isArray(body.connectorIds)
       ? { connector_ids: body.connectorIds.length ? JSON.stringify(body.connectorIds.map(String)) : null }
+      : {}),
+    ...(Array.isArray(body.httpToolIds)
+      ? { http_tool_ids: body.httpToolIds.length ? JSON.stringify(body.httpToolIds.map(String)) : null }
       : {}),
   });
   return Response.json(await getSkill(skill.id));

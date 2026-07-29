@@ -2,7 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { getConnectorOAuth, getSkill, listConnectors, listSkills, type Connector } from "./db";
+import { getConnectorOAuth, getSkill, listConnectors, listHttpTools, listSkills, type Connector } from "./db";
 import { AuthorizationRequiredError, makeOAuthProvider } from "./mcp-oauth";
 
 export interface ToolDef {
@@ -259,6 +259,23 @@ export async function callTool(
       }
       if (lines.length) {
         out += `\n\n## Tools for this skill\nPrefer these connected tools to carry it out:\n${lines.join("\n")}`;
+      }
+    }
+
+    // Also surface any custom HTTP tools this skill bundles.
+    let hids: string[] = [];
+    try {
+      hids = skill.http_tool_ids ? JSON.parse(skill.http_tool_ids) : [];
+    } catch {
+      hids = [];
+    }
+    if (hids.length) {
+      const allHttp = await listHttpTools(userId ?? "local");
+      const hlines = allHttp
+        .filter((t) => hids.includes(t.id) && t.enabled)
+        .map((t) => `- \`${t.name}\` — ${t.description}`.slice(0, 300));
+      if (hlines.length) {
+        out += `\n\n## Custom API tools for this skill\nUse these to carry it out:\n${hlines.join("\n")}`;
       }
     }
     return out;

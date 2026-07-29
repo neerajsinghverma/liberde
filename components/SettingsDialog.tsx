@@ -2,7 +2,7 @@
 
 import { confirmDialog } from "@/lib/ui";
 import { useEffect, useState } from "react";
-import type { AppSettings, ModelInfo } from "@/lib/types";
+import type { AppSettings, ModelInfo, HttpTool, HttpToolParam } from "@/lib/types";
 import { api, fileToUploadAttachment } from "@/lib/client";
 import Icon from "./Icon";
 
@@ -15,11 +15,92 @@ interface PlatformKey {
   key?: string;
 }
 
+/**
+ * Account + email-verification status. Soft verification: we surface the state
+ * here (never a blocking banner). Shows the signed-in email and, when email is
+ * configured but the address isn't yet confirmed, a one-tap resend.
+ */
+function AccountStatus() {
+  const [state, setState] = useState<{
+    email: string;
+    verified: boolean;
+    emailEnabled: boolean;
+  } | null>(null);
+  const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/auth")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.user) {
+          setState({
+            email: d.user.email ?? "",
+            verified: Boolean(d.user.emailVerified),
+            emailEnabled: Boolean(d.emailEnabled),
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  if (!state || !state.email) return null;
+
+  const resend = async () => {
+    setBusy(true);
+    await fetch("/api/auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "resend-verification", email: state.email }),
+    }).catch(() => {});
+    setBusy(false);
+    setSent(true);
+  };
+
+  const showResend = state.emailEnabled && !state.verified;
+
+  return (
+    <div className="rounded-lg border border-line bg-bg px-3 py-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium">{state.email}</div>
+          <div className="mt-0.5 flex items-center gap-1.5 text-xs">
+            {state.verified ? (
+              <span className="inline-flex items-center gap-1 text-emerald-600">
+                <svg width="12" height="12" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                  <path d="M4 10.5l4 4 8-9" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Email verified
+              </span>
+            ) : (
+              <span className="text-ink-muted">Email not verified</span>
+            )}
+          </div>
+        </div>
+        {showResend &&
+          (sent ? (
+            <span className="shrink-0 text-xs text-ink-muted">Sent — check your inbox</span>
+          ) : (
+            <button
+              type="button"
+              onClick={resend}
+              disabled={busy}
+              className="shrink-0 rounded-md border border-line px-2.5 py-1 text-xs font-medium text-ink hover:bg-surface-2 disabled:opacity-50"
+            >
+              {busy ? "…" : "Verify email"}
+            </button>
+          ))}
+      </div>
+    </div>
+  );
+}
+
 type SettingsTabId =
   | "general"
   | "personalization"
   | "providers"
   | "connectors"
+  | "http-tools"
   | "skills"
   | "prompts"
   | "design-systems"
@@ -41,6 +122,7 @@ const SETTINGS_TABS: {
   { id: "keys", label: "Keys", icon: "key", group: "Settings", keywords: "api platform key cli token v1 external apps" },
   { id: "admin", label: "Admin", icon: "users", group: "Settings", keywords: "users signups accounts members administration" },
   { id: "connectors", label: "Connectors", icon: "globe", group: "Customize", keywords: "mcp server tools deepwiki context7 remote http stdio" },
+  { id: "http-tools", label: "Custom tools", icon: "wrench", group: "Customize", keywords: "http rest api tool endpoint openapi swagger custom function call get post" },
   { id: "skills", label: "Skills", icon: "book", group: "Customize", keywords: "skill instructions reusable" },
   { id: "prompts", label: "Prompts", icon: "message", group: "Customize", keywords: "prompt template saved snippet" },
   { id: "design-systems", label: "Design systems", icon: "palette", group: "Customize", keywords: "brand colors palette typography fonts design system style guide share" },
@@ -65,6 +147,15 @@ export default function SettingsDialog({
       : "general"
   );
   const [tabSearch, setTabSearch] = useState("");
+  // The Admin tab is admin-only. (The /api/admin routes enforce this server-side
+  // too — this just hides the tab so non-admins don't see a dead panel.)
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    fetch("/api/auth")
+      .then((r) => r.json())
+      .then((d) => setIsAdmin(Boolean(d.user?.isAdmin)))
+      .catch(() => {});
+  }, []);
   const [apiKey, setApiKey] = useState("");
   const [defaultModel, setDefaultModel] = useState(settings.defaultModel);
   const [titleModel, setTitleModel] = useState(settings.titleModel);
@@ -215,7 +306,9 @@ export default function SettingsDialog({
             {(() => {
               const q = tabSearch.trim().toLowerCase();
               const shown = SETTINGS_TABS.filter(
-                (t) => !q || t.label.toLowerCase().includes(q) || t.keywords.includes(q)
+                (t) =>
+                  (t.id !== "admin" || isAdmin) &&
+                  (!q || t.label.toLowerCase().includes(q) || t.keywords.includes(q))
               );
               return shown.map((t, i) => {
                 const showGroup = !q && (i === 0 || shown[i - 1].group !== t.group);
@@ -295,7 +388,7 @@ export default function SettingsDialog({
               </Field>
 
               <Field label="Default model" hint="Used for new chats.">
-                <ModelSelect models={models} value={defaultModel} onChange={setDefaultModel} />
+                <ModelSelect models={models} value={defaultModel} onChange={setDefaultModel} allowAuto />
               </Field>
 
               <Field
@@ -373,6 +466,7 @@ export default function SettingsDialog({
             </div>
           ) : tab === "personalization" ? (
             <div className="space-y-5">
+              <AccountStatus />
               <Field
                 label="About you"
                 hint="Shared with the model in every chat — name, role, context that helps it help you."
@@ -542,6 +636,8 @@ export default function SettingsDialog({
             <ProvidersTab />
           ) : tab === "connectors" ? (
             <ConnectorsTab />
+          ) : tab === "http-tools" ? (
+            <HttpToolsTab />
           ) : tab === "skills" ? (
             <SkillsTab models={models} />
           ) : tab === "prompts" ? (
@@ -640,11 +736,19 @@ export default function SettingsDialog({
 
 function AdminTab() {
   const [data, setData] = useState<{
-    users: { id: string; email: string; name: string; is_admin: number; created_at: number }[];
+    users: {
+      id: string;
+      email: string;
+      name: string;
+      is_admin: number;
+      created_at: number;
+      locked_until?: number;
+    }[];
     allowSignups: boolean;
     me: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [resetInfo, setResetInfo] = useState<{ email: string; password: string } | null>(null);
 
   const load = async () => {
     try {
@@ -663,6 +767,30 @@ function AdminTab() {
 
   return (
     <div className="space-y-4">
+      {resetInfo && (
+        <div className="rounded-xl border border-(--color-accent) bg-(--color-accent)/10 px-3 py-2 text-sm">
+          <div className="font-medium">Temporary password for {resetInfo.email}</div>
+          <div className="mt-1 flex items-center gap-2">
+            <code className="rounded bg-surface-2 px-2 py-1 font-mono text-xs">{resetInfo.password}</code>
+            <button
+              onClick={() => navigator.clipboard?.writeText(resetInfo.password)}
+              className="rounded border border-line px-2 py-0.5 text-xs hover:bg-surface-2"
+            >
+              Copy
+            </button>
+            <button
+              onClick={() => setResetInfo(null)}
+              className="rounded border border-line px-2 py-0.5 text-xs hover:bg-surface-2"
+            >
+              Done
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-ink-muted">
+            Send this to the user over a trusted channel. It won&apos;t be shown again, their other
+            sessions are signed out, and they should change it after signing in.
+          </p>
+        </div>
+      )}
       <label className="flex items-center gap-2 text-sm font-medium">
         <input
           type="checkbox"
@@ -688,7 +816,26 @@ function AdminTab() {
               {Boolean(u.is_admin) && (
                 <span className="ml-2 rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium">ADMIN</span>
               )}
+              {Boolean(u.locked_until && u.locked_until > Date.now()) && (
+                <span className="ml-2 rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-medium text-red-500">
+                  LOCKED
+                </span>
+              )}
             </div>
+            {Boolean(u.locked_until && u.locked_until > Date.now()) && (
+              <button
+                onClick={async () => {
+                  await api("/api/admin", {
+                    method: "PATCH",
+                    body: JSON.stringify({ unlockUserId: u.id }),
+                  });
+                  await load();
+                }}
+                className="rounded border border-line px-2 py-0.5 text-xs hover:bg-surface-2"
+              >
+                Unlock
+              </button>
+            )}
             {u.id !== data.me && (
               <>
                 <button
@@ -702,6 +849,20 @@ function AdminTab() {
                   className="rounded border border-line px-2 py-0.5 text-xs hover:bg-surface-2"
                 >
                   {u.is_admin ? "Demote" : "Make admin"}
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!(await confirmDialog(`Reset ${u.email}'s password? This signs them out everywhere and gives you a one-time temp password to send them.`))) return;
+                    const r = await api<{ tempPassword: string }>("/api/admin", {
+                      method: "PATCH",
+                      body: JSON.stringify({ resetUserId: u.id }),
+                    });
+                    setResetInfo({ email: u.email, password: r.tempPassword });
+                    await load();
+                  }}
+                  className="rounded border border-line px-2 py-0.5 text-xs hover:bg-surface-2"
+                >
+                  Reset pw
                 </button>
                 <button
                   onClick={async () => {
@@ -1496,7 +1657,456 @@ interface SkillRow {
   description: string;
   instructions: string;
   connector_ids: string | null;
+  http_tool_ids: string | null;
   enabled: number;
+}
+
+type HttpToolForm = Omit<HttpTool, "user_id" | "created_at"> & { authSecret?: string };
+
+const EMPTY_TOOL: HttpToolForm = {
+  id: "",
+  name: "",
+  description: "",
+  method: "GET",
+  url_template: "",
+  params: [],
+  headers: {},
+  auth: { type: "none" },
+  body_mode: "auto",
+  body_template: null,
+  response_extract: "",
+  max_response_bytes: 24576,
+  auto_run: 0,
+  source: "manual",
+  openapi_group: null,
+  enabled: 1,
+};
+
+const inputCls =
+  "w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent";
+
+/** Settings → Custom tools: define REST endpoints (manually or via OpenAPI) the model can call. */
+function HttpToolsTab() {
+  const [tools, setTools] = useState<HttpTool[]>([]);
+  const [form, setForm] = useState<HttpToolForm | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [testOut, setTestOut] = useState<string | null>(null);
+  const [testArgs, setTestArgs] = useState("{}");
+  const [importOpen, setImportOpen] = useState(false);
+  const [draftIdea, setDraftIdea] = useState("");
+  const [drafting, setDrafting] = useState(false);
+
+  const load = () =>
+    api<{ tools: HttpTool[] }>("/api/http-tools").then((d) => setTools(d.tools)).catch(() => {});
+  useEffect(() => {
+    load();
+  }, []);
+
+  const set = <K extends keyof HttpToolForm>(k: K, v: HttpToolForm[K]) =>
+    setForm((f) => (f ? { ...f, [k]: v } : f));
+
+  const isWrite = form && form.method !== "GET" && form.method !== "HEAD";
+
+  const save = async () => {
+    if (!form) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const method = form.id ? "PATCH" : "POST";
+      const res = await api<{ error?: string }>("/api/http-tools", {
+        method,
+        body: JSON.stringify(form),
+      });
+      if (res?.error) {
+        setError(res.error);
+        return;
+      }
+      setForm(null);
+      setTestOut(null);
+      await load();
+    } catch (e) {
+      setError(String((e as Error).message || e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const test = async () => {
+    if (!form) return;
+    setBusy(true);
+    setTestOut("Running…");
+    try {
+      let args: Record<string, unknown> = {};
+      try {
+        args = JSON.parse(testArgs || "{}");
+      } catch {
+        setTestOut("Test args must be valid JSON.");
+        return;
+      }
+      const d = await api<{ result?: string; error?: string }>("/api/http-tools/test", {
+        method: "POST",
+        body: JSON.stringify({ tool: form, id: form.id || undefined, authSecret: form.authSecret, args }),
+      });
+      setTestOut(d.result ?? d.error ?? "(no output)");
+    } catch (e) {
+      setTestOut(String((e as Error).message || e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const draftFromAI = async () => {
+    if (!draftIdea.trim()) return;
+    setDrafting(true);
+    setError(null);
+    try {
+      const d = await api<Partial<HttpToolForm> & { error?: string }>("/api/http-tools/draft", {
+        method: "POST",
+        body: JSON.stringify({ prompt: draftIdea }),
+      });
+      if (d.error) {
+        setError(d.error);
+        return;
+      }
+      setForm((f) =>
+        f
+          ? {
+              ...f,
+              name: d.name || f.name,
+              description: d.description || f.description,
+              method: d.method || f.method,
+              url_template: d.url_template || f.url_template,
+              params: d.params ?? f.params,
+              auth: d.auth ?? f.auth,
+            }
+          : f
+      );
+    } catch (e) {
+      setError(String((e as Error).message || e));
+    } finally {
+      setDrafting(false);
+    }
+  };
+
+  const toggle = async (t: HttpTool) => {
+    await api("/api/http-tools", {
+      method: "PATCH",
+      body: JSON.stringify({ id: t.id, enabled: !t.enabled }),
+    }).catch(() => {});
+    load();
+  };
+  const remove = async (t: HttpTool) => {
+    if (!(await confirmDialog(`Delete the "${t.name}" tool?`))) return;
+    await api(`/api/http-tools?id=${t.id}`, { method: "DELETE" }).catch(() => {});
+    load();
+  };
+
+  const addParam = () =>
+    set("params", [...form!.params, { name: "", type: "string", required: false, location: "query" }]);
+  const setParam = (i: number, patch: Partial<HttpToolParam>) =>
+    set(
+      "params",
+      form!.params.map((p, j) => (j === i ? { ...p, ...patch } : p))
+    );
+  const delParam = (i: number) =>
+    set("params", form!.params.filter((_, j) => j !== i));
+
+  // ---- Import panel ----
+  if (importOpen) {
+    return <OpenApiImport onClose={() => setImportOpen(false)} onDone={() => { setImportOpen(false); load(); }} />;
+  }
+
+  // ---- Editor form ----
+  if (form) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between pr-10">
+          <h3 className="font-display text-lg font-semibold">{form.id ? "Edit tool" : "New custom tool"}</h3>
+          <button onClick={() => { setForm(null); setTestOut(null); }} className="text-sm text-ink-muted hover:text-ink">
+            ← Back
+          </button>
+        </div>
+        {error && <p className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-500">{error}</p>}
+
+        <div className="rounded-lg border border-accent/30 bg-accent/5 p-3">
+          <p className="mb-1.5 flex items-center gap-1 text-sm font-medium">
+            <Icon name="sparkles" size={14} className="text-accent" /> Describe it — let AI fill in the details
+          </p>
+          <div className="flex gap-2">
+            <input
+              value={draftIdea}
+              onChange={(e) => setDraftIdea(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  draftFromAI();
+                }
+              }}
+              placeholder="e.g. GitHub API — get a repo's star count by owner and name"
+              className={inputCls}
+            />
+            <button
+              onClick={draftFromAI}
+              disabled={drafting || !draftIdea.trim()}
+              className="shrink-0 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+            >
+              {drafting ? "…" : "Draft"}
+            </button>
+          </div>
+        </div>
+
+        <Field label="Name" hint="The function name the model calls (letters, numbers, _ or -).">
+          <input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="get_weather" className={inputCls} />
+        </Field>
+        <Field label="Description" hint="When should the model use this? Be specific — this drives correct usage.">
+          <textarea value={form.description} onChange={(e) => set("description", e.target.value)} rows={2} placeholder="Get the current weather for a city." className={`${inputCls} resize-y`} />
+        </Field>
+        <div className="flex gap-2">
+          <select value={form.method} onChange={(e) => set("method", e.target.value)} className={`${inputCls} w-32`}>
+            {["GET", "POST", "PUT", "PATCH", "DELETE"].map((m) => <option key={m}>{m}</option>)}
+          </select>
+          <input value={form.url_template} onChange={(e) => set("url_template", e.target.value)} placeholder="https://api.example.com/weather/{{city}}" className={inputCls} />
+        </div>
+
+        {/* Parameters */}
+        <div>
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-sm font-medium">Parameters</span>
+            <button onClick={addParam} className="text-xs text-accent hover:underline">+ Add parameter</button>
+          </div>
+          {form.params.length === 0 && <p className="text-xs text-ink-muted">No parameters. Use {"{{name}}"} in the URL for path values.</p>}
+          <div className="space-y-1.5">
+            {form.params.map((p, i) => (
+              <div key={i} className="flex flex-wrap items-center gap-1.5">
+                <input value={p.name} onChange={(e) => setParam(i, { name: e.target.value })} placeholder="name" className={`${inputCls} w-28`} />
+                <select value={p.type} onChange={(e) => setParam(i, { type: e.target.value as HttpToolParam["type"] })} className={`${inputCls} w-24`}>
+                  {["string", "number", "integer", "boolean"].map((t) => <option key={t}>{t}</option>)}
+                </select>
+                <select value={p.location} onChange={(e) => setParam(i, { location: e.target.value as HttpToolParam["location"] })} className={`${inputCls} w-24`}>
+                  {["query", "path", "body", "header"].map((t) => <option key={t}>{t}</option>)}
+                </select>
+                <input value={p.description ?? ""} onChange={(e) => setParam(i, { description: e.target.value })} placeholder="description" className={`${inputCls} min-w-32 flex-1`} />
+                <label className="flex items-center gap-1 text-xs text-ink-muted">
+                  <input type="checkbox" checked={!!p.required} onChange={(e) => setParam(i, { required: e.target.checked })} /> req
+                </label>
+                <button onClick={() => delParam(i)} className="px-1 text-ink-muted hover:text-red-500">✕</button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Auth */}
+        <Field label="Authentication">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <select value={form.auth.type} onChange={(e) => set("auth", { ...form.auth, type: e.target.value as HttpTool["auth"]["type"] })} className={`${inputCls} w-36`}>
+              <option value="none">None</option>
+              <option value="bearer">Bearer token</option>
+              <option value="apiKey">API key</option>
+              <option value="basic">Basic (user:pass)</option>
+            </select>
+            {form.auth.type === "apiKey" && (
+              <>
+                <select value={form.auth.in ?? "header"} onChange={(e) => set("auth", { ...form.auth, in: e.target.value as "header" | "query" })} className={`${inputCls} w-24`}>
+                  <option value="header">header</option>
+                  <option value="query">query</option>
+                </select>
+                <input value={form.auth.name ?? ""} onChange={(e) => set("auth", { ...form.auth, name: e.target.value })} placeholder="X-Api-Key" className={`${inputCls} w-40`} />
+              </>
+            )}
+            {form.auth.type !== "none" && (
+              <input type="password" onChange={(e) => set("authSecret", e.target.value)} placeholder={form.auth.hasSecret ? "•••• (leave blank to keep)" : "secret value"} className={`${inputCls} min-w-40 flex-1`} />
+            )}
+          </div>
+        </Field>
+
+        <Field label="Response path (optional)" hint="Dot-path to keep only the useful part, e.g. data.items — avoids dumping huge JSON.">
+          <input value={form.response_extract ?? ""} onChange={(e) => set("response_extract", e.target.value)} placeholder="data.results" className={inputCls} />
+        </Field>
+
+        {isWrite && (
+          <label className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-sm">
+            <input type="checkbox" checked={!!form.auto_run} onChange={(e) => set("auto_run", e.target.checked ? 1 : 0)} className="mt-0.5" />
+            <span>
+              <b>Let the model run this automatically.</b> This is a <code>{form.method}</code> request that can change data — off by default so it can’t be triggered without your say-so.
+            </span>
+          </label>
+        )}
+
+        {/* Test */}
+        <div className="rounded-lg border border-line bg-bg p-3">
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-sm font-medium">Test</span>
+            <button onClick={test} disabled={busy} className="rounded-md border border-line px-2.5 py-1 text-xs hover:bg-surface-2 disabled:opacity-50">Run test</button>
+          </div>
+          <input value={testArgs} onChange={(e) => setTestArgs(e.target.value)} placeholder='{"city":"Paris"}' className={`${inputCls} font-mono text-xs`} />
+          {testOut != null && <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-surface-2 p-2 text-xs">{testOut}</pre>}
+        </div>
+
+        <div className="flex gap-2">
+          <button onClick={save} disabled={busy} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50">
+            {busy ? "…" : form.id ? "Save changes" : "Create tool"}
+          </button>
+          <button onClick={() => { setForm(null); setTestOut(null); }} className="rounded-lg border border-line px-4 py-2 text-sm hover:bg-surface-2">Cancel</button>
+        </div>
+      </div>
+    );
+  }
+
+  // ---- List ----
+  return (
+    <div className="space-y-4">
+      {/* pr-10 keeps the buttons clear of the dialog's ✕ close control. */}
+      <div className="flex items-center justify-between gap-2 pr-10">
+        <p className="min-w-0 text-sm text-ink-muted">Give the model your own REST endpoints as callable tools — no MCP server needed.</p>
+        <div className="flex shrink-0 gap-1.5">
+          <button onClick={() => setImportOpen(true)} className="rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-surface-2">Import OpenAPI</button>
+          <button onClick={() => { setForm({ ...EMPTY_TOOL }); setTestOut(null); }} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover">+ New tool</button>
+        </div>
+      </div>
+      {tools.length === 0 && <p className="rounded-lg border border-dashed border-line px-4 py-8 text-center text-sm text-ink-muted">No custom tools yet.</p>}
+      <div className="space-y-2">
+        {tools.map((t) => (
+          <div key={t.id} className="flex items-center gap-3 rounded-lg border border-line bg-bg px-3 py-2">
+            <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold">{t.method}</span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="truncate text-sm font-medium">{t.name}</span>
+                {t.source === "openapi" && <span className="shrink-0 text-[10px] text-ink-muted">OpenAPI</span>}
+              </div>
+              <div className="truncate text-xs text-ink-muted">{t.description || t.url_template}</div>
+            </div>
+            <button onClick={() => toggle(t)} title={t.enabled ? "Enabled" : "Disabled"} className={`shrink-0 text-xs ${t.enabled ? "text-emerald-600" : "text-ink-muted"}`}>
+              {t.enabled ? "On" : "Off"}
+            </button>
+            <button onClick={() => { setForm({ ...t, authSecret: undefined }); setTestOut(null); }} className="shrink-0 text-xs text-ink-muted hover:text-ink">Edit</button>
+            <button onClick={() => remove(t)} className="shrink-0 text-xs text-ink-muted hover:text-red-500">Delete</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** OpenAPI import: paste a spec URL/JSON → pick operations → create tools. */
+function OpenApiImport({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [specUrl, setSpecUrl] = useState("");
+  const [specText, setSpecText] = useState("");
+  const [parsed, setParsed] = useState<{
+    title: string;
+    baseUrl: string;
+    auth: HttpTool["auth"];
+    operations: { name: string; description: string; method: string; urlTemplate: string; params: HttpToolParam[] }[];
+  } | null>(null);
+  const [sel, setSel] = useState<Set<number>>(new Set());
+  const [secret, setSecret] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const groupSlug = (parsed?.title || "api").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 16) || "api";
+
+  const parse = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const d = await api<typeof parsed & { error?: string }>("/api/http-tools/import", {
+        method: "POST",
+        body: JSON.stringify({ specUrl: specUrl.trim() || undefined, spec: specText.trim() || undefined }),
+      });
+      if ((d as { error?: string })?.error) { setError((d as { error?: string }).error!); return; }
+      setParsed(d);
+      setSel(new Set(d!.operations.map((_, i) => i).slice(0, 0))); // default none selected
+    } catch (e) {
+      setError(String((e as Error).message || e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const create = async () => {
+    if (!parsed || sel.size === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const group = `${groupSlug}_${Date.now().toString(36)}`;
+      const tools = [...sel].map((i) => {
+        const op = parsed.operations[i];
+        return {
+          name: `${groupSlug}_${op.name}`.slice(0, 48),
+          description: op.description,
+          method: op.method,
+          url_template: op.urlTemplate,
+          params: op.params,
+          headers: {},
+          auth: parsed.auth,
+          authSecret: parsed.auth.type !== "none" ? secret : undefined,
+          body_mode: "auto",
+          response_extract: "",
+          max_response_bytes: 24576,
+          auto_run: 0,
+          source: "openapi",
+          openapi_group: group,
+          enabled: 1,
+        };
+      });
+      const res = await api<{ error?: string }>("/api/http-tools", { method: "POST", body: JSON.stringify({ tools }) });
+      if (res?.error) { setError(res.error); return; }
+      onDone();
+    } catch (e) {
+      setError(String((e as Error).message || e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between pr-10">
+        <h3 className="font-display text-lg font-semibold">Import from OpenAPI</h3>
+        <button onClick={onClose} className="text-sm text-ink-muted hover:text-ink">← Back</button>
+      </div>
+      {error && <p className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-500">{error}</p>}
+      {!parsed ? (
+        <>
+          <Field label="Spec URL" hint="A link to an OpenAPI 3.x JSON spec.">
+            <input value={specUrl} onChange={(e) => setSpecUrl(e.target.value)} placeholder="https://api.example.com/openapi.json" className={inputCls} />
+          </Field>
+          <p className="text-center text-xs text-ink-muted">— or paste the JSON —</p>
+          <textarea value={specText} onChange={(e) => setSpecText(e.target.value)} rows={5} placeholder='{ "openapi": "3.0.0", ... }' className={`${inputCls} resize-y font-mono text-xs`} />
+          <button onClick={parse} disabled={busy || (!specUrl.trim() && !specText.trim())} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50">
+            {busy ? "Parsing…" : "Parse spec"}
+          </button>
+        </>
+      ) : (
+        <>
+          <p className="text-sm">
+            <b>{parsed.title}</b> — {parsed.operations.length} operations.{" "}
+            <span className="text-ink-muted">Pick the few you need (too many tools hurts model accuracy).</span>
+          </p>
+          {parsed.auth.type !== "none" && (
+            <Field label={`Auth: ${parsed.auth.type}${parsed.auth.name ? ` (${parsed.auth.name})` : ""}`}>
+              <input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="secret value (applied to all imported tools)" className={inputCls} />
+            </Field>
+          )}
+          <div className="max-h-64 space-y-1 overflow-auto rounded-lg border border-line p-2">
+            {parsed.operations.map((op, i) => (
+              <label key={i} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-surface-2">
+                <input type="checkbox" checked={sel.has(i)} onChange={(e) => setSel((s) => { const n = new Set(s); e.target.checked ? n.add(i) : n.delete(i); return n; })} />
+                <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold">{op.method}</span>
+                <span className="truncate">{op.name} — <span className="text-ink-muted">{op.description}</span></span>
+              </label>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={create} disabled={busy || sel.size === 0} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50">
+              {busy ? "…" : `Import ${sel.size} tool${sel.size === 1 ? "" : "s"}`}
+            </button>
+            <button onClick={() => setParsed(null)} className="rounded-lg border border-line px-4 py-2 text-sm hover:bg-surface-2">Back</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
 }
 
 function PromptsTab() {
@@ -1625,6 +2235,12 @@ function DesignSystemsTab({ models }: { models: ModelInfo[] }) {
 
   const load = () =>
     api<DesignSystemRow[]>("/api/design-systems").then(setSystems).catch(() => {});
+  // Reload AND notify other views (e.g. the design-mode picker chip) so a
+  // system created/edited/deleted here shows up without a page refresh.
+  const reload = async () => {
+    await load();
+    window.dispatchEvent(new CustomEvent("liberde:design-systems-changed"));
+  };
   useEffect(() => {
     load();
   }, []);
@@ -1720,7 +2336,7 @@ function DesignSystemsTab({ models }: { models: ModelInfo[] }) {
         });
       }
       closeForm();
-      await load();
+      await reload();
     } catch (e) {
       setError(String((e as Error).message || e));
     } finally {
@@ -1733,14 +2349,14 @@ function DesignSystemsTab({ models }: { models: ModelInfo[] }) {
       method: "PATCH",
       body: JSON.stringify({ id: s.id, isDefault: on }),
     }).catch(() => {});
-    load();
+    reload();
   };
 
   const remove = async (s: DesignSystemRow) => {
     if (!(await confirmDialog(`Delete design system "${s.name}"?`))) return;
     await api(`/api/design-systems?id=${s.id}`, { method: "DELETE" }).catch(() => {});
     if (editing?.id === s.id) closeForm();
-    load();
+    reload();
   };
 
   const share = async (s: DesignSystemRow) => {
@@ -2041,6 +2657,8 @@ function SkillsTab({ models }: { models: ModelInfo[] }) {
   const [description, setDescription] = useState("");
   const [instructions, setInstructions] = useState("");
   const [connectorIds, setConnectorIds] = useState<string[]>([]);
+  const [httpTools, setHttpTools] = useState<{ id: string; name: string; description: string }[]>([]);
+  const [httpToolIds, setHttpToolIds] = useState<string[]>([]);
   const [idea, setIdea] = useState("");
   const [draftModel, setDraftModel] = useState("");
   const [drafting, setDrafting] = useState(false);
@@ -2056,6 +2674,12 @@ function SkillsTab({ models }: { models: ModelInfo[] }) {
     } catch {
       /* connectors optional */
     }
+    try {
+      const h = await api<{ tools: HttpTool[] }>("/api/http-tools");
+      setHttpTools((h.tools ?? []).map((t) => ({ id: t.id, name: t.name, description: t.description })));
+    } catch {
+      /* http tools optional */
+    }
   };
   useEffect(() => {
     load();
@@ -2067,6 +2691,7 @@ function SkillsTab({ models }: { models: ModelInfo[] }) {
     setDescription("");
     setInstructions("");
     setConnectorIds([]);
+    setHttpToolIds([]);
     setIdea("");
     setError(null);
   };
@@ -2103,12 +2728,12 @@ function SkillsTab({ models }: { models: ModelInfo[] }) {
       if (editId) {
         await api("/api/skills", {
           method: "PATCH",
-          body: JSON.stringify({ id: editId, name, description, instructions, connectorIds }),
+          body: JSON.stringify({ id: editId, name, description, instructions, connectorIds, httpToolIds }),
         });
       } else {
         await api("/api/skills", {
           method: "POST",
-          body: JSON.stringify({ name, description, instructions, connectorIds }),
+          body: JSON.stringify({ name, description, instructions, connectorIds, httpToolIds }),
         });
       }
       reset();
@@ -2132,11 +2757,20 @@ function SkillsTab({ models }: { models: ModelInfo[] }) {
       ids = [];
     }
     setConnectorIds(ids);
+    let hids: string[] = [];
+    try {
+      hids = s.http_tool_ids ? JSON.parse(s.http_tool_ids) : [];
+    } catch {
+      hids = [];
+    }
+    setHttpToolIds(hids);
     setIdea("");
   };
 
   const toggleConnector = (id: string) =>
     setConnectorIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const toggleHttpTool = (id: string) =>
+    setHttpToolIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   const toggle = async (s: SkillRow) => {
     await api("/api/skills", { method: "PATCH", body: JSON.stringify({ id: s.id, enabled: !s.enabled }) });
@@ -2268,6 +2902,39 @@ function SkillsTab({ models }: { models: ModelInfo[] }) {
           )}
         </div>
 
+        {/* Custom HTTP tool attachment */}
+        <div>
+          <p className="mb-1 text-xs font-medium text-ink-muted">
+            Custom tools this skill uses {httpToolIds.length > 0 && `(${httpToolIds.length})`}
+          </p>
+          {httpTools.length === 0 ? (
+            <p className="text-xs text-ink-muted">
+              No custom tools yet — add REST endpoints in the Custom tools tab to bundle them.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {httpTools.map((t) => {
+                const on = httpToolIds.includes(t.id);
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => toggleHttpTool(t.id)}
+                    title={t.description}
+                    className={`rounded-full border px-2.5 py-1 text-xs ${
+                      on
+                        ? "border-accent bg-accent/10 text-accent"
+                        : "border-line text-ink-muted hover:bg-surface-2"
+                    }`}
+                  >
+                    {on ? "✓ " : "+ "}
+                    {t.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         <div className="flex items-center gap-2">
           <button
             onClick={save}
@@ -2392,21 +3059,26 @@ function ModelSelect({
   models,
   value,
   onChange,
+  allowAuto = false,
 }: {
   models: ModelInfo[];
   value: string;
   onChange: (v: string) => void;
+  /** Offer the "auto" smart-routing sentinel (only valid for the default model). */
+  allowAuto?: boolean;
 }) {
+  const listId = allowAuto ? "liberde-models-auto" : "liberde-models";
   return (
     <>
       <input
-        list="liberde-models"
+        list={listId}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
-        placeholder="provider/model-id"
+        placeholder={allowAuto ? "auto — or a provider/model-id" : "provider/model-id"}
       />
-      <datalist id="liberde-models">
+      <datalist id={listId}>
+        {allowAuto && <option value="auto">✨ Auto — best model per message</option>}
         {models.map((m) => (
           <option key={m.id} value={m.id}>
             {m.name}

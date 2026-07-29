@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getRequestUser } from "@/lib/auth";
+import { getRequestUser, unlockUser, adminResetPassword } from "@/lib/auth";
 import { getSetting, q, setSetting } from "@/lib/db";
 
 const forbidden = () => Response.json({ error: "Admins only" }, { status: 403 });
@@ -14,7 +14,7 @@ export async function GET() {
   const admin = await requireAdmin();
   if (!admin) return forbidden();
   const users = await q(
-    "SELECT id, email, name, is_admin, created_at FROM users ORDER BY created_at ASC"
+    "SELECT id, email, name, is_admin, created_at, locked_until FROM users ORDER BY created_at ASC"
   );
   return Response.json({
     users,
@@ -39,6 +39,15 @@ export async function PATCH(req: NextRequest) {
       body.userId,
     ]);
   }
+  // Clear a brute-force lockout so the user can sign in again immediately.
+  if (body.unlockUserId) {
+    await unlockUser(String(body.unlockUserId));
+  }
+  // Admin-initiated password reset: returns a one-time temp password to relay.
+  if (body.resetUserId) {
+    const tempPassword = await adminResetPassword(String(body.resetUserId));
+    return Response.json({ ok: true, tempPassword });
+  }
   return GET();
 }
 
@@ -56,6 +65,10 @@ export async function DELETE(req: NextRequest) {
   ])) as { id: string }[];
   for (const { id } of convIds) {
     await q(
+      "DELETE FROM artifact_shares WHERE artifact_id IN (SELECT id FROM artifacts WHERE conversation_id = $1)",
+      [id]
+    );
+    await q(
       "DELETE FROM artifact_versions WHERE artifact_id IN (SELECT id FROM artifacts WHERE conversation_id = $1)",
       [id]
     );
@@ -63,6 +76,15 @@ export async function DELETE(req: NextRequest) {
     await q("DELETE FROM branches WHERE conversation_id = $1", [id]);
     await q("DELETE FROM messages WHERE conversation_id = $1", [id]);
   }
+  // Shares of the deleted user's design systems (before the systems themselves).
+  await q(
+    "DELETE FROM design_system_shares WHERE design_system_id IN (SELECT id FROM design_systems WHERE user_id = $1)",
+    [userId]
+  );
+  // Every table with a user_id column. http_tools notably holds a plaintext
+  // auth_secret, so leaving it orphaned would keep the user's API keys at rest
+  // after account deletion. design_system_shares/artifact_shares rows here are
+  // the ones where this user was a RECIPIENT.
   for (const table of [
     "conversations",
     "projects",
@@ -75,6 +97,14 @@ export async function DELETE(req: NextRequest) {
     "providers",
     "settings",
     "sessions",
+    "http_tools",
+    "design_systems",
+    "design_system_shares",
+    "artifact_shares",
+    "prompts",
+    "generated_images",
+    "push_subscriptions",
+    "auth_tokens",
   ]) {
     await q(`DELETE FROM ${table} WHERE user_id = $1`, [userId]);
   }

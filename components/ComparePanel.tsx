@@ -208,7 +208,7 @@ export default function ComparePanel({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="flex h-[85vh] max-h-[calc(100dvh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-2xl">
+      <div className="flex h-[90vh] max-h-[calc(100dvh-1.5rem)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-2xl">
         <div className="flex items-center justify-between gap-2 border-b border-line px-5 py-3">
           <div className="min-w-0">
             <h2 className="flex items-center gap-2 font-display text-lg font-semibold">
@@ -337,7 +337,7 @@ export default function ComparePanel({
               {columns.map((col, i) => (
                 <div
                   key={i}
-                  className="flex w-[340px] shrink-0 flex-col overflow-hidden rounded-xl border border-line bg-bg max-md:w-full md:h-full"
+                  className="flex flex-1 basis-0 min-w-[320px] flex-col overflow-hidden rounded-xl border border-line bg-bg max-md:w-full md:h-full"
                 >
                   <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
                     <span className="min-w-0">

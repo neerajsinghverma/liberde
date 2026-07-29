@@ -7,6 +7,7 @@
 // sync return value is harmless.
 import {
   createConnector,
+  createHttpTool,
   createSkill,
   deleteConnector,
   listConnectors,
@@ -16,9 +17,10 @@ import {
 } from "./db";
 import { testConnector, type ToolDef } from "./mcp";
 import { assertPublicHost } from "./ssrf";
+import type { HttpToolAuth, HttpToolParam } from "./types";
 
 export const PLATFORM_TOOLS_PROMPT = `# Connecting MCP servers & skills yourself
-When the user shares an MCP server (a URL, optionally with a bearer token / API key, or a local command) and asks to connect, add, or use it — call connect_mcp_server yourself instead of sending them to Settings. When the user wants to save reusable instructions for a recurring task, call create_skill. Use list_connections first if you need to check what is already connected. After connect_mcp_server succeeds, the server's tools are available to you immediately in this same conversation — call them directly. If the result says authorization is required, give the user the authorization link, ask them to approve it, and tell them the connection finishes automatically once they do.`;
+When the user shares an MCP server (a URL, optionally with a bearer token / API key, or a local command) and asks to connect, add, or use it — call connect_mcp_server yourself instead of sending them to Settings. When the user wants to save reusable instructions for a recurring task, call create_skill. When the user shares a REST/HTTP API endpoint and wants to add it as a reusable tool (or use it repeatedly), call create_http_tool — it registers a named tool you can call immediately (GET tools run right away; write methods are saved but need the user to enable them in Settings). For a single one-off fetch, use fetch_page instead. Use list_connections first if you need to check what is already connected. After connect_mcp_server succeeds, the server's tools are available to you immediately in this same conversation — call them directly. If the result says authorization is required, give the user the authorization link, ask them to approve it, and tell them the connection finishes automatically once they do.`;
 
 export const PLATFORM_TOOL_DEFS: ToolDef[] = [
   {
@@ -93,6 +95,43 @@ export const PLATFORM_TOOL_DEFS: ToolDef[] = [
       parameters: { type: "object", properties: {}, required: [] },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "create_http_tool",
+      description:
+        "Register a REST/HTTP endpoint as a reusable tool the assistant can call now and in future chats. Use when the user shares an API endpoint (URL + method, optionally an API key) and wants to add it as a tool or use it repeatedly. For a one-off page fetch, use fetch_page instead. Non-GET (write) tools are saved but won't run until the user enables them in Settings.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "snake_case function name, e.g. get_weather" },
+          description: { type: "string", description: "When the model should use this tool." },
+          method: { type: "string", description: "HTTP method: GET, POST, PUT, PATCH, or DELETE" },
+          url: { type: "string", description: "Endpoint URL; use {{paramName}} for path placeholders" },
+          params: {
+            type: "array",
+            description: "The parameters the model supplies when calling the tool.",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                type: { type: "string", description: "string | number | integer | boolean" },
+                location: { type: "string", description: "path | query | body | header" },
+                required: { type: "boolean" },
+                description: { type: "string" },
+              },
+              required: ["name", "location"],
+            },
+          },
+          authType: { type: "string", description: "none | bearer | apiKey | basic (default none)" },
+          authIn: { type: "string", description: "apiKey only: header | query" },
+          authName: { type: "string", description: "apiKey only: the header/query name, e.g. X-Api-Key" },
+          authSecret: { type: "string", description: "The token/key value, if the user provided one." },
+        },
+        required: ["name", "description", "method", "url"],
+      },
+    },
+  },
 ];
 
 const PLATFORM_TOOL_NAMES = new Set(PLATFORM_TOOL_DEFS.map((t) => t.function.name));
@@ -124,6 +163,7 @@ export async function execPlatformTool(
   try {
     if (name === "connect_mcp_server") return await connectMcpServer(args, userId, origin);
     if (name === "create_skill") return await createSkillTool(args, userId);
+    if (name === "create_http_tool") return await createHttpToolTool(args, userId);
     if (name === "list_connections") return await listConnections(userId);
   } catch (e) {
     return { output: `Error: ${String(e).slice(0, 300)}`, toolsChanged: false };
@@ -269,6 +309,65 @@ async function createSkillTool(
     output: `Skill "${name}" saved and enabled. It will be offered to you as a loadable tool in every chat; call it whenever the task matches: ${description}`,
     toolsChanged: true,
   };
+}
+
+async function createHttpToolTool(
+  args: Record<string, unknown>,
+  userId?: string
+): Promise<PlatformToolResult> {
+  const name = String(args.name ?? "").trim();
+  if (!/^[a-zA-Z0-9_-]{1,48}$/.test(name)) {
+    return { output: "Error: name must be letters, numbers, _ or - (max 48).", toolsChanged: false };
+  }
+  const url = String(args.url ?? "").trim();
+  if (!/^https?:\/\//i.test(url)) {
+    return { output: "Error: url must start with http:// or https://", toolsChanged: false };
+  }
+  const method = String(args.method ?? "GET").toUpperCase();
+  const rawParams = Array.isArray(args.params) ? (args.params as Record<string, unknown>[]) : [];
+  const params: HttpToolParam[] = rawParams
+    .map((p) => ({
+      name: String(p.name ?? ""),
+      type: (["string", "number", "integer", "boolean"].includes(String(p.type))
+        ? String(p.type)
+        : "string") as HttpToolParam["type"],
+      location: (["path", "query", "body", "header"].includes(String(p.location))
+        ? String(p.location)
+        : "query") as HttpToolParam["location"],
+      required: Boolean(p.required),
+      description: p.description ? String(p.description) : undefined,
+    }))
+    .filter((p) => p.name);
+  const at = String(args.authType ?? "none");
+  const authType = (["none", "bearer", "apiKey", "basic"].includes(at) ? at : "none") as HttpToolAuth["type"];
+  const auth: HttpToolAuth = {
+    type: authType,
+    in: args.authIn === "query" ? "query" : args.authIn === "header" ? "header" : undefined,
+    name: args.authName ? String(args.authName) : undefined,
+  };
+  await createHttpTool(userId ?? "local", {
+    name,
+    description: String(args.description ?? "").trim(),
+    method,
+    url_template: url,
+    params,
+    headers: {},
+    auth,
+    auth_secret: args.authSecret ? String(args.authSecret) : null,
+    body_mode: "auto",
+    body_template: null,
+    response_extract: null,
+    max_response_bytes: 24576,
+    auto_run: 0,
+    source: "manual",
+    openapi_group: null,
+    enabled: 1,
+  });
+  const isWrite = method !== "GET" && method !== "HEAD";
+  const note = isWrite
+    ? ` Note: this is a ${method} (write) request — it's saved but won't run until the user enables "let the model run this" on it in Settings → Custom tools.`
+    : " You can call it right now.";
+  return { output: `Registered the "${name}" tool.${note}`, toolsChanged: true };
 }
 
 async function listConnections(userId?: string): Promise<PlatformToolResult> {

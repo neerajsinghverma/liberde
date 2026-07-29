@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModelInfo } from "@/lib/types";
+import Icon from "./Icon";
 
 export default function ModelPicker({
   models,
@@ -49,8 +50,14 @@ export default function ModelPicker({
         onClick={() => setOpen((v) => !v)}
         className="flex max-w-64 items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-sm hover:border-accent"
       >
-        <span className="truncate font-medium">
-          {selected?.name ?? value ?? "Select model"}
+        <span className="inline-flex items-center gap-1 truncate font-medium">
+          {value === "auto" ? (
+            <>
+              <Icon name="sparkles" size={14} className="shrink-0 text-accent" /> Auto
+            </>
+          ) : (
+            selected?.name ?? value ?? "Select model"
+          )}
         </span>
         <span className="text-xs text-ink-muted">▾</span>
       </button>
@@ -65,6 +72,28 @@ export default function ModelPicker({
             className="w-full border-b border-line bg-transparent px-3 py-2 text-sm outline-none placeholder:text-ink-muted"
           />
           <div className="max-h-80 overflow-y-auto p-1">
+            {!query.trim() && (
+              <button
+                onClick={() => {
+                  onChange("auto");
+                  setOpen(false);
+                  setQuery("");
+                }}
+                className={`mb-1 flex w-full flex-col rounded-lg border border-line px-2.5 py-1.5 text-left hover:bg-surface-2 ${
+                  value === "auto" ? "bg-surface-2" : ""
+                }`}
+              >
+                <span className="flex w-full items-baseline justify-between gap-2">
+                  <span className="inline-flex items-center gap-1 truncate text-sm font-medium">
+                    <Icon name="sparkles" size={14} className="shrink-0 text-accent" /> Auto
+                  </span>
+                  <span className="shrink-0 text-[11px] text-ink-muted">smart routing</span>
+                </span>
+                <span className="text-[11px] text-ink-muted">
+                  Picks the best model for each message
+                </span>
+              </button>
+            )}
             {filtered.map((m) => (
               <button
                 key={m.id}

@@ -11,6 +11,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@neondatabase/serverless": "^1.1.0",
+    "@vercel/analytics": "^2.0.1",
     "@vercel/functions": "^3.7.5",
     "botid": "^1.5.11",
     "highlight.js": "^11.11.1",

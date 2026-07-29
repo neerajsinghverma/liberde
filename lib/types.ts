@@ -76,6 +76,50 @@ export interface Message {
   cost_breakdown?: string | null;
   /** Wall-clock generation time for this assistant turn. */
   duration_ms?: number | null;
+  /** When Auto-routed: short reason the router chose this model (e.g. "complex reasoning"). */
+  route_reason?: string | null;
+  created_at: number;
+}
+
+export interface HttpToolParam {
+  name: string;
+  type: "string" | "number" | "integer" | "boolean";
+  description?: string;
+  required?: boolean;
+  /** Where the value goes in the request. */
+  location: "path" | "query" | "body" | "header";
+}
+
+export interface HttpToolAuth {
+  type: "none" | "bearer" | "apiKey" | "basic";
+  /** apiKey only: where the key is sent. */
+  in?: "header" | "query";
+  /** apiKey only: the header/query name (e.g. "X-Api-Key"). */
+  name?: string;
+  /** To the client only: whether a secret value is stored (never the value itself). */
+  hasSecret?: boolean;
+}
+
+/** A user-defined REST endpoint exposed to the model as a callable tool. */
+export interface HttpTool {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string;
+  method: string; // GET | POST | PUT | PATCH | DELETE
+  url_template: string; // https://api.x.com/v1/users/{{id}}
+  params: HttpToolParam[];
+  headers: Record<string, string>; // static headers
+  auth: HttpToolAuth;
+  body_mode: "auto" | "template";
+  body_template: string | null;
+  response_extract: string | null; // dot-path to trim the response (e.g. "data.items")
+  max_response_bytes: number;
+  /** Writes (non-GET) only run when the user has allowed it. */
+  auto_run: number;
+  source: "manual" | "openapi";
+  openapi_group: string | null;
+  enabled: number;
   created_at: number;
 }
 
