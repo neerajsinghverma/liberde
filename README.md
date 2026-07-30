@@ -74,6 +74,7 @@ For development: `npm run dev`.
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | "Sign in with Google" |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Web push (`npx web-push generate-vapid-keys`) |
 | `CRON_SECRET` | Secures `/api/cron` for scheduled tasks on Vercel |
+| `LIBERDE_SECRET_KEY` | Encrypts stored secrets at rest (AES-256-GCM). **Strongly recommended for public deploys** — generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` and back it up |
 
 ## Deploy your own
 
@@ -197,7 +198,8 @@ Set `LIBERDE_URL` to point the shell at a remote Liberde server.
 Liberde is built to run as a public, multi-user service. Highlights:
 
 - **Passwords** are salted **scrypt** hashes with timing-safe comparison. **Sessions** are DB-backed opaque tokens (stored hashed, expiring) in `httpOnly` + `SameSite=Lax` + `Secure` (prod) cookies; a password reset invalidates every session.
-- **Multi-user isolation** — every user-owned row is scoped by `user_id`, enforced on every API route. Secrets (OpenRouter/provider keys, custom-tool secrets, MCP tokens) are stored server-side and **redacted before reaching the client**; platform API keys are shown once and stored only as hashes.
+- **Multi-user isolation** — every user-owned row is scoped by `user_id`, enforced on every API route. Secrets are **redacted before reaching the client**; platform API keys are shown once and stored only as hashes.
+- **Secrets encrypted at rest** — OpenRouter/provider API keys, custom-tool secrets, and MCP tokens are encrypted with **AES-256-GCM** using a master key held only in the environment (`LIBERDE_SECRET_KEY`), never in the database. A database-only compromise (leaked backup, stolen DB credentials, read replica, SQL-injection read) yields ciphertext an attacker can't read without also stealing the app environment.
 - **Brute-force protection** — durable per-account lockout (10 failed logins → a temporary lock an admin can clear) plus IP rate-limiting on login, password-reset, and verification-email endpoints.
 - **SSRF-guarded outbound fetches** — web fetch, custom HTTP tools, MCP connects, and OpenAPI imports validate the target host on **every redirect hop** and block loopback / private / link-local / cloud-metadata ranges; secret headers are dropped on cross-host redirects.
 - **Sandboxed artifacts** — user/model-authored HTML runs in an iframe with **no `allow-same-origin`** (opaque origin), both in-app and on hosted `/live` pages (CSP `sandbox`), so artifact scripts can never touch your session or call authenticated APIs.

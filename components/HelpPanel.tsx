@@ -17,7 +17,7 @@ const DOCS: Doc[] = [
     title: "Getting started",
     blurb: "Liberde runs on your own OpenRouter key — one key, hundreds of models.",
     points: [
-      { h: "Add your key", d: "Settings → General → paste your key from openrouter.ai/keys and click Verify. It's stored against your account only." },
+      { h: "Add your key", d: "Settings → General → paste your key from openrouter.ai/keys and click Verify. It's encrypted at rest and stored against your account only." },
       { h: "Pick a model", d: "Use the selector top-left of any chat — or choose ✨ Auto to let Liberde route each message to the right model automatically. Not sure which specific model? Click “Help me pick” for a recommendation." },
       { h: "Start chatting", d: "Type below and hit Enter. New chat: the + in the sidebar, or Ctrl/⌘+Shift+O." },
     ],
