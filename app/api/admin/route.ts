@@ -14,7 +14,7 @@ export async function GET() {
   const admin = await requireAdmin();
   if (!admin) return forbidden();
   const users = await q(
-    "SELECT id, email, name, is_admin, created_at, locked_until FROM users ORDER BY created_at ASC"
+    "SELECT id, email, name, is_admin, created_at, locked_until, auth_provider FROM users ORDER BY created_at ASC"
   );
   return Response.json({
     users,
@@ -44,7 +44,17 @@ export async function PATCH(req: NextRequest) {
     await unlockUser(String(body.unlockUserId));
   }
   // Admin-initiated password reset: returns a one-time temp password to relay.
+  // Blocked for Google accounts — they have no password and sign in via Google.
   if (body.resetUserId) {
+    const prov = (
+      await q("SELECT auth_provider FROM users WHERE id = $1", [String(body.resetUserId)])
+    )[0]?.auth_provider;
+    if (prov === "google") {
+      return Response.json(
+        { error: "This is a Google sign-in account — it has no password to reset." },
+        { status: 400 }
+      );
+    }
     const tempPassword = await adminResetPassword(String(body.resetUserId));
     return Response.json({ ok: true, tempPassword });
   }

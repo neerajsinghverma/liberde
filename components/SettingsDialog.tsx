@@ -743,6 +743,7 @@ function AdminTab() {
       is_admin: number;
       created_at: number;
       locked_until?: number;
+      auth_provider?: string;
     }[];
     allowSignups: boolean;
     me: string;
@@ -816,6 +817,9 @@ function AdminTab() {
               {Boolean(u.is_admin) && (
                 <span className="ml-2 rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium">ADMIN</span>
               )}
+              {u.auth_provider === "google" && (
+                <span className="ml-2 rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-ink-muted">GOOGLE</span>
+              )}
               {Boolean(u.locked_until && u.locked_until > Date.now()) && (
                 <span className="ml-2 rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-medium text-red-500">
                   LOCKED
@@ -850,20 +854,22 @@ function AdminTab() {
                 >
                   {u.is_admin ? "Demote" : "Make admin"}
                 </button>
-                <button
-                  onClick={async () => {
-                    if (!(await confirmDialog(`Reset ${u.email}'s password? This signs them out everywhere and gives you a one-time temp password to send them.`))) return;
-                    const r = await api<{ tempPassword: string }>("/api/admin", {
-                      method: "PATCH",
-                      body: JSON.stringify({ resetUserId: u.id }),
-                    });
-                    setResetInfo({ email: u.email, password: r.tempPassword });
-                    await load();
-                  }}
-                  className="rounded border border-line px-2 py-0.5 text-xs hover:bg-surface-2"
-                >
-                  Reset pw
-                </button>
+                {u.auth_provider !== "google" && (
+                  <button
+                    onClick={async () => {
+                      if (!(await confirmDialog(`Reset ${u.email}'s password? This signs them out everywhere and gives you a one-time temp password to send them.`))) return;
+                      const r = await api<{ tempPassword: string }>("/api/admin", {
+                        method: "PATCH",
+                        body: JSON.stringify({ resetUserId: u.id }),
+                      });
+                      setResetInfo({ email: u.email, password: r.tempPassword });
+                      await load();
+                    }}
+                    className="rounded border border-line px-2 py-0.5 text-xs hover:bg-surface-2"
+                  >
+                    Reset pw
+                  </button>
+                )}
                 <button
                   onClick={async () => {
                     if (!(await confirmDialog(`Delete ${u.email} and ALL their data?`))) return;

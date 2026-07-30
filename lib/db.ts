@@ -387,6 +387,9 @@ const SCHEMA_STATEMENTS: string[] = [
   // Brute-force lockout: consecutive failed logins + a temporary lock timestamp.
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_logins INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until BIGINT NOT NULL DEFAULT 0`,
+  // How the account signs in: 'password' or 'google' (OAuth accounts have no
+  // usable password, so admin password-reset must not apply to them).
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider TEXT NOT NULL DEFAULT 'password'`,
   `CREATE INDEX IF NOT EXISTS idx_auth_tokens_user ON auth_tokens(user_id)`,
   // Both queried WHERE user_id (push-send on every completion; task list) but
   // their PKs are endpoint/id — without these they sequential-scan at scale.

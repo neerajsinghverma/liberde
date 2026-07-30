@@ -217,6 +217,9 @@ export async function createOAuthUser(email: string, name: string): Promise<User
   const randomPassword = crypto.randomBytes(24).toString("base64url");
   const user = await createUser(email, name || email.split("@")[0], randomPassword);
   await setEmailVerified(user.id);
+  // Mark as a Google account: no usable password, signs in only via Google — so
+  // admin password-reset is blocked for it (nothing to reset).
+  await q("UPDATE users SET auth_provider = 'google' WHERE id = $1", [user.id]);
   return { ...user, email_verified: 1 };
 }
 
