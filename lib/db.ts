@@ -1,5 +1,6 @@
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import crypto from "crypto";
+import { encryptSecret, decryptSecret } from "./crypto-secrets";
 import type {
   AgentRun,
   AgentStep,
@@ -13,6 +14,36 @@ import type {
   Project,
   ProjectFile,
 } from "./types";
+
+// ---- At-rest secret encryption (AES-256-GCM, key in env; see crypto-secrets) ----
+// Settings whose value is a secret and must be encrypted before it hits the DB.
+const SECRET_SETTING_KEYS = new Set(["openrouter_api_key"]);
+// Provider-config fields that hold secrets.
+const SECRET_CONFIG_FIELDS = ["apiKey", "secretAccessKey", "secretKey", "token"];
+
+/** Encrypt the secret fields inside a provider config JSON string. */
+function encProviderConfig(configStr: string): string {
+  try {
+    const c = JSON.parse(configStr) as Record<string, unknown>;
+    for (const f of SECRET_CONFIG_FIELDS)
+      if (typeof c[f] === "string" && c[f]) c[f] = encryptSecret(c[f] as string);
+    return JSON.stringify(c);
+  } catch {
+    return configStr;
+  }
+}
+/** Decrypt the secret fields inside a provider config JSON string. */
+function decProviderConfig(configStr: string | null): string | null {
+  if (!configStr) return configStr;
+  try {
+    const c = JSON.parse(configStr) as Record<string, unknown>;
+    for (const f of SECRET_CONFIG_FIELDS)
+      if (typeof c[f] === "string" && c[f]) c[f] = decryptSecret(c[f] as string);
+    return JSON.stringify(c);
+  } catch {
+    return configStr;
+  }
+}
 
 // Neon over HTTP: works on Vercel serverless and locally alike.
 // fullResults gives us field type OIDs so we can coerce BIGINT/NUMERIC
@@ -531,7 +562,8 @@ export async function getSetting(
     "SELECT value FROM settings WHERE user_id = $1 AND key = $2",
     [userId, key]
   );
-  return (rows[0]?.value as string | undefined) ?? null;
+  const val = (rows[0]?.value as string | undefined) ?? null;
+  return SECRET_SETTING_KEYS.has(key) ? decryptSecret(val) : val;
 }
 
 export async function setSetting(
@@ -539,9 +571,10 @@ export async function setSetting(
   value: string,
   userId: string = DEFAULT_USER
 ) {
+  const toStore = SECRET_SETTING_KEYS.has(key) ? encryptSecret(value) : value;
   await q(
     "INSERT INTO settings (user_id, key, value) VALUES ($1, $2, $3) ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value",
-    [userId, key, value]
+    [userId, key, toStore]
   );
 }
 
@@ -1945,15 +1978,17 @@ export interface ProviderRecord {
 export async function listProviders(
   userId: string = DEFAULT_USER
 ): Promise<ProviderRecord[]> {
-  return (await q(
+  const rows = (await q(
     "SELECT * FROM providers WHERE user_id = $1 ORDER BY created_at ASC",
     [userId]
   )) as unknown as ProviderRecord[];
+  return rows.map((r) => ({ ...r, config: decProviderConfig(r.config) as string }));
 }
 
 export async function getProvider(id: string): Promise<ProviderRecord | undefined> {
   const rows = await q("SELECT * FROM providers WHERE id = $1", [id]);
-  return rows[0] as unknown as ProviderRecord | undefined;
+  const r = rows[0] as unknown as ProviderRecord | undefined;
+  return r ? { ...r, config: decProviderConfig(r.config) as string } : undefined;
 }
 
 export async function createProvider(
@@ -1976,7 +2011,7 @@ export async function createProvider(
       record.user_id,
       record.kind,
       record.name,
-      record.config,
+      encProviderConfig(record.config),
       record.enabled,
       record.created_at,
     ]
@@ -1993,7 +2028,7 @@ export async function updateProvider(
   const merged = { ...record, ...fields };
   await q("UPDATE providers SET name=$1, config=$2, enabled=$3 WHERE id=$4", [
     merged.name,
-    merged.config,
+    encProviderConfig(merged.config),
     merged.enabled,
     id,
   ]);
@@ -2046,23 +2081,34 @@ export async function getConnectorOAuth(id: string): Promise<Record<string, unkn
 export async function saveConnectorOAuth(id: string, patch: Record<string, unknown>) {
   const merged = { ...(await getConnectorOAuth(id)), ...patch };
   await q("UPDATE connectors SET oauth_data = $1 WHERE id = $2", [
-    JSON.stringify(merged),
+    encryptSecret(JSON.stringify(merged)),
     id,
   ]);
+}
+
+/** Decrypt a connector's secret-bearing columns (headers, oauth_data) for use. */
+function decConnector(c: Connector): Connector {
+  return {
+    ...c,
+    headers: decryptSecret(c.headers),
+    oauth_data: decryptSecret(c.oauth_data),
+  };
 }
 
 export async function listConnectors(
   userId: string = DEFAULT_USER
 ): Promise<Connector[]> {
-  return (await q(
+  const rows = (await q(
     "SELECT * FROM connectors WHERE user_id = $1 ORDER BY created_at ASC",
     [userId]
   )) as unknown as Connector[];
+  return rows.map(decConnector);
 }
 
 export async function getConnector(id: string): Promise<Connector | undefined> {
   const rows = await q("SELECT * FROM connectors WHERE id = $1", [id]);
-  return rows[0] as unknown as Connector | undefined;
+  const r = rows[0] as unknown as Connector | undefined;
+  return r ? decConnector(r) : undefined;
 }
 
 export async function createConnector(
@@ -2100,7 +2146,7 @@ export async function createConnector(
       record.command,
       record.args,
       record.url,
-      record.headers,
+      encryptSecret(record.headers),
       record.oauth_data,
       record.enabled,
       record.user_id,
@@ -2122,7 +2168,7 @@ export async function updateConnector(id: string, fields: Partial<Connector>) {
       merged.command,
       merged.args,
       merged.url,
-      merged.headers,
+      encryptSecret(merged.headers),
       merged.enabled,
       id,
     ]
@@ -2153,7 +2199,7 @@ function rowToHttpTool(r: Record<string, unknown>): HttpTool & { auth_secret: st
     params: safeJson<HttpToolParam[]>(r.params, []),
     headers: safeJson<Record<string, string>>(r.headers, {}),
     auth: safeJson<HttpToolAuth>(r.auth, { type: "none" }),
-    auth_secret: (r.auth_secret as string) ?? null,
+    auth_secret: decryptSecret((r.auth_secret as string) ?? null),
     body_mode: ((r.body_mode as string) ?? "auto") as "auto" | "template",
     body_template: (r.body_template as string) ?? null,
     response_extract: (r.response_extract as string) ?? null,
@@ -2227,7 +2273,7 @@ export async function createHttpTool(
       JSON.stringify(t.params ?? []),
       JSON.stringify(t.headers ?? {}),
       JSON.stringify(t.auth ?? { type: "none" }),
-      t.auth_secret ?? null,
+      encryptSecret(t.auth_secret ?? null),
       t.body_mode ?? "auto",
       t.body_template ?? null,
       t.response_extract ?? null,
@@ -2263,7 +2309,7 @@ export async function updateHttpTool(
       JSON.stringify(m.headers ?? {}),
       JSON.stringify(m.auth ?? { type: "none" }),
       // keep the existing secret when the caller didn't supply a new one
-      fields.auth_secret === undefined ? cur.auth_secret : fields.auth_secret,
+      encryptSecret(fields.auth_secret === undefined ? cur.auth_secret : fields.auth_secret),
       m.body_mode,
       m.body_template ?? null,
       m.response_extract ?? null,
