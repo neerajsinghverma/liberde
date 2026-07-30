@@ -745,26 +745,44 @@ function AdminTab() {
       locked_until?: number;
       auth_provider?: string;
     }[];
+    total: number;
+    page: number;
+    pageSize: number;
     allowSignups: boolean;
     me: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [resetInfo, setResetInfo] = useState<{ email: string; password: string } | null>(null);
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 8;
 
-  const load = async () => {
+  // Server-side search + pagination: only one page of rows is ever fetched, so
+  // the admin panel scales to thousands of users.
+  const load = async (q = query, p = page) => {
     try {
-      setData(await api<NonNullable<typeof data>>("/api/admin"));
+      const d = await api<NonNullable<typeof data>>(
+        `/api/admin?q=${encodeURIComponent(q)}&page=${p}&pageSize=${PAGE_SIZE}`
+      );
+      setData(d);
+      // If a delete emptied the last page, step back.
+      if (d.users.length === 0 && p > 0 && d.total > 0) setPage(p - 1);
     } catch (e) {
       setError(String((e as Error).message ?? e));
     }
   };
+  // Debounced refetch whenever the search or page changes (also the initial load).
   useEffect(() => {
-    load();
+    const t = setTimeout(() => load(query, page), 200);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [query, page]);
 
   if (error) return <p className="text-sm text-ink-muted">{error}</p>;
   if (!data) return <p className="text-sm text-ink-muted">Loading…</p>;
+
+  const pageCount = Math.max(1, Math.ceil(data.total / data.pageSize));
+  const showSearch = data.total > data.pageSize || query.length > 0;
 
   return (
     <div className="space-y-4">
@@ -808,7 +826,25 @@ function AdminTab() {
         Allow new signups
       </label>
 
+      {showSearch && (
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setPage(0);
+          }}
+          placeholder="Search users by email or name…"
+          className="w-full rounded-lg border border-line bg-transparent px-3 py-1.5 text-sm outline-none focus:border-(--color-accent)"
+        />
+      )}
+
       <div className="divide-y divide-line rounded-xl border border-line">
+        {data.users.length === 0 && (
+          <div className="px-3 py-6 text-center text-sm text-ink-muted">
+            {query ? "No users match your search." : "No users."}
+          </div>
+        )}
         {data.users.map((u) => (
           <div key={u.id} className="flex items-center gap-2 px-3 py-2 text-sm">
             <div className="min-w-0 flex-1">
@@ -885,6 +921,27 @@ function AdminTab() {
           </div>
         ))}
       </div>
+      {pageCount > 1 && (
+        <div className="flex items-center justify-between text-xs text-ink-muted">
+          <button
+            disabled={data.page === 0}
+            onClick={() => setPage(data.page - 1)}
+            className="rounded border border-line px-2 py-1 hover:bg-surface-2 disabled:opacity-40"
+          >
+            ‹ Prev
+          </button>
+          <span>
+            Page {data.page + 1} of {pageCount} · {data.total} user{data.total === 1 ? "" : "s"}
+          </span>
+          <button
+            disabled={data.page >= pageCount - 1}
+            onClick={() => setPage(data.page + 1)}
+            className="rounded border border-line px-2 py-1 hover:bg-surface-2 disabled:opacity-40"
+          >
+            Next ›
+          </button>
+        </div>
+      )}
       <p className="text-xs text-ink-muted">
         Deleting a user permanently removes their chats, projects, memory, keys, and settings.
       </p>

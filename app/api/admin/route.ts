@@ -10,14 +10,30 @@ async function requireAdmin() {
   return user;
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const admin = await requireAdmin();
   if (!admin) return forbidden();
+  const sp = req.nextUrl.searchParams;
+  const search = (sp.get("q") || "").trim().toLowerCase();
+  const pageSize = Math.min(50, Math.max(1, parseInt(sp.get("pageSize") || "8", 10) || 8));
+  const page = Math.max(0, parseInt(sp.get("page") || "0", 10) || 0);
+  // Server-side search + pagination so the panel scales to thousands of users
+  // (only one page is returned). `search` is parameterized; page/size are clamped ints.
+  const where = search ? "WHERE lower(email) LIKE $1 OR lower(name) LIKE $1" : "";
+  const params = search ? [`%${search}%`] : [];
+  const total = Number(
+    ((await q(`SELECT COUNT(*)::int AS n FROM users ${where}`, params))[0] as { n?: number })?.n ?? 0
+  );
   const users = await q(
-    "SELECT id, email, name, is_admin, created_at, locked_until, auth_provider FROM users ORDER BY created_at ASC"
+    `SELECT id, email, name, is_admin, created_at, locked_until, auth_provider
+     FROM users ${where} ORDER BY created_at ASC LIMIT ${pageSize} OFFSET ${page * pageSize}`,
+    params
   );
   return Response.json({
     users,
+    total,
+    page,
+    pageSize,
     allowSignups: (await getSetting("allow_signups", "global")) !== "0",
     me: admin.id,
   });
@@ -58,7 +74,8 @@ export async function PATCH(req: NextRequest) {
     const tempPassword = await adminResetPassword(String(body.resetUserId));
     return Response.json({ ok: true, tempPassword });
   }
-  return GET();
+  // The client refetches its current page after any mutation.
+  return Response.json({ ok: true });
 }
 
 export async function DELETE(req: NextRequest) {
@@ -120,5 +137,5 @@ export async function DELETE(req: NextRequest) {
   }
   await q("DELETE FROM project_members WHERE user_id = $1", [userId]);
   await q("DELETE FROM users WHERE id = $1", [userId]);
-  return GET();
+  return Response.json({ ok: true });
 }
