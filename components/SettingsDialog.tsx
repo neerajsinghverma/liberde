@@ -782,7 +782,6 @@ function AdminTab() {
   if (!data) return <p className="text-sm text-ink-muted">Loading…</p>;
 
   const pageCount = Math.max(1, Math.ceil(data.total / data.pageSize));
-  const showSearch = data.total > data.pageSize || query.length > 0;
 
   return (
     <div className="space-y-4">
@@ -826,18 +825,16 @@ function AdminTab() {
         Allow new signups
       </label>
 
-      {showSearch && (
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setPage(0);
-          }}
-          placeholder="Search users by email or name…"
-          className="w-full rounded-lg border border-line bg-transparent px-3 py-1.5 text-sm outline-none focus:border-(--color-accent)"
-        />
-      )}
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setPage(0);
+        }}
+        placeholder="Search users by email or name…"
+        className="w-full rounded-lg border border-line bg-transparent px-3 py-1.5 text-sm outline-none focus:border-(--color-accent)"
+      />
 
       <div className="divide-y divide-line rounded-xl border border-line">
         {data.users.length === 0 && (
@@ -921,27 +918,30 @@ function AdminTab() {
           </div>
         ))}
       </div>
-      {pageCount > 1 && (
-        <div className="flex items-center justify-between text-xs text-ink-muted">
-          <button
-            disabled={data.page === 0}
-            onClick={() => setPage(data.page - 1)}
-            className="rounded border border-line px-2 py-1 hover:bg-surface-2 disabled:opacity-40"
-          >
-            ‹ Prev
-          </button>
-          <span>
-            Page {data.page + 1} of {pageCount} · {data.total} user{data.total === 1 ? "" : "s"}
-          </span>
-          <button
-            disabled={data.page >= pageCount - 1}
-            onClick={() => setPage(data.page + 1)}
-            className="rounded border border-line px-2 py-1 hover:bg-surface-2 disabled:opacity-40"
-          >
-            Next ›
-          </button>
-        </div>
-      )}
+      <div className="flex items-center justify-between text-xs text-ink-muted">
+        <span>
+          {data.total} user{data.total === 1 ? "" : "s"}
+          {pageCount > 1 ? ` · page ${data.page + 1} of ${pageCount}` : ""}
+        </span>
+        {pageCount > 1 && (
+          <div className="flex gap-2">
+            <button
+              disabled={data.page === 0}
+              onClick={() => setPage(data.page - 1)}
+              className="rounded border border-line px-2 py-1 hover:bg-surface-2 disabled:opacity-40"
+            >
+              ‹ Prev
+            </button>
+            <button
+              disabled={data.page >= pageCount - 1}
+              onClick={() => setPage(data.page + 1)}
+              className="rounded border border-line px-2 py-1 hover:bg-surface-2 disabled:opacity-40"
+            >
+              Next ›
+            </button>
+          </div>
+        )}
+      </div>
       <p className="text-xs text-ink-muted">
         Deleting a user permanently removes their chats, projects, memory, keys, and settings.
       </p>
