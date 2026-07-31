@@ -20,6 +20,14 @@ One API key gives every chat access to Claude, GPT, Gemini, Llama, and 400+ othe
 
 Liberde is one Next.js server that every form factor talks to — web app, an OpenAI-compatible REST API, a desktop shell, a CLI, and an installable PWA. Bring your own OpenRouter key (or plug in OpenAI, Anthropic, Azure, Bedrock, Google, or any OpenAI-compatible endpoint directly), point it at a Postgres database, and you have your own AI platform.
 
+> ### Two editions, same app
+> This repo is the **hosted / cloud** build (Postgres + Vercel) — it's what powers **[liberde.ai](https://liberde.ai)**. To run Liberde yourself with zero database setup, use the self-host build. Same features; only the storage/runtime differ.
+>
+> | Edition | Repo | Stack | Use it to… |
+> |---|---|---|---|
+> | ☁️ **Hosted / cloud** | **liberde** (this repo) | Postgres (Neon) + Vercel | deploy a public multi-user service |
+> | 🖥️ **Self-host** | [**liberde-self-host**](https://github.com/neerajsinghverma/liberde-self-host) | single SQLite file, one Node process | run it yourself, no DB to provision |
+
 ## Highlights
 
 - 🧠 **Any model, one place** — searchable picker with live pricing & context size; switch mid-conversation, or let **✨ Auto** pick the right model per message.
