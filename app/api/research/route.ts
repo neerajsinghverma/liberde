@@ -15,6 +15,7 @@ import {
   openRouterHeaders,
   OPENROUTER_BASE,
   resolveAutoModel,
+  dateContextLine,
 } from "@/lib/openrouter";
 import { resolveChatTarget, targetHeaders } from "@/lib/providers";
 
@@ -208,6 +209,7 @@ export async function POST(req: NextRequest) {
             {
               role: "system",
               content:
+                dateContextLine() + " " +
                 "You are a senior research analyst. Write a comprehensive, well-structured markdown report answering the user's question using ALL of the provided findings. Structure it: a 2–4 sentence executive summary; then themed sections with ## headings that synthesize across sources (don't just list what each search found); be specific with figures, dates, and named entities; note disagreements or uncertainty between sources; cite claims inline as [n] using the numbered source list; and end with a Conclusion and, where useful, a short table comparing key options/data. Aim for depth and completeness. Never fabricate sources or citations.",
             },
             {

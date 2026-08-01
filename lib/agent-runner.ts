@@ -4,7 +4,7 @@ import {
   updateMessageContent,
   updateMessageCost,
 } from "./db";
-import { complete, fetchWithRetry } from "./openrouter";
+import { complete, fetchWithRetry, dateContextLine } from "./openrouter";
 import { assembleTools, callTool } from "./mcp";
 import { BUILTIN_TOOL_DEFS, execBuiltinTool, isBuiltinTool } from "./builtin-tools";
 import { execPlatformTool, isPlatformTool, PLATFORM_TOOL_DEFS } from "./platform-tools";
@@ -143,7 +143,7 @@ export async function runAgentSlice(
           [
             {
               role: "user",
-              content: `You are an autonomous agent. Break this into at most ${MAX_STEPS} concrete, sequential steps (fewer is better; the final step should produce the deliverable). Available tools: ${toolNames || "none"}.\n\n${run.context_block}\n\nReply with ONLY a JSON array of short step titles.`,
+              content: `${dateContextLine()} You are an autonomous agent. Break this into at most ${MAX_STEPS} concrete, sequential steps (fewer is better; the final step should produce the deliverable). Available tools: ${toolNames || "none"}.\n\n${run.context_block}\n\nReply with ONLY a JSON array of short step titles.`,
             },
           ],
           { temperature: 0.3, max_tokens: 400 },
@@ -185,7 +185,7 @@ export async function runAgentSlice(
         const result = await runStep([
           {
             role: "system",
-            content: `You are executing one step of a plan. Be thorough but focused on THIS step only. Use tools when they genuinely help. Report your findings/output for the step as dense, factual text.`,
+            content: `${dateContextLine()} You are executing one step of a plan. Be thorough but focused on THIS step only. Use tools when they genuinely help. Report your findings/output for the step as dense, factual text.`,
           },
           {
             role: "user",
@@ -226,7 +226,7 @@ export async function runAgentSlice(
       messages: [
         {
           role: "system",
-          content: `You executed a plan and must now present the final deliverable to the user. Lead with the deliverable itself, then a brief note on how you got there. ${ARTIFACTS_SYSTEM_PROMPT}`,
+          content: `${dateContextLine()} You executed a plan and must now present the final deliverable to the user. Lead with the deliverable itself, then a brief note on how you got there. ${ARTIFACTS_SYSTEM_PROMPT}`,
         },
         {
           role: "user",

@@ -165,13 +165,30 @@ export function historyHasPdf(messages: Message[]): boolean {
   );
 }
 
+/**
+ * A short factual line telling the model today's date, so it doesn't fall back
+ * to assuming its training-cutoff date. Injected into system prompts across the
+ * app (chat, design, compare, agent/plan, research, scheduled tasks). Uses UTC
+ * — good to within a timezone offset, which is all the model needs for "today".
+ */
+export function dateContextLine(): string {
+  const d = new Date().toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+  return `Today's date is ${d} (UTC).`;
+}
+
 export function buildSystemPrompt(
   globalPrompt: string,
   project?: { instructions: string; files: { name: string; content: string }[] } | null,
   personalization?: { aboutUser: string; styleInstructions: string } | null,
   query?: string
 ): string {
-  const parts: string[] = [];
+  const parts: string[] = [dateContextLine()];
   if (globalPrompt.trim()) parts.push(globalPrompt.trim());
   if (personalization) {
     const p: string[] = [];

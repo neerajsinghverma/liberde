@@ -11,7 +11,7 @@ import {
   updateScheduledTask,
   type ScheduledTask,
 } from "./db";
-import { getSettings, openRouterHeaders, OPENROUTER_BASE, resolveAutoModel } from "./openrouter";
+import { getSettings, openRouterHeaders, OPENROUTER_BASE, resolveAutoModel, dateContextLine } from "./openrouter";
 import { runAgentSlice } from "./agent-runner";
 import { sendPushToUser } from "./push";
 import { purgeExpiredAuth } from "./auth";
@@ -124,7 +124,7 @@ export async function runScheduledTask(task: ScheduledTask): Promise<string> {
       messages: [
         {
           role: "system",
-          content: `You are running as a scheduled task named "${task.name}". Produce a complete, self-contained answer in markdown — the user is not present to reply.`,
+          content: `${dateContextLine()} You are running as a scheduled task named "${task.name}". Produce a complete, self-contained answer in markdown — the user is not present to reply.`,
         },
         { role: "user", content: task.prompt },
       ],
