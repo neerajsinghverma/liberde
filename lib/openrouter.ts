@@ -1,5 +1,5 @@
 import { getApiKey, getSetting } from "./db";
-import type { Attachment, Message, ModelInfo } from "./types";
+import { PDF_NO_TEXT, type Attachment, type Message, type ModelInfo } from "./types";
 import { retrieveRelevant } from "./rag";
 
 export const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
@@ -104,10 +104,20 @@ export interface ChatCompletionMessage {
   tool_call_id?: string;
 }
 
+/** True when a PDF attachment carries extracted text with actual content in it. */
+function hasUsableText(a: { text?: string }): boolean {
+  return a.text != null && a.text !== PDF_NO_TEXT;
+}
+
 /** Convert a stored message (with attachments/tool data) into OpenAI chat format. */
 export function toApiMessage(
   msg: Message,
-  opts: { pdfAsText?: boolean } = {}
+  /**
+   * `rawPdfFallback` attaches the raw PDF as a `file` part when local extraction
+   * produced nothing usable, so a provider-side parser can try. OpenRouter only
+   * — plain OpenAI-dialect endpoints reject `file` parts.
+   */
+  opts: { rawPdfFallback?: boolean } = {}
 ): ChatCompletionMessage {
   if (msg.role === "tool") {
     return { role: "tool", tool_call_id: msg.tool_call_id ?? "", content: msg.content };
@@ -123,13 +133,17 @@ export function toApiMessage(
   const images = attachments.filter(
     (a) => a.dataUrl && a.mime.startsWith("image/")
   );
-  // For providers without native PDF support, extracted text stands in for the file.
+  // Locally extracted text stands in for the file on every provider. Only when
+  // extraction found nothing does the raw file go out for a provider-side parse.
   const pdfs = attachments.filter(
-    (a) => a.dataUrl && a.mime === "application/pdf" && !(opts.pdfAsText && a.text != null)
+    (a) =>
+      a.dataUrl &&
+      a.mime === "application/pdf" &&
+      !hasUsableText(a) &&
+      Boolean(opts.rawPdfFallback)
   );
   const textFiles = attachments.filter(
-    (a) =>
-      a.text != null && (a.mime !== "application/pdf" || Boolean(opts.pdfAsText))
+    (a) => a.mime === "application/pdf" ? hasUsableText(a) : a.text != null
   );
 
   let text = msg.content;

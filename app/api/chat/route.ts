@@ -347,30 +347,23 @@ ${ds.spec}`;
     .filter(Boolean)
     .join("\n\n");
 
-  // External providers lack OpenRouter's PDF plugin — extract text ourselves,
-  // once, and persist it on the attachment.
-  if (!target.isOpenRouter && historyHasPdf(history)) {
-    const { extractPdfText } = await import("@/lib/pdf");
-    for (const msg of history) {
-      const pdfs = msg.attachments?.filter(
-        (a) => a.mime === "application/pdf" && a.dataUrl && a.text == null
-      );
-      if (!pdfs?.length) continue;
-      for (const pdf of pdfs) {
-        try {
-          pdf.text = await extractPdfText(pdf.dataUrl!);
-        } catch (e) {
-          pdf.text = `(PDF extraction failed: ${String(e).slice(0, 120)})`;
-        }
-      }
-      await updateMessageAttachments(msg.id, msg.attachments!);
-    }
+  // Extract PDF text ourselves for every provider, once, persisted on the
+  // attachment. Local pdf.js reads text-layer PDFs that OpenRouter's free
+  // file-parser engine returns blank for, and one path means the same result
+  // whichever model is selected. Only a PDF we genuinely can't read falls
+  // through to the provider-side parser below.
+  let pdfNeedsProviderParse = false;
+  if (historyHasPdf(history)) {
+    const { ensurePdfText } = await import("@/lib/pdf");
+    pdfNeedsProviderParse = await ensurePdfText(history, updateMessageAttachments);
   }
 
   const apiMessages: ChatCompletionMessage[] = [];
   if (fullSystemPrompt) apiMessages.push({ role: "system", content: fullSystemPrompt });
   apiMessages.push(
-    ...history.map((m) => toApiMessage(m, { pdfAsText: !target.isOpenRouter }))
+    ...history.map((m) =>
+      toApiMessage(m, { rawPdfFallback: target.isOpenRouter && pdfNeedsProviderParse })
+    )
   );
 
   // The 🌐 toggle on external providers: run the search ourselves and inject results.
@@ -597,10 +590,13 @@ ${ds.spec}`;
                       : (() => {
                           const plugins: object[] = [];
                           if (body.webSearch) plugins.push({ id: "web", max_results: 5 });
-                          if (historyHasPdf(history)) {
+                          // Only for PDFs local extraction couldn't read — i.e.
+                          // no text layer, so the free text-layer engine would
+                          // come back blank too and OCR is the only option left.
+                          if (pdfNeedsProviderParse) {
                             plugins.push({
                               id: "file-parser",
-                              pdf: { engine: "cloudflare-ai" },
+                              pdf: { engine: "mistral-ocr" },
                             });
                           }
                           return plugins.length ? { plugins } : {};

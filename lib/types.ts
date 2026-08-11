@@ -6,6 +6,13 @@ export interface Attachment {
   text?: string;
 }
 
+/**
+ * Stored in `Attachment.text` when a PDF's text layer held nothing to read.
+ * Lives here rather than in lib/pdf.ts so consumers can check for it without
+ * pulling pdf-parse (and pdf.js) into their bundle.
+ */
+export const PDF_NO_TEXT = "(no extractable text in this PDF)";
+
 export interface UrlCitation {
   type: "url_citation";
   url_citation: {

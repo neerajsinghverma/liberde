@@ -8,11 +8,13 @@ import {
   listProjectFiles,
   snapshotTailAsBranch,
   updateConversation,
+  updateMessageAttachments,
 } from "@/lib/db";
 import {
   buildSystemPrompt,
   fetchWithRetry,
   getSettings,
+  historyHasPdf,
   toApiMessage,
   type ChatCompletionMessage,
 } from "@/lib/openrouter";
@@ -84,6 +86,14 @@ export async function POST(req: NextRequest) {
     lastUserContent
   );
 
+  // Extract PDF text once, up front — before the fan-out, so all columns see the
+  // same text and one PDF isn't parsed once per model.
+  let pdfNeedsProviderParse = false;
+  if (historyHasPdf(context)) {
+    const { ensurePdfText } = await import("@/lib/pdf");
+    pdfNeedsProviderParse = await ensurePdfText(context, updateMessageAttachments);
+  }
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const encoder = new TextEncoder();
@@ -107,7 +117,9 @@ export async function POST(req: NextRequest) {
             }
             apiMessages.push(
               ...context.map((m) =>
-                toApiMessage(m, { pdfAsText: !target.isOpenRouter })
+                toApiMessage(m, {
+                  rawPdfFallback: target.isOpenRouter && pdfNeedsProviderParse,
+                })
               )
             );
             const reqBody = JSON.stringify({
