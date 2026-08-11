@@ -25,6 +25,7 @@ import {
   getContextLimit,
   DEFAULT_MODEL,
   getSettings,
+  historyHasMime,
   historyHasPdf,
   keyProblem,
   listModels,
@@ -35,7 +36,7 @@ import {
   toApiMessage,
   type ChatCompletionMessage,
 } from "@/lib/openrouter";
-import type { Attachment, ToolCall } from "@/lib/types";
+import { DOCX_MIME, type Attachment, type ToolCall } from "@/lib/types";
 import { ARTIFACTS_SYSTEM_PROMPT } from "@/lib/artifact-shared";
 import {
   ARTIFACT_READ_TOOL,
@@ -363,6 +364,17 @@ ${ds.spec}`;
     } catch (e) {
       console.error("PDF extraction unavailable:", e);
       pdfNeedsProviderParse = true;
+    }
+  }
+
+  // DOCX is a zip, so it needs the same server-side parse. No provider can read
+  // one, so a failure here just means the model is told the file was unreadable.
+  if (historyHasMime(history, DOCX_MIME)) {
+    try {
+      const { ensureDocxText } = await import("@/lib/docx");
+      await ensureDocxText(history, updateMessageAttachments);
+    } catch (e) {
+      console.error("DOCX extraction unavailable:", e);
     }
   }
 

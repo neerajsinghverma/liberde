@@ -145,13 +145,29 @@ export function toApiMessage(
   const textFiles = attachments.filter(
     (a) => a.mime === "application/pdf" ? hasUsableText(a) : a.text != null
   );
+  // An upload we couldn't parse must not simply vanish, or the model answers as
+  // though nothing was attached — which is how a silent extraction failure turns
+  // into a confidently wrong reply. Name it and say it was unreadable.
+  const unreadable = attachments.filter(
+    (a) =>
+      a.dataUrl &&
+      a.text == null &&
+      !a.mime.startsWith("image/") &&
+      !pdfs.includes(a)
+  );
 
   let text = msg.content;
-  if (textFiles.length > 0) {
-    const fileBlocks = textFiles
-      .map((f) => `<attached_file name="${f.name}">\n${f.text}\n</attached_file>`)
-      .join("\n\n");
-    text = `${fileBlocks}\n\n${text}`;
+  const blocks = [
+    ...textFiles.map(
+      (f) => `<attached_file name="${f.name}">\n${f.text}\n</attached_file>`
+    ),
+    ...unreadable.map(
+      (f) =>
+        `<attached_file name="${f.name}" status="unreadable">The user attached this file but it could not be parsed. Tell them so rather than guessing at its contents.</attached_file>`
+    ),
+  ];
+  if (blocks.length > 0) {
+    text = `${blocks.join("\n\n")}\n\n${text}`;
   }
 
   if (images.length === 0 && pdfs.length === 0) {
@@ -172,11 +188,14 @@ export function toApiMessage(
   return { role: msg.role, content: parts };
 }
 
+/** True when any message in the history carries an uploaded file of `mime`. */
+export function historyHasMime(messages: Message[], mime: string): boolean {
+  return messages.some((m) => m.attachments?.some((a) => a.mime === mime && a.dataUrl));
+}
+
 /** True when any message in the history carries a PDF attachment. */
 export function historyHasPdf(messages: Message[]): boolean {
-  return messages.some((m) =>
-    m.attachments?.some((a) => a.mime === "application/pdf" && a.dataUrl)
-  );
+  return historyHasMime(messages, "application/pdf");
 }
 
 /**

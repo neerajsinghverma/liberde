@@ -1,4 +1,4 @@
-import type { Attachment } from "./types";
+import { DOCX_MIME, type Attachment } from "./types";
 
 export async function api<T = unknown>(
   path: string,
@@ -333,6 +333,31 @@ export async function fileToUploadAttachment(file: File): Promise<Attachment> {
       dataUrl: await readAsDataUrl(file),
     };
   }
+  // DOCX is a zip — upload the bytes and let the server extract, same as a PDF.
+  if (file.type === DOCX_MIME || /\.docx$/i.test(file.name)) {
+    return { name: file.name, mime: DOCX_MIME, dataUrl: await readAsDataUrl(file) };
+  }
+  // Everything else is read as text. Guard the binary formats that would
+  // otherwise smuggle megabytes of mojibake into the prompt: drag-and-drop and
+  // paste bypass the file picker's accept list, so this is the only chokepoint.
+  if (isUnreadableBinary(file)) {
+    return {
+      name: file.name,
+      mime: file.type || "application/octet-stream",
+      text: `(cannot read ${file.name} — unsupported binary format. Convert it to PDF, DOCX, or plain text.)`,
+    };
+  }
   const text = await file.text();
   return { name: file.name, mime: file.type || "text/plain", text };
+}
+
+/**
+ * Binary formats we have no extractor for. Legacy .doc is the common trap: it
+ * looks like a document but is an OLE container, so `file.text()` returns
+ * garbage that the model then tries to interpret as content.
+ */
+function isUnreadableBinary(file: File): boolean {
+  return /\.(doc|xls|ppt|rtf|pages|numbers|key|zip|rar|7z|tar|gz|exe|dll|bin|dmg|iso|odt|ods|odp)$/i.test(
+    file.name
+  );
 }

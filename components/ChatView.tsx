@@ -14,6 +14,7 @@ import type {
   ModelInfo,
   Project,
 } from "@/lib/types";
+import { DOCX_MIME } from "@/lib/types";
 import {
   api,
   fileToUploadAttachment,
@@ -1199,7 +1200,12 @@ export default function ChatView({
                                   key={i}
                                   className="rounded-lg border border-line bg-surface-2 px-2 py-1 text-xs text-ink-muted"
                                 >
-                                  {a.mime === "application/pdf" ? "📕" : "📄"} {a.name}
+                                  {a.mime === "application/pdf"
+                                    ? "📕"
+                                    : a.mime === DOCX_MIME
+                                      ? "📘"
+                                      : "📄"}{" "}
+                                  {a.name}
                                 </span>
                               )
                             )}
@@ -2768,6 +2774,8 @@ function Composer({
                   />
                 ) : a.mime === "application/pdf" ? (
                   "📕"
+                ) : a.mime === DOCX_MIME ? (
+                  "📘"
                 ) : (
                   "📄"
                 )}
@@ -2887,7 +2895,7 @@ function Composer({
               type="file"
               multiple
               hidden
-              accept="image/*,.pdf,.txt,.md,.csv,.json,.xml,.html,.css,.js,.ts,.tsx,.jsx,.py,.java,.cs,.go,.rs,.rb,.yaml,.yml,.toml,.sql,.sh,.ps1,.log"
+              accept="image/*,.pdf,.docx,.txt,.md,.csv,.json,.xml,.html,.css,.js,.ts,.tsx,.jsx,.py,.java,.cs,.go,.rs,.rb,.yaml,.yml,.toml,.sql,.sh,.ps1,.log"
               onChange={(e) => {
                 addFiles(e.target.files);
                 e.target.value = "";

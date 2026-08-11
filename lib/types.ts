@@ -13,6 +13,13 @@ export interface Attachment {
  */
 export const PDF_NO_TEXT = "(no extractable text in this PDF)";
 
+/** Word documents. A zip, so it needs server-side parsing like a PDF. */
+export const DOCX_MIME =
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+/** Stored in `Attachment.text` when a DOCX parsed fine but held no prose. */
+export const DOCX_NO_TEXT = "(no extractable text in this document)";
+
 export interface UrlCitation {
   type: "url_citation";
   url_citation: {

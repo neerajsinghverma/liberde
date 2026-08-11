@@ -14,12 +14,14 @@ import {
   buildSystemPrompt,
   fetchWithRetry,
   getSettings,
+  historyHasMime,
   historyHasPdf,
   toApiMessage,
   type ChatCompletionMessage,
 } from "@/lib/openrouter";
 import { getRequestUserId, unauthorized } from "@/lib/auth";
 import { resolveChatTarget, targetHeaders } from "@/lib/providers";
+import { DOCX_MIME } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -96,6 +98,14 @@ export async function POST(req: NextRequest) {
     } catch (e) {
       console.error("PDF extraction unavailable:", e);
       pdfNeedsProviderParse = true;
+    }
+  }
+  if (historyHasMime(context, DOCX_MIME)) {
+    try {
+      const { ensureDocxText } = await import("@/lib/docx");
+      await ensureDocxText(context, updateMessageAttachments);
+    } catch (e) {
+      console.error("DOCX extraction unavailable:", e);
     }
   }
 

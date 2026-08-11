@@ -16,6 +16,7 @@
     "@vercel/functions": "^3.7.5",
     "botid": "^1.5.11",
     "highlight.js": "^11.11.1",
+    "mammoth": "1.12.1",
     "next": "^15.3.3",
     "pdf-parse": "^2.4.5",
     "react": "^19.1.0",

@@ -13,6 +13,7 @@
 import "@/lib/pdf-dom-polyfill";
 
 import { PDFParse } from "pdf-parse";
+import { ensureAttachmentText } from "@/lib/attachment-text";
 import { PDF_NO_TEXT, type Attachment, type Message } from "@/lib/types";
 
 export async function extractPdfText(dataUrl: string): Promise<string> {
@@ -37,50 +38,20 @@ export async function extractPdfText(dataUrl: string): Promise<string> {
 }
 
 /**
- * Fill in `text` for every PDF attachment in the history that lacks it,
- * persisting the result so each PDF is parsed once per conversation.
- *
- * A thrown extraction is deliberately left as `text == null` rather than
- * persisted as an error string: the placeholder would satisfy the `text == null`
- * guard forever, so a transient failure — or one already fixed by a deploy —
- * could never be retried. Parsing is local and cheap, so retrying next turn is
- * the cheaper mistake.
- *
- * `persist` saves a message's attachments (pass `updateMessageAttachments`);
- * it's injected rather than imported so this module stays free of the DB layer,
- * and so it fits both editions — Neon's is async, SQLite's is sync.
+ * Fill in `text` for every PDF attachment in the history that lacks it.
  *
  * Returns true when at least one PDF still has no usable text, so callers can
  * decide whether to also hand the raw file to a provider-side parser.
  */
-export async function ensurePdfText(
+export function ensurePdfText(
   messages: Message[],
   persist: (id: string, attachments: Attachment[]) => void | Promise<void>
 ): Promise<boolean> {
-  let anyUnreadable = false;
-  for (const msg of messages) {
-    const attachments = msg.attachments;
-    const pdfs = attachments?.filter(
-      (a: Attachment) => a.mime === "application/pdf" && a.dataUrl && a.text == null
-    );
-    if (!attachments || !pdfs?.length) continue;
-    let extracted = false;
-    for (const pdf of pdfs) {
-      try {
-        pdf.text = await extractPdfText(pdf.dataUrl!);
-        extracted = true;
-      } catch {
-        // Leave text null so the next turn retries.
-      }
-    }
-    if (extracted) await persist(msg.id, attachments);
-  }
-  for (const msg of messages) {
-    for (const a of msg.attachments ?? []) {
-      if (a.mime === "application/pdf" && a.dataUrl && (a.text == null || a.text === PDF_NO_TEXT)) {
-        anyUnreadable = true;
-      }
-    }
-  }
-  return anyUnreadable;
+  return ensureAttachmentText(
+    messages,
+    persist,
+    "application/pdf",
+    extractPdfText,
+    PDF_NO_TEXT
+  );
 }

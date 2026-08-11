@@ -9,6 +9,7 @@ const nextConfig: NextConfig = {
     "@modelcontextprotocol/sdk",
     "pdf-parse",
     "@napi-rs/canvas",
+    "mammoth",
   ],
   async headers() {
     return [
