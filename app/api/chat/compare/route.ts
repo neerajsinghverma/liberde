@@ -90,8 +90,13 @@ export async function POST(req: NextRequest) {
   // same text and one PDF isn't parsed once per model.
   let pdfNeedsProviderParse = false;
   if (historyHasPdf(context)) {
-    const { ensurePdfText } = await import("@/lib/pdf");
-    pdfNeedsProviderParse = await ensurePdfText(context, updateMessageAttachments);
+    try {
+      const { ensurePdfText } = await import("@/lib/pdf");
+      pdfNeedsProviderParse = await ensurePdfText(context, updateMessageAttachments);
+    } catch (e) {
+      console.error("PDF extraction unavailable:", e);
+      pdfNeedsProviderParse = true;
+    }
   }
 
   const stream = new ReadableStream<Uint8Array>({

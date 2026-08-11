@@ -8,6 +8,10 @@
 // fine (e.g. LinkedIn profile exports) — and a blank result is indistinguishable
 // from a real one by the time the model sees it.
 
+// MUST come first — installs the DOM globals pdf.js reads at its module scope.
+// See lib/pdf-dom-polyfill.ts for why this can't be inlined here.
+import "@/lib/pdf-dom-polyfill";
+
 import { PDFParse } from "pdf-parse";
 import { PDF_NO_TEXT, type Attachment, type Message } from "@/lib/types";
 

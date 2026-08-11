@@ -2,7 +2,14 @@ import type { NextConfig } from "next";
 import { withBotId } from "botid/next/config";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["@modelcontextprotocol/sdk", "pdf-parse"],
+  // @napi-rs/canvas is a native (.node) addon — it must be required at runtime
+  // from node_modules, never bundled. pdf-parse stays external for the same
+  // reason (it loads pdf.js and a worker by path).
+  serverExternalPackages: [
+    "@modelcontextprotocol/sdk",
+    "pdf-parse",
+    "@napi-rs/canvas",
+  ],
   async headers() {
     return [
       // Applied everywhere: block MIME-sniffing + trim referrer leakage.

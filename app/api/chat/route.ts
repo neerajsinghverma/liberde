@@ -354,8 +354,16 @@ ${ds.spec}`;
   // through to the provider-side parser below.
   let pdfNeedsProviderParse = false;
   if (historyHasPdf(history)) {
-    const { ensurePdfText } = await import("@/lib/pdf");
-    pdfNeedsProviderParse = await ensurePdfText(history, updateMessageAttachments);
+    // The import can itself throw (pdf.js needs DOM globals at module scope), and
+    // a PDF we can't parse must never take down the whole turn — fall through to
+    // the provider-side parser instead of 500ing the chat.
+    try {
+      const { ensurePdfText } = await import("@/lib/pdf");
+      pdfNeedsProviderParse = await ensurePdfText(history, updateMessageAttachments);
+    } catch (e) {
+      console.error("PDF extraction unavailable:", e);
+      pdfNeedsProviderParse = true;
+    }
   }
 
   const apiMessages: ChatCompletionMessage[] = [];
