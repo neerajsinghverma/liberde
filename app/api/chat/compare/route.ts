@@ -21,7 +21,7 @@ import {
 } from "@/lib/openrouter";
 import { getRequestUserId, unauthorized } from "@/lib/auth";
 import { resolveChatTarget, targetHeaders } from "@/lib/providers";
-import { DOCX_MIME } from "@/lib/types";
+import { DOC_MIME, DOCX_MIME } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -106,6 +106,14 @@ export async function POST(req: NextRequest) {
       await ensureDocxText(context, updateMessageAttachments);
     } catch (e) {
       console.error("DOCX extraction unavailable:", e);
+    }
+  }
+  if (historyHasMime(context, DOC_MIME)) {
+    try {
+      const { ensureDocText } = await import("@/lib/doc");
+      await ensureDocText(context, updateMessageAttachments);
+    } catch (e) {
+      console.error("DOC extraction unavailable:", e);
     }
   }
 

@@ -36,7 +36,7 @@ import {
   toApiMessage,
   type ChatCompletionMessage,
 } from "@/lib/openrouter";
-import { DOCX_MIME, type Attachment, type ToolCall } from "@/lib/types";
+import { DOC_MIME, DOCX_MIME, type Attachment, type ToolCall } from "@/lib/types";
 import { ARTIFACTS_SYSTEM_PROMPT } from "@/lib/artifact-shared";
 import {
   ARTIFACT_READ_TOOL,
@@ -375,6 +375,16 @@ ${ds.spec}`;
       await ensureDocxText(history, updateMessageAttachments);
     } catch (e) {
       console.error("DOCX extraction unavailable:", e);
+    }
+  }
+
+  // Legacy .doc: OLE2 binary, MHTML web archive, or HTML export — sniffed server-side.
+  if (historyHasMime(history, DOC_MIME)) {
+    try {
+      const { ensureDocText } = await import("@/lib/doc");
+      await ensureDocText(history, updateMessageAttachments);
+    } catch (e) {
+      console.error("DOC extraction unavailable:", e);
     }
   }
 

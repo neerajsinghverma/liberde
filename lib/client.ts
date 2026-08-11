@@ -1,4 +1,4 @@
-import { DOCX_MIME, type Attachment } from "./types";
+import { DOC_MIME, DOCX_MIME, type Attachment } from "./types";
 
 export async function api<T = unknown>(
   path: string,
@@ -337,6 +337,11 @@ export async function fileToUploadAttachment(file: File): Promise<Attachment> {
   if (file.type === DOCX_MIME || /\.docx$/i.test(file.name)) {
     return { name: file.name, mime: DOCX_MIME, dataUrl: await readAsDataUrl(file) };
   }
+  // Legacy .doc is a grab bag — OLE2 binary, MHTML web archive, or HTML export.
+  // The server sniffs the real format, so just hand over the bytes.
+  if (file.type === DOC_MIME || /\.(doc|mht|mhtml)$/i.test(file.name)) {
+    return { name: file.name, mime: DOC_MIME, dataUrl: await readAsDataUrl(file) };
+  }
   // Everything else is read as text. Guard the binary formats that would
   // otherwise smuggle megabytes of mojibake into the prompt: drag-and-drop and
   // paste bypass the file picker's accept list, so this is the only chokepoint.
@@ -357,7 +362,7 @@ export async function fileToUploadAttachment(file: File): Promise<Attachment> {
  * garbage that the model then tries to interpret as content.
  */
 function isUnreadableBinary(file: File): boolean {
-  return /\.(doc|xls|ppt|rtf|pages|numbers|key|zip|rar|7z|tar|gz|exe|dll|bin|dmg|iso|odt|ods|odp)$/i.test(
+  return /\.(xls|xlsx|ppt|pptx|rtf|pages|numbers|key|zip|rar|7z|tar|gz|exe|dll|bin|dmg|iso|odt|ods|odp)$/i.test(
     file.name
   );
 }

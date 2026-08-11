@@ -20,6 +20,16 @@ export const DOCX_MIME =
 /** Stored in `Attachment.text` when a DOCX parsed fine but held no prose. */
 export const DOCX_NO_TEXT = "(no extractable text in this document)";
 
+/**
+ * Legacy Word. The extension is unreliable — plenty of ".doc" files are actually
+ * MHTML web archives or HTML exports — so lib/doc.ts sniffs the real format.
+ */
+export const DOC_MIME = "application/msword";
+
+/** Stored in `Attachment.text` when a legacy .doc held nothing we can read. */
+export const DOC_NO_TEXT =
+  "(this file could not be read — it is not a recognized Word document; try converting it to PDF or DOCX)";
+
 export interface UrlCitation {
   type: "url_citation";
   url_citation: {
