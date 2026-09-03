@@ -86,6 +86,9 @@ export default function ChatView({
   // SSE stream (e.g. after a reload or on another device) — show a working
   // indicator and poll until it lands, so the result appears without a refresh.
   const [bgWorking, setBgWorking] = useState(false);
+  // Partial text of that reply, mirrored server-side. Lets a reload pick the
+  // answer up mid-sentence rather than watching a spinner until it lands.
+  const [bgPartial, setBgPartial] = useState("");
   const isStreamingRef = useRef(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [webSearch, setWebSearch] = useState(false);
@@ -175,7 +178,7 @@ export default function ChatView({
         }
         try {
           const d = await api<
-            Conversation & { messages: Message[]; generating?: boolean }
+            Conversation & { messages: Message[]; generating?: boolean; live?: string | null }
           >(`/api/conversations/${id}`);
           if (convIdRef.current !== id) return;
           const grew = (d.messages?.length ?? 0) > base;
@@ -184,8 +187,16 @@ export default function ChatView({
             setConversation(d);
             base = d.messages.length;
             loadArtifacts(id);
+            // The saved message now carries this text; keeping the mirror
+            // would render it twice.
+            setBgPartial("");
+          } else {
+            setBgPartial(d.live ?? "");
           }
-          if (!d.generating) stopBgPoll();
+          if (!d.generating) {
+            setBgPartial("");
+            stopBgPoll();
+          }
         } catch {
           /* transient; keep polling */
         }
@@ -197,7 +208,7 @@ export default function ChatView({
   const loadConversation = useCallback(
     async (id: string) => {
       const data = await api<
-        Conversation & { messages: Message[]; generating?: boolean }
+        Conversation & { messages: Message[]; generating?: boolean; live?: string | null }
       >(`/api/conversations/${id}`);
       if (convIdRef.current !== id) return [];
       setConversation(data);
@@ -209,8 +220,10 @@ export default function ChatView({
       // surface a working indicator and poll for the result.
       if (data.generating && !isStreamingRef.current) {
         setBgWorking(true);
+        setBgPartial(data.live ?? "");
         startBgPoll(id, data.messages.length);
       } else {
+        setBgPartial("");
         stopBgPoll();
       }
       api<{ id: string; anchor_id: string; preview: string }[]>(
@@ -1429,11 +1442,18 @@ export default function ChatView({
               </div>
             )}
 
+            {bgWorking && !isStreaming && bgPartial && (
+              <div className="mb-2">
+                <Markdown content={bgPartial} onShowArtifact={openCodePreview} />
+              </div>
+            )}
+
             {bgWorking && !isStreaming && (
               <div className="mb-6 flex items-center gap-2 text-sm text-ink-muted">
                 <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-accent" />
-                Liberde is working on this response… it&apos;ll appear here when
-                ready.
+                {bgPartial
+                  ? "Still writing…"
+                  : "Liberde is working on this response… it'll appear here when ready."}
                 <button
                   onClick={stop}
                   className="ml-1 rounded border border-line px-2 py-0.5 text-xs hover:bg-surface-2 hover:text-ink"
@@ -1713,6 +1733,12 @@ function costTooltip(msg: Message): string | undefined {
   const parts: string[] = [];
   if (msg.tokens_in) {
     parts.push(`${msg.tokens_in} tokens in · ${msg.tokens_out ?? 0} tokens out`);
+  }
+  // Cache hits are the only way to tell a warm prefix from a silently
+  // invalidated one, so surface them next to the tokens they discounted.
+  if (msg.cached_tokens_in) {
+    const saved = msg.cache_discount ? ` · saved ${fmtCost(msg.cache_discount)}` : "";
+    parts.push(`${num(msg.cached_tokens_in)} of those served from cache${saved}`);
   }
   try {
     const bd = msg.cost_breakdown ? JSON.parse(msg.cost_breakdown) : null;

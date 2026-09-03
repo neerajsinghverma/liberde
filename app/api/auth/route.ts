@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { audit } from "@/lib/audit";
 import { cookies } from "next/headers";
 import {
   authForced,
@@ -7,6 +8,7 @@ import {
   createSession,
   createUser,
   destroySession,
+  getRequestUserId,
   getRequestUser,
   getUserByEmail,
   SESSION_COOKIE,
@@ -63,8 +65,10 @@ export async function POST(req: NextRequest) {
 
   if (body.action === "logout") {
     const token = jar.get(SESSION_COOKIE)?.value;
+    const leaving = await getRequestUserId();
     if (token) await destroySession(token);
     jar.delete(SESSION_COOKIE);
+    await audit({ action: "auth.logout", userId: leaving, ip: clientIp(req) });
     return Response.json({ ok: true });
   }
 
@@ -184,6 +188,14 @@ export async function POST(req: NextRequest) {
       }
     }
     setSessionCookie(jar, await createSession(user.id), body.remember !== false);
+    await audit({
+      action: "user.created",
+      userId: user.id,
+      targetType: "user",
+      targetId: user.id,
+      detail: { email },
+      ip: clientIp(req),
+    });
     return Response.json({ ok: true, user: { id: user.id, email, name: user.name } }, { status: 201 });
   }
 
@@ -194,6 +206,13 @@ export async function POST(req: NextRequest) {
   if (!loginRl.ok) return tooMany(loginRl.retryAfter);
   const result = await attemptLogin(email, password);
   if (!result.ok) {
+    // The response deliberately does not say whether the account exists; the
+    // audit trail is the one place that record belongs.
+    await audit({
+      action: "auth.login_failed",
+      detail: { email, reason: result.reason },
+      ip: clientIp(req),
+    });
     if (result.reason === "locked") {
       const mins = Math.max(1, Math.ceil((result.until - Date.now()) / 60_000));
       return Response.json(
@@ -206,6 +225,7 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "Invalid email or password" }, { status: 401 });
   }
   setSessionCookie(jar, await createSession(result.user.id), body.remember !== false);
+  await audit({ action: "auth.login", userId: result.user.id, ip: clientIp(req) });
   return Response.json({ ok: true, user: { id: result.user.id, email, name: result.user.name } });
 }
 

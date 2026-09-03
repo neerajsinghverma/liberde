@@ -15,7 +15,20 @@ export async function GET(req: NextRequest) {
     const models = await listModels();
     return Response.json({
       object: "list",
-      data: models.map((m) => ({ id: m.id, object: "model", owned_by: "openrouter" })),
+      // Capability flags are outside the OpenAI schema, but a caller has no
+      // other way to find out whether a model will honour response_format
+      // before spending a request to be told no.
+      data: models.map((m) => ({
+        id: m.id,
+        object: "model",
+        owned_by: "openrouter",
+        context_length: m.context_length,
+        capabilities: {
+          tools: m.supportsTools,
+          vision: m.supportsImages,
+          structured_outputs: m.supportsStructuredOutputs,
+        },
+      })),
     });
   } catch (e) {
     return Response.json({ error: { message: String(e) } }, { status: 502 });

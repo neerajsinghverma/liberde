@@ -1,5 +1,7 @@
 import { NextRequest } from "next/server";
 import { runSchedulerTick } from "@/lib/scheduler";
+import { purgeAudit } from "@/lib/audit";
+import { getSetting } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -24,5 +26,15 @@ export async function GET(req: NextRequest) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
   const result = await runSchedulerTick();
-  return Response.json({ ok: true, ...result });
+  // Audit retention. Unset means keep everything: regulated retention runs
+  // five to seven years, and quietly deleting an audit trail because nobody
+  // configured a policy is the wrong default.
+  let auditPurged = 0;
+  try {
+    const days = Number(await getSetting("audit_retention_days", "global"));
+    if (Number.isFinite(days) && days > 0) auditPurged = await purgeAudit(days);
+  } catch (e) {
+    console.error("[liberde] audit purge failed:", String(e).slice(0, 200));
+  }
+  return Response.json({ ok: true, ...result, auditPurged });
 }

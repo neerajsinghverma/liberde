@@ -205,6 +205,10 @@ export async function listExtModels(userId?: string): Promise<ModelInfo[]> {
         },
         supportsImages: true, // unknown — don't block attachments
         supportsTools: true,
+        // The external clouds all speak the OpenAI dialect, and this catalog
+        // entry is hand-declared rather than discovered — assume support and
+        // let the provider be the one to object.
+        supportsStructuredOutputs: true,
         outputsImages: false,
       });
     }

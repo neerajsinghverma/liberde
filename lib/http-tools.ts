@@ -7,6 +7,21 @@ import type { ToolDef } from "./mcp";
 import { getHttpToolByName, listHttpTools } from "./db";
 import { guardedFetch } from "./ssrf";
 import { authForced } from "./auth";
+import { audit } from "./audit";
+
+/** Argument names only. Values can hold customer data or credentials, and
+ *  the audit log outlives the conversation by years — the shape of a call is
+ *  enough to review it, the payload is a liability. */
+function auditArgKeys(argsJson: string): string[] {
+  try {
+    const parsed = JSON.parse(argsJson || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? Object.keys(parsed).slice(0, 30)
+      : [];
+  } catch {
+    return [];
+  }
+}
 
 const JSON_TYPE: Record<HttpToolParam["type"], string> = {
   string: "string",
@@ -173,6 +188,13 @@ export async function execHttpTool(
   argsJson: string,
   userId: string
 ): Promise<string> {
+  await audit({
+    action: "tool.called",
+    userId,
+    targetType: "http_tool",
+    targetId: name,
+    detail: { args: auditArgKeys(argsJson) },
+  });
   const tool = await getHttpToolByName(userId, name);
   if (!tool) return `Error: no HTTP tool named "${name}".`;
   const method = (tool.method || "GET").toUpperCase();

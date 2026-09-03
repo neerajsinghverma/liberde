@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getRequestUser, unlockUser, adminResetPassword } from "@/lib/auth";
 import { getSetting, q, setSetting } from "@/lib/db";
+import { audit } from "@/lib/audit";
 
 const forbidden = () => Response.json({ error: "Admins only" }, { status: 403 });
 
@@ -45,6 +46,11 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json();
   if (typeof body.allowSignups === "boolean") {
     await setSetting("allow_signups", body.allowSignups ? "1" : "0", "global");
+    await audit({
+      action: "admin.signups_toggled",
+      userId: admin.id,
+      detail: { allowSignups: body.allowSignups },
+    });
   }
   if (body.userId && typeof body.isAdmin === "boolean") {
     if (body.userId === admin.id && !body.isAdmin) {
@@ -58,6 +64,12 @@ export async function PATCH(req: NextRequest) {
   // Clear a brute-force lockout so the user can sign in again immediately.
   if (body.unlockUserId) {
     await unlockUser(String(body.unlockUserId));
+    await audit({
+      action: "admin.user_unlocked",
+      userId: admin.id,
+      targetType: "user",
+      targetId: String(body.unlockUserId),
+    });
   }
   // Admin-initiated password reset: returns a one-time temp password to relay.
   // Blocked for Google accounts — they have no password and sign in via Google.
@@ -72,6 +84,12 @@ export async function PATCH(req: NextRequest) {
       );
     }
     const tempPassword = await adminResetPassword(String(body.resetUserId));
+    await audit({
+      action: "admin.password_reset",
+      userId: admin.id,
+      targetType: "user",
+      targetId: String(body.resetUserId),
+    });
     return Response.json({ ok: true, tempPassword });
   }
   // The client refetches its current page after any mutation.
@@ -137,5 +155,14 @@ export async function DELETE(req: NextRequest) {
   }
   await q("DELETE FROM project_members WHERE user_id = $1", [userId]);
   await q("DELETE FROM users WHERE id = $1", [userId]);
+  // audit_log is deliberately absent from the sweep above: erasing a deleted
+  // user's trail is exactly what the trail exists to make impossible, and
+  // removing rows would break the hash chain for everyone after them.
+  await audit({
+    action: "user.deleted",
+    userId: admin.id,
+    targetType: "user",
+    targetId: userId,
+  });
   return Response.json({ ok: true });
 }

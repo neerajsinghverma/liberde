@@ -1308,6 +1308,13 @@ const SKILL_PRESETS = [
 interface ConnectorTool {
   name: string;
   description: string;
+  /** Behaviour hints the server published for this tool, if any. */
+  annotations?: {
+    readOnlyHint?: boolean;
+    destructiveHint?: boolean;
+    idempotentHint?: boolean;
+    openWorldHint?: boolean;
+  };
 }
 interface ConnectorRow {
   id: string;
@@ -1319,9 +1326,17 @@ interface ConnectorRow {
   headers: string | null;
   enabled: number;
   tools: ConnectorTool[];
+  /** Original tool names the user switched off — never offered to the model. */
+  disabledTools: string[];
+  /** Whether tools the server marks as writing may run without approval. */
+  autoRun: boolean;
   lastTested: number | null;
   hasAuth: boolean;
 }
+
+/** A tool the server itself declares as writing or destructive. */
+const writesData = (t: ConnectorTool) =>
+  t.annotations?.destructiveHint === true || t.annotations?.readOnlyHint === false;
 
 function ConnectorsTab() {
   const [connectors, setConnectors] = useState<ConnectorRow[]>([]);
@@ -1430,6 +1445,27 @@ function ConnectorsTab() {
     if (!(await confirmDialog(`Remove connector "${c.name}"?`))) return;
     await api(`/api/connectors?id=${c.id}`, { method: "DELETE" });
     if (openId === c.id) setOpenId(null);
+    await load();
+  };
+
+  const setAutoRun = async (c: ConnectorRow, autoRun: boolean) => {
+    await api("/api/connectors", {
+      method: "PATCH",
+      body: JSON.stringify({ id: c.id, autoRun }),
+    });
+    await load();
+  };
+
+  /** Show or hide one of a server's functions. Hidden functions are never
+   *  offered to the model and are refused if it calls one from memory. */
+  const toggleTool = async (c: ConnectorRow, toolName: string) => {
+    const off = new Set(c.disabledTools ?? []);
+    if (off.has(toolName)) off.delete(toolName);
+    else off.add(toolName);
+    await api("/api/connectors", {
+      method: "PATCH",
+      body: JSON.stringify({ id: c.id, disabledTools: [...off] }),
+    });
     await load();
   };
 
@@ -1655,16 +1691,57 @@ function ConnectorsTab() {
                       </p>
                       {c.tools.length > 0 ? (
                         <div className="max-h-64 space-y-1.5 overflow-y-auto rounded-lg border border-line bg-bg p-2">
-                          {c.tools.map((t) => (
-                            <div key={t.name} className="rounded-md px-2 py-1.5 hover:bg-surface-2">
-                              <code className="text-xs font-medium text-ink">{t.name}</code>
-                              {t.description && (
-                                <p className="mt-0.5 line-clamp-3 text-xs text-ink-muted">
-                                  {t.description}
-                                </p>
-                              )}
-                            </div>
-                          ))}
+                          {c.tools.map((t) => {
+                            const off = (c.disabledTools ?? []).includes(t.name);
+                            const gated = writesData(t) && !c.autoRun;
+                            return (
+                              <label
+                                key={t.name}
+                                className="flex cursor-pointer gap-2 rounded-md px-2 py-1.5 hover:bg-surface-2"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={!off}
+                                  onChange={() => toggleTool(c, t.name)}
+                                  className="mt-0.5 shrink-0 accent-accent"
+                                  aria-label={`Offer ${t.name} to the model`}
+                                />
+                                <span className="min-w-0">
+                                  <code
+                                    className={`text-xs font-medium ${off ? "text-ink-muted line-through" : "text-ink"}`}
+                                  >
+                                    {t.name}
+                                  </code>
+                                  {t.annotations?.readOnlyHint === true && (
+                                    <span className="ml-1.5 rounded-full border border-line px-1.5 py-0.5 text-[10px] text-ink-muted">
+                                      read-only
+                                    </span>
+                                  )}
+                                  {writesData(t) && (
+                                    <span
+                                      className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] ${
+                                        gated
+                                          ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                                          : "border border-line text-ink-muted"
+                                      }`}
+                                      title={
+                                        gated
+                                          ? "Blocked until you allow write actions below"
+                                          : "This function can modify data"
+                                      }
+                                    >
+                                      {gated ? "writes — needs approval" : "writes"}
+                                    </span>
+                                  )}
+                                  {t.description && (
+                                    <span className="mt-0.5 line-clamp-3 block text-xs text-ink-muted">
+                                      {t.description}
+                                    </span>
+                                  )}
+                                </span>
+                              </label>
+                            );
+                          })}
                         </div>
                       ) : (
                         <p className="rounded-lg border border-dashed border-line px-3 py-3 text-center text-xs text-ink-muted">
@@ -1674,6 +1751,25 @@ function ConnectorsTab() {
                         </p>
                       )}
                     </div>
+
+                    {/* Write-guard. Annotations are the server's own claims, so
+                        this is a convenience gate, not a security boundary —
+                        unticking a function above is the control that holds. */}
+                    <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-line px-2.5 py-2 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={c.autoRun}
+                        onChange={(e) => setAutoRun(c, e.target.checked)}
+                        className="mt-0.5 shrink-0 accent-accent"
+                      />
+                      <span>
+                        <span className="font-medium text-ink">Let the model run write actions</span>
+                        <span className="mt-0.5 block text-ink-muted">
+                          Off: functions this server marks as modifying data are refused. Functions
+                          it doesn&apos;t label are always allowed — untick one above to block it.
+                        </span>
+                      </span>
+                    </label>
 
                     {/* Actions */}
                     <div className="flex flex-wrap gap-2 text-xs">
@@ -2728,6 +2824,8 @@ function SkillsTab({ models }: { models: ModelInfo[] }) {
   const [saving, setSaving] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
 
   const load = async () => {
     setSkills(await api<SkillRow[]>("/api/skills"));
@@ -2845,6 +2943,70 @@ function SkillsTab({ models }: { models: ModelInfo[] }) {
     if (editId === s.id) reset();
     await api(`/api/skills?id=${s.id}`, { method: "DELETE" });
     await load();
+  };
+
+  // --- Agent Skills (SKILL.md) interop — https://agentskills.io ---
+
+  /** Save one skill as a spec-compliant SKILL.md the rest of the ecosystem reads. */
+  const exportSkill = (s: SkillRow) => {
+    const a = document.createElement("a");
+    a.href = `/api/skills/export?id=${encodeURIComponent(s.id)}`;
+    // The server sets the filename via Content-Disposition; `download` is only
+    // here so the browser saves rather than navigating.
+    a.download = "";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
+  /** Import dropped SKILL.md files. Each file reports its own outcome, so one
+   *  bad file in a folder doesn't sink the rest of the batch. */
+  const importSkillFiles = async (fileList: FileList | null) => {
+    if (!fileList?.length) return;
+    const isSkillMd = (f: File) => /(^|\/)SKILL\.md$/i.test(
+      (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name
+    );
+    // A folder carries the skill's supporting files too; keep only the
+    // SKILL.md documents. A direct pick of one .md file is taken at its word.
+    const picked = [...fileList];
+    const chosen = picked.some((f) => isSkillMd(f))
+      ? picked.filter(isSkillMd)
+      : picked.filter((f) => /\.md$/i.test(f.name));
+    if (!chosen.length) {
+      setImportMsg("No SKILL.md found in that selection.");
+      return;
+    }
+    setImporting(true);
+    setImportMsg(null);
+    try {
+      const files = await Promise.all(
+        chosen.map(async (f) => ({
+          // A folder pick carries the directory, which is where the standard
+          // puts the skill's name when frontmatter omits it.
+          path:
+            (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name,
+          content: await f.text(),
+        }))
+      );
+      const res = await api<{
+        imported: number;
+        failed: number;
+        results: { path: string; ok: boolean; error?: string }[];
+      }>("/api/skills/import", { method: "POST", body: JSON.stringify({ files }) });
+      const problems = res.results
+        .filter((r) => !r.ok)
+        .map((r) => `${r.path}: ${r.error}`)
+        .slice(0, 5);
+      setImportMsg(
+        `Imported ${res.imported} skill${res.imported === 1 ? "" : "s"}.` +
+          (res.failed ? ` ${res.failed} skipped — ${problems.join("; ")}` : "")
+      );
+      await load();
+    } catch (e) {
+      setImportMsg(e instanceof Error ? e.message : "Import failed");
+    } finally {
+      setImporting(false);
+    }
   };
 
   const connName = (id: string) => conns.find((c) => c.id === id)?.name ?? "connector";
@@ -3036,6 +3198,72 @@ function SkillsTab({ models }: { models: ModelInfo[] }) {
         </div>
       </details>
 
+      {/* Agent Skills interop. A SKILL.md written for Claude Code, claude.ai,
+          VS Code or Codex loads here unchanged, and vice versa. */}
+      <details className="rounded-xl border border-line">
+        <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
+          Import from SKILL.md
+        </summary>
+        <div className="space-y-2 border-t border-line px-3 py-3">
+          <p className="text-xs text-ink-muted">
+            Skills follow the{" "}
+            <a
+              href="https://agentskills.io"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline"
+            >
+              Agent Skills
+            </a>{" "}
+            standard, so a <code>SKILL.md</code> written for Claude Code, claude.ai, VS Code or
+            Codex loads here as-is. Pick one or more files, or a whole skills folder.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="cursor-pointer rounded-lg border border-line px-2.5 py-1 text-xs hover:bg-surface-2">
+              {importing ? "Importing…" : "Choose SKILL.md files"}
+              <input
+                type="file"
+                accept=".md,text/markdown"
+                multiple
+                disabled={importing}
+                className="hidden"
+                onChange={(e) => {
+                  importSkillFiles(e.target.files);
+                  // Clear so re-picking the same file fires onChange again.
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            <label className="cursor-pointer rounded-lg border border-line px-2.5 py-1 text-xs hover:bg-surface-2">
+              Choose a skills folder
+              <input
+                type="file"
+                multiple
+                disabled={importing}
+                className="hidden"
+                // Non-standard, but it is how every browser exposes a
+                // directory pick, and the standard stores a skill as a folder.
+                {...{ webkitdirectory: "", directory: "" }}
+                onChange={(e) => {
+                  importSkillFiles(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            {skills.length > 0 && (
+              <span className="text-xs text-ink-muted">
+                Export any skill below, or{" "}
+                <a href="/api/skills/export" className="underline">
+                  fetch them all as JSON
+                </a>
+                .
+              </span>
+            )}
+          </div>
+          {importMsg && <p className="text-xs text-ink-muted">{importMsg}</p>}
+        </div>
+      </details>
+
       {/* Existing skills */}
       <div>
         <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-ink-muted">
@@ -3061,6 +3289,13 @@ function SkillsTab({ models }: { models: ModelInfo[] }) {
                   <span className="ml-auto flex gap-2 text-xs">
                     <button onClick={() => edit(s)} className="rounded border border-line px-2 py-0.5 hover:bg-surface-2">
                       Edit
+                    </button>
+                    <button
+                      onClick={() => exportSkill(s)}
+                      title="Download as SKILL.md (Agent Skills standard)"
+                      className="rounded border border-line px-2 py-0.5 hover:bg-surface-2"
+                    >
+                      Export
                     </button>
                     <button onClick={() => toggle(s)} className="rounded border border-line px-2 py-0.5 hover:bg-surface-2">
                       {s.enabled ? "Disable" : "Enable"}

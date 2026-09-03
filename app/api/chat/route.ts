@@ -13,12 +13,15 @@ import {
   snapshotTailAsBranch,
   tryLockConversation,
   unlockConversation,
+  setLiveTurn,
+  workspaceBudgetsFor,
+  clearLiveTurn,
   updateConversation,
   updateMessageAttachments,
   saveGeneratedImage,
 } from "@/lib/db";
 import {
-  buildSystemPrompt,
+  buildSystemPromptParts,
   complete,
   fetchWithRetry,
   fitContextInPlace,
@@ -55,6 +58,8 @@ import { ANALYSIS_SYSTEM_PROMPT } from "@/lib/analysis";
 import { getRequestUserId, unauthorized } from "@/lib/auth";
 import { bodyTooLarge, attachmentsProblem, MAX_CONTENT_CHARS } from "@/lib/limits";
 import { resolveChatTarget, targetHeaders, type ChatTarget } from "@/lib/providers";
+import { applyPromptCache, cacheSessionId, readCacheStats } from "@/lib/prompt-cache";
+import { checkBudgets } from "@/lib/workspaces";
 import { assembleTools, callTool } from "@/lib/mcp";
 import { assembleHttpTools, execHttpTool } from "@/lib/http-tools";
 import {
@@ -153,6 +158,20 @@ export async function POST(req: NextRequest) {
   if (typeof body.content === "string" && body.content.length > MAX_CONTENT_CHARS) {
     return Response.json({ error: "Message is too long." }, { status: 413 });
   }
+  // Workspace spend policy. Checked before any upstream work so a capped
+  // workspace fails with an explanation rather than after the money is gone.
+  // A user in no workspace, or only uncapped ones, does no extra queries.
+  // Fails OPEN. A spend cap that cannot read its own tables must not be the
+  // thing that stops people chatting — an over-budget message slipping
+  // through is recoverable, an outage on every turn is not.
+  try {
+    const verdict = checkBudgets(await workspaceBudgetsFor(userId));
+    if (!verdict.allowed) {
+      return Response.json({ error: verdict.reason }, { status: 402 });
+    }
+  } catch (e) {
+    console.error("[liberde] workspace budget check failed (allowing):", String(e).slice(0, 200));
+  }
   const conversation = await getConversation(body.conversationId);
   if (!conversation || (conversation.user_id && conversation.user_id !== userId)) {
     return Response.json({ error: "Conversation not found" }, { status: 404 });
@@ -246,7 +265,7 @@ export async function POST(req: NextRequest) {
     : null;
   const lastUserContent =
     [...history].reverse().find((m) => m.role === "user")?.content ?? "";
-  const systemPrompt = buildSystemPrompt(
+  const systemParts = buildSystemPromptParts(
     settings.systemPrompt,
     project
       ? { instructions: project.instructions, files: await listProjectFiles(project.id) }
@@ -331,12 +350,15 @@ ${ds.spec}`;
     }
   }
   const styleDirective = STYLE_PRESETS[settings.responseStyle]?.directive ?? "";
-  const fullSystemPrompt = [
+  // Split by cacheability: everything identical on every turn goes in the head
+  // (which carries the prompt-cache breakpoint); everything that moves — the
+  // date, retrieved project knowledge, saved memories — goes in a tail block
+  // placed after the conversation, outside the cached prefix.
+  const stableSystemPrompt = [
     designDirective,
     designSystemBlock,
     styleDirective,
-    systemPrompt,
-    memoryActive ? await buildMemoryContext(userId) : "",
+    systemParts.stable,
     ARTIFACTS_SYSTEM_PROMPT,
     ANALYSIS_SYSTEM_PROMPT,
     WEB_TOOLS_PROMPT,
@@ -344,6 +366,12 @@ ${ds.spec}`;
     recallActive ? RECALL_SYSTEM_PROMPT : "",
     '# Clarifying\nIf a request is genuinely ambiguous or missing details needed to do it well (especially before substantial work), ask clarifying questions first instead of guessing. When you ask, emit them as an interactive block the interface turns into clickable options: <liberdeAsk>[{"q":"question?","options":["Option A","Option B"],"multi":false}]</liberdeAsk> — 1-3 questions, each with 2-4 concrete options. For simple or clear requests, just answer — do not over-ask.',
     memoryActive ? MEMORY_SYSTEM_PROMPT : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  const volatileSystemPrompt = [
+    systemParts.volatile,
+    memoryActive ? await buildMemoryContext(userId) : "",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -389,12 +417,19 @@ ${ds.spec}`;
   }
 
   const apiMessages: ChatCompletionMessage[] = [];
-  if (fullSystemPrompt) apiMessages.push({ role: "system", content: fullSystemPrompt });
+  if (stableSystemPrompt) {
+    apiMessages.push({ role: "system", content: stableSystemPrompt });
+  }
   apiMessages.push(
     ...history.map((m) =>
       toApiMessage(m, { rawPdfFallback: target.isOpenRouter && pdfNeedsProviderParse })
     )
   );
+  // Deliberately after the history: this block changes every turn, so anything
+  // it preceded could never be served from cache.
+  if (volatileSystemPrompt) {
+    apiMessages.push({ role: "system", content: volatileSystemPrompt });
+  }
 
   // The 🌐 toggle on external providers: run the search ourselves and inject results.
   const preSearchAnnotations: unknown[] = [];
@@ -478,6 +513,37 @@ ${ds.spec}`;
       let searchCost = preSearchCost;
       let pluginResults = 0;
       let totalTokensIn = 0;
+      // Of those input tokens, how many came from cache and what OpenRouter
+      // says that saved. Without this there is no telling a working cache
+      // from one a stray timestamp silently invalidated.
+      // Mirror of the reply so far, for a client that reloads mid-turn. Every
+      // flush is a database round trip, so it is time-boxed rather than
+      // per-token, and failures are swallowed: a cosmetic mirror must never
+      // be the thing that kills a turn.
+      let liveFlushedAt = 0;
+      let liveFlushed = "";
+      const LIVE_FLUSH_MS = 900;
+      // Flushes are chained rather than fired in parallel: they are called
+      // from the token loop without being awaited, and two in flight at once
+      // could land out of order and leave the mirror showing older text.
+      // Awaiting the chain before the final delete is also what stops a
+      // late flush from resurrecting the row after the turn is saved.
+      let liveChain: Promise<void> = Promise.resolve();
+      const flushLive = (text: string) => {
+        if (conversation.is_temp) return;
+        if (Date.now() - liveFlushedAt < LIVE_FLUSH_MS || text === liveFlushed) return;
+        liveFlushedAt = Date.now();
+        liveFlushed = text;
+        liveChain = liveChain.then(async () => {
+          try {
+            await setLiveTurn(conversation.id, text);
+          } catch {
+            /* the reply itself is unaffected */
+          }
+        });
+      };
+      let cachedTokensIn = 0;
+      let cacheDiscount = 0;
       let totalTokensOut = 0;
 
       const finalize = async ({
@@ -533,6 +599,8 @@ ${ds.spec}`;
             reasoning_ms: reasoningMs,
             cost: totalCost || null,
             tokens_in: totalTokensIn || null,
+            cached_tokens_in: cachedTokensIn || null,
+            cache_discount: cacheDiscount || null,
             tokens_out: totalTokensOut || null,
             cost_breakdown: costBreakdown,
             duration_ms: Date.now() - turnStart,
@@ -548,6 +616,15 @@ ${ds.spec}`;
             title = await generateTitle(firstUserContent, content, settings.titleModel, userId);
             if (title) await updateConversation(conversation.id, { title });
           }
+        }
+        // The saved message supersedes the mirror. Cleared on every path,
+        // including errors — a stale buffer would have the next page load
+        // replaying a reply that already finished.
+        try {
+          await liveChain;
+          await clearLiveTurn(conversation.id);
+        } catch {
+          /* the cron-side TTL in the conversation lock covers this */
         }
         // Always send a terminal frame (unless the client is already gone), so
         // the UI never spins forever — success, empty, or hard failure alike.
@@ -588,6 +665,10 @@ ${ds.spec}`;
           emit({ toolEvent: { status: `Trimmed ${trimmed} older message(s) to fit the context window` } });
         }
       }
+      // Anthropic and Qwen bill the whole prompt again every round unless a
+      // breakpoint says otherwise. Marked once, after trimming has settled
+      // which messages survive and before the tool loop starts adding rounds.
+      applyPromptCache(apiMessages, { model: target.bodyModel, isOpenRouter: target.isOpenRouter });
 
       try {
         for (let round = 0; round < MAX_TOOL_ROUNDS + 1; round++) {
@@ -614,6 +695,7 @@ ${ds.spec}`;
               ...(target.isOpenRouter
                 ? {
                     usage: { include: true },
+                    session_id: cacheSessionId(conversation.id),
                     ...(outputsImages ? { modalities: ["image", "text"] } : {}),
                     ...(minimalMode
                       ? {}
@@ -711,6 +793,12 @@ ${ds.spec}`;
                 try {
                   target = await resolveChatTarget(fb, userId);
                   model = fb;
+                  // Re-mark for the new model: the fallback may not be a
+                  // provider that wants breakpoints at all.
+                  applyPromptCache(apiMessages, {
+                    model: target.bodyModel,
+                    isOpenRouter: target.isOpenRouter,
+                  });
                   routeReason = `${routeReason} → fell back (first pick unavailable)`;
                   emit({
                     toolEvent: {
@@ -772,6 +860,7 @@ ${ds.spec}`;
                   roundText += delta;
                   finalText += delta;
                   emit({ delta });
+                  flushLive(finalText);
                 }
                 // Native image output (Gemini/GPT image models): images arrive
                 // on delta.images / message.images as {image_url:{url}}.
@@ -831,6 +920,11 @@ ${ds.spec}`;
                 }
                 if (parsed.usage) {
                   totalCost += Number(parsed.usage.cost) || 0;
+                  {
+                    const c = readCacheStats(parsed.usage);
+                    cachedTokensIn += c.cachedTokens;
+                    cacheDiscount += c.discount;
+                  }
                   totalTokensIn += Number(parsed.usage.prompt_tokens) || 0;
                   totalTokensOut += Number(parsed.usage.completion_tokens) || 0;
                 }
@@ -882,7 +976,7 @@ ${ds.spec}`;
                 stream: true,
                 temperature: settings.temperature,
                 ...(target.isOpenRouter
-                  ? { usage: { include: true } }
+                  ? { usage: { include: true }, session_id: cacheSessionId(conversation.id) }
                   : { stream_options: { include_usage: true } }),
               });
               try {
@@ -912,9 +1006,15 @@ ${ds.spec}`;
                         if (d) {
                           finalText += d;
                           emit({ delta: d });
+                          flushLive(finalText);
                         }
                         if (parsed.usage) {
                           totalCost += Number(parsed.usage.cost) || 0;
+                          {
+                            const c = readCacheStats(parsed.usage);
+                            cachedTokensIn += c.cachedTokens;
+                            cacheDiscount += c.discount;
+                          }
                           totalTokensIn += Number(parsed.usage.prompt_tokens) || 0;
                           totalTokensOut += Number(parsed.usage.completion_tokens) || 0;
                         }
@@ -1028,7 +1128,14 @@ ${ds.spec}`;
             } else if (httpToolNames.has(call.function.name)) {
               output = await execHttpTool(call.function.name, call.function.arguments, userId);
             } else {
-              output = await callTool(call.function.name, call.function.arguments, userId);
+              // Origin lets an image returned by an MCP tool be banked and
+              // handed back as a URL the reply can actually render.
+              output = await callTool(
+                call.function.name,
+                call.function.arguments,
+                userId,
+                req.nextUrl.origin
+              );
             }
             await addMessage(conversation.id, "tool", output, null, null, {
               tool_call_id: call.id,

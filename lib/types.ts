@@ -7,6 +7,31 @@ export interface Attachment {
 }
 
 /**
+ * Behaviour hints an MCP server may attach to a tool. Hints only — the spec is
+ * explicit that a client MUST NOT treat them as a security boundary, since they
+ * come from the same server the call goes to. They drive the default
+ * write-guard and the labels in Settings; the real control is per-tool
+ * disabling, which is enforced client-side and never reaches the server.
+ *
+ * Lives here rather than in lib/mcp.ts so lib/db.ts can type the tool cache
+ * without importing lib/mcp (which already imports lib/db).
+ */
+export interface ToolAnnotations {
+  title?: string;
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint?: boolean;
+}
+
+/** One tool discovered on a connector, as cached after a successful test. */
+export interface DiscoveredTool {
+  name: string;
+  description: string;
+  annotations?: ToolAnnotations;
+}
+
+/**
  * Stored in `Attachment.text` when a PDF's text layer held nothing to read.
  * Lives here rather than in lib/pdf.ts so consumers can check for it without
  * pulling pdf-parse (and pdf.js) into their bundle.
@@ -51,6 +76,13 @@ export interface AgentStep {
   title: string;
   status: "pending" | "done" | "failed";
   note?: string;
+  /**
+   * Steps sharing a group run concurrently; groups run in ascending order.
+   * Optional because runs planned before grouping existed are already
+   * persisted without it — those fall back to one step per group, which is
+   * the sequential behaviour they were planned under.
+   */
+  group?: number;
 }
 
 /** A durable, resumable agent run: its plan and progress are persisted so a
@@ -96,6 +128,10 @@ export interface Message {
   cost?: number | null;
   tokens_in?: number | null;
   tokens_out?: number | null;
+  /** Input tokens served from the provider's prompt cache this turn. */
+  cached_tokens_in?: number | null;
+  /** USD OpenRouter reports as saved by that cache (negative on a write). */
+  cache_discount?: number | null;
   /** JSON {"model":n,"search":n,"image":n} — where this turn's cost went. */
   cost_breakdown?: string | null;
   /** Wall-clock generation time for this assistant turn. */
@@ -227,6 +263,8 @@ export interface ModelInfo {
   pricing: { prompt: string; completion: string };
   supportsImages: boolean;
   supportsTools: boolean;
+  /** Model can be held to a JSON Schema via `response_format`. */
+  supportsStructuredOutputs: boolean;
   outputsImages: boolean;
   /** Unix seconds the model was added to OpenRouter. */
   created: number;

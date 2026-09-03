@@ -1,12 +1,19 @@
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import crypto from "crypto";
 import { encryptSecret, decryptSecret } from "./crypto-secrets";
+import {
+  can,
+  isWorkspaceRole,
+  type WorkspaceBudget,
+  type WorkspaceRole,
+} from "./workspaces";
 import type {
   AgentRun,
   AgentStep,
   Attachment,
   Conversation,
   DesignSystem,
+  DiscoveredTool,
   HttpTool,
   HttpToolAuth,
   HttpToolParam,
@@ -292,6 +299,14 @@ const SCHEMA_STATEMENTS: string[] = [
   `ALTER TABLE connectors ADD COLUMN IF NOT EXISTS oauth_data TEXT`,
   `ALTER TABLE connectors ADD COLUMN IF NOT EXISTS tools_cache TEXT`,
   `ALTER TABLE connectors ADD COLUMN IF NOT EXISTS last_tested BIGINT`,
+  // Write-guard for MCP tools. Added with DEFAULT 1 so connectors that already
+  // worked keep working, then the default flips to 0 so anything created from
+  // now on starts guarded. Both statements are no-ops on replay, which matters
+  // because this list runs on every cold start — a plain UPDATE would re-open
+  // the guard on every boot and the toggle would never stick.
+  `ALTER TABLE connectors ADD COLUMN IF NOT EXISTS auto_run INTEGER NOT NULL DEFAULT 1`,
+  `ALTER TABLE connectors ALTER COLUMN auto_run SET DEFAULT 0`,
+  `ALTER TABLE connectors ADD COLUMN IF NOT EXISTS disabled_tools TEXT`,
   `ALTER TABLE skills ADD COLUMN IF NOT EXISTS connector_ids TEXT`,
   `ALTER TABLE skills ADD COLUMN IF NOT EXISTS http_tool_ids TEXT`,
   `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS locked_at BIGINT`,
@@ -398,6 +413,11 @@ const SCHEMA_STATEMENTS: string[] = [
   `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS design_system_id TEXT`,
   // Cost attribution: JSON {"model":n,"search":n,"image":n} per assistant turn.
   `ALTER TABLE messages ADD COLUMN IF NOT EXISTS cost_breakdown TEXT`,
+  // Prompt-cache accounting: input tokens served from cache, and the dollar
+  // saving OpenRouter reports for them. Negative discount on a warm-up turn
+  // is expected — cache writes cost more than a plain read.
+  `ALTER TABLE messages ADD COLUMN IF NOT EXISTS cached_tokens_in INTEGER`,
+  `ALTER TABLE messages ADD COLUMN IF NOT EXISTS cache_discount DOUBLE PRECISION`,
   // Wall-clock generation time per assistant turn (footer: cost · tok · ms).
   `ALTER TABLE messages ADD COLUMN IF NOT EXISTS duration_ms INTEGER`,
   // Auto routing: the reason the router picked this turn's model (footer badge).
@@ -427,6 +447,90 @@ const SCHEMA_STATEMENTS: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id)`,
   `CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_user ON scheduled_tasks(user_id)`,
   // User-defined REST endpoints exposed to the model as callable tools.
+  // ---- Workspaces (see lib/workspaces.ts) ----
+  // Membership and spend policy only. Resources stay owned by users, so no
+  // workspace_id appears on conversations, projects, or artifacts yet.
+  `CREATE TABLE IF NOT EXISTS workspaces (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
+    monthly_budget_usd DOUBLE PRECISION,
+    per_member_budget_usd DOUBLE PRECISION,
+    created_at BIGINT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS workspace_members (
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'member',
+    added_at BIGINT NOT NULL,
+    PRIMARY KEY (workspace_id, user_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS workspace_members_user_idx ON workspace_members (user_id)`,
+  // ---- Audit log (see lib/audit.ts) ----
+  // Appended only through the audit_append() function below, which is what
+  // keeps the hash chain single-threaded. Writing this table directly is
+  // possible and would be invisible to nothing: the next verify catches it.
+  // Partial text of a reply that is still streaming, so a client that
+  // reloads mid-turn can pick the answer up in progress instead of staring
+  // at a spinner. One row per conversation, deleted when the turn lands.
+  `CREATE TABLE IF NOT EXISTS live_turns (
+    conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+    text TEXT NOT NULL DEFAULT '',
+    updated_at BIGINT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS audit_log (
+    seq BIGSERIAL PRIMARY KEY,
+    id TEXT NOT NULL UNIQUE,
+    at BIGINT NOT NULL,
+    user_id TEXT,
+    action TEXT NOT NULL,
+    target_type TEXT,
+    target_id TEXT,
+    detail TEXT,
+    ip TEXT,
+    prev_hash TEXT NOT NULL,
+    hash TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS audit_log_at_idx ON audit_log (at)`,
+  `CREATE INDEX IF NOT EXISTS audit_log_user_idx ON audit_log (user_id)`,
+  `CREATE INDEX IF NOT EXISTS audit_log_action_idx ON audit_log (action)`,
+  // One row, holding the chain head. Locking it is what serialises appends;
+  // the Neon HTTP driver has no interactive transactions, so the lock has to
+  // live inside a single server-side statement.
+  `CREATE TABLE IF NOT EXISTS audit_chain (
+    id INTEGER PRIMARY KEY,
+    head TEXT NOT NULL DEFAULT '',
+    CONSTRAINT audit_chain_single CHECK (id = 1)
+  )`,
+  `INSERT INTO audit_chain (id, head) VALUES (1, '') ON CONFLICT (id) DO NOTHING`,
+  // The hash covers prev_hash plus the entry's own fields, pipe-joined in a
+  // fixed order. auditPayload() in lib/audit.ts must produce the same bytes,
+  // or verification fails on rows this function wrote.
+  `CREATE OR REPLACE FUNCTION audit_append(
+    p_id TEXT, p_at BIGINT, p_user TEXT, p_action TEXT,
+    p_target_type TEXT, p_target_id TEXT, p_detail TEXT, p_ip TEXT
+  ) RETURNS TEXT AS $fn$
+  DECLARE
+    v_prev TEXT;
+    v_payload TEXT;
+    v_hash TEXT;
+  BEGIN
+    SELECT head INTO v_prev FROM audit_chain WHERE id = 1 FOR UPDATE;
+    v_payload := octet_length(convert_to(p_id, 'UTF8'))::text || ':' || p_id
+      || octet_length(convert_to(p_at::text, 'UTF8'))::text || ':' || p_at::text
+      || octet_length(convert_to(coalesce(p_user, ''), 'UTF8'))::text || ':' || coalesce(p_user, '')
+      || octet_length(convert_to(p_action, 'UTF8'))::text || ':' || p_action
+      || octet_length(convert_to(coalesce(p_target_type, ''), 'UTF8'))::text || ':' || coalesce(p_target_type, '')
+      || octet_length(convert_to(coalesce(p_target_id, ''), 'UTF8'))::text || ':' || coalesce(p_target_id, '')
+      || octet_length(convert_to(coalesce(p_detail, ''), 'UTF8'))::text || ':' || coalesce(p_detail, '')
+      || octet_length(convert_to(coalesce(p_ip, ''), 'UTF8'))::text || ':' || coalesce(p_ip, '');
+    v_hash := encode(sha256(convert_to(v_prev || '|' || v_payload, 'UTF8')), 'hex');
+    INSERT INTO audit_log (id, at, user_id, action, target_type, target_id, detail, ip, prev_hash, hash)
+    VALUES (p_id, p_at, p_user, p_action, p_target_type, p_target_id, p_detail, p_ip, v_prev, v_hash);
+    UPDATE audit_chain SET head = v_hash WHERE id = 1;
+    RETURN v_hash;
+  END;
+  $fn$ LANGUAGE plpgsql`,
   `CREATE TABLE IF NOT EXISTS http_tools (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL DEFAULT 'local',
@@ -546,6 +650,35 @@ export async function tryLockConversation(id: string): Promise<boolean> {
   return rows.length > 0;
 }
 
+/**
+ * Publish the partial text of an in-flight reply.
+ *
+ * Called on a throttle from the streaming loop, not per token: each write is
+ * an HTTP round trip to Neon, and a reader that is a second behind is fine
+ * when the alternative is no text at all.
+ */
+export async function setLiveTurn(conversationId: string, text: string): Promise<void> {
+  await q(
+    "INSERT INTO live_turns (conversation_id, text, updated_at) VALUES ($1, $2, $3) " +
+      "ON CONFLICT (conversation_id) DO UPDATE SET text = EXCLUDED.text, updated_at = EXCLUDED.updated_at",
+    [conversationId, text, Date.now()]
+  );
+}
+
+/** Drop the buffer once the real message is saved (or the turn dies). */
+export async function clearLiveTurn(conversationId: string): Promise<void> {
+  await q("DELETE FROM live_turns WHERE conversation_id = $1", [conversationId]);
+}
+
+/** Partial text for a conversation, or null when no turn is in flight. */
+export async function getLiveTurn(conversationId: string): Promise<string | null> {
+  const rows = await q(
+    "SELECT text FROM live_turns WHERE conversation_id = $1",
+    [conversationId]
+  );
+  const text = (rows[0] as { text?: string } | undefined)?.text;
+  return text ? text : null;
+}
 export async function unlockConversation(id: string) {
   await q("UPDATE conversations SET locked_at = NULL WHERE id = $1", [id]);
 }
@@ -937,6 +1070,8 @@ export async function addMessage(
     cost?: number | null;
     tokens_in?: number | null;
     tokens_out?: number | null;
+    cached_tokens_in?: number | null;
+    cache_discount?: number | null;
     cost_breakdown?: string | null;
     duration_ms?: number | null;
     route_reason?: string | null;
@@ -958,13 +1093,15 @@ export async function addMessage(
     cost: extras.cost ?? null,
     tokens_in: extras.tokens_in ?? null,
     tokens_out: extras.tokens_out ?? null,
+    cached_tokens_in: extras.cached_tokens_in ?? null,
+    cache_discount: extras.cache_discount ?? null,
     cost_breakdown: extras.cost_breakdown ?? null,
     duration_ms: extras.duration_ms ?? null,
     route_reason: extras.route_reason ?? null,
     created_at: now(),
   };
   await q(
-    "INSERT INTO messages (id, conversation_id, role, content, model, attachments, reasoning, annotations, images, tool_calls, tool_call_id, reasoning_ms, cost, tokens_in, tokens_out, cost_breakdown, duration_ms, route_reason, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)",
+    "INSERT INTO messages (id, conversation_id, role, content, model, attachments, reasoning, annotations, images, tool_calls, tool_call_id, reasoning_ms, cost, tokens_in, tokens_out, cached_tokens_in, cache_discount, cost_breakdown, duration_ms, route_reason, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)",
     [
       msg.id,
       msg.conversation_id,
@@ -981,6 +1118,8 @@ export async function addMessage(
       msg.cost,
       msg.tokens_in,
       msg.tokens_out,
+      msg.cached_tokens_in,
+      msg.cache_discount,
       msg.cost_breakdown,
       msg.duration_ms,
       msg.route_reason,
@@ -2049,19 +2188,19 @@ export interface Connector {
   url: string | null;
   headers: string | null; // JSON object
   oauth_data: string | null; // JSON: tokens, client info, verifier, redirect
-  tools_cache: string | null; // JSON: [{name, description}] discovered on last test
+  tools_cache: string | null; // JSON: [{name, description, annotations?}] discovered on last test
   last_tested: number | null;
   enabled: number;
+  /** Allow tools the server marks as writing/destructive to run unattended. */
+  auto_run: number;
+  disabled_tools: string | null; // JSON array of original tool names to hide
   user_id: string;
   created_at: number;
 }
 
 /** Persist the tool list discovered by a successful connector test, so the UI
  *  can show a server's functions instantly without reconnecting each time. */
-export async function setConnectorTools(
-  id: string,
-  tools: { name: string; description: string }[]
-) {
+export async function setConnectorTools(id: string, tools: DiscoveredTool[]) {
   await q("UPDATE connectors SET tools_cache = $1, last_tested = $2 WHERE id = $3", [
     JSON.stringify(tools),
     now(),
@@ -2134,11 +2273,15 @@ export async function createConnector(
     tools_cache: null,
     last_tested: null,
     enabled: 1,
+    // New connectors start guarded: a tool the server declares as writing needs
+    // the user to allow it first.
+    auto_run: 0,
+    disabled_tools: null,
     user_id: userId,
     created_at: now(),
   };
   await q(
-    "INSERT INTO connectors (id, name, transport, command, args, url, headers, oauth_data, enabled, user_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+    "INSERT INTO connectors (id, name, transport, command, args, url, headers, oauth_data, enabled, auto_run, disabled_tools, user_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
     [
       record.id,
       record.name,
@@ -2149,6 +2292,8 @@ export async function createConnector(
       encryptSecret(record.headers),
       record.oauth_data,
       record.enabled,
+      record.auto_run,
+      record.disabled_tools,
       record.user_id,
       record.created_at,
     ]
@@ -2161,7 +2306,7 @@ export async function updateConnector(id: string, fields: Partial<Connector>) {
   if (!record) return;
   const merged = { ...record, ...fields };
   await q(
-    "UPDATE connectors SET name=$1, transport=$2, command=$3, args=$4, url=$5, headers=$6, enabled=$7 WHERE id=$8",
+    "UPDATE connectors SET name=$1, transport=$2, command=$3, args=$4, url=$5, headers=$6, enabled=$7, auto_run=$8, disabled_tools=$9 WHERE id=$10",
     [
       merged.name,
       merged.transport,
@@ -2170,6 +2315,8 @@ export async function updateConnector(id: string, fields: Partial<Connector>) {
       merged.url,
       encryptSecret(merged.headers),
       merged.enabled,
+      merged.auto_run ?? 0,
+      merged.disabled_tools ?? null,
       id,
     ]
   );
@@ -2647,4 +2794,207 @@ export async function verifyPlatformApiKey(key: string): Promise<string | null> 
   if (!row) return null;
   await q("UPDATE api_keys SET last_used_at = $1 WHERE id = $2", [now(), row.id]);
   return row.user_id || DEFAULT_USER;
+}
+
+// ---------------------------------------------------------------------------
+// Workspaces (see lib/workspaces.ts for the role and budget policy)
+
+export interface Workspace {
+  id: string;
+  name: string;
+  owner_id: string;
+  monthly_budget_usd: number | null;
+  per_member_budget_usd: number | null;
+  created_at: number;
+}
+
+export interface WorkspaceMember {
+  workspace_id: string;
+  user_id: string;
+  role: WorkspaceRole;
+  added_at: number;
+  email?: string;
+  name?: string;
+}
+
+const rowToWorkspace = (r: Record<string, unknown>): Workspace => ({
+  id: r.id as string,
+  name: r.name as string,
+  owner_id: r.owner_id as string,
+  monthly_budget_usd: r.monthly_budget_usd == null ? null : Number(r.monthly_budget_usd),
+  per_member_budget_usd:
+    r.per_member_budget_usd == null ? null : Number(r.per_member_budget_usd),
+  created_at: Number(r.created_at),
+});
+
+/** Create a workspace and seat its creator as owner. */
+export async function createWorkspace(name: string, ownerId: string): Promise<Workspace> {
+  const ws: Workspace = {
+    id: newId(),
+    name,
+    owner_id: ownerId,
+    monthly_budget_usd: null,
+    per_member_budget_usd: null,
+    created_at: now(),
+  };
+  await q(
+    "INSERT INTO workspaces (id, name, owner_id, monthly_budget_usd, per_member_budget_usd, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+    [ws.id, ws.name, ws.owner_id, null, null, ws.created_at]
+  );
+  await q(
+    "INSERT INTO workspace_members (workspace_id, user_id, role, added_at) VALUES ($1, $2, 'owner', $3) ON CONFLICT (workspace_id, user_id) DO NOTHING",
+    [ws.id, ownerId, ws.created_at]
+  );
+  return ws;
+}
+
+export async function getWorkspace(id: string): Promise<Workspace | null> {
+  const rows = await q("SELECT * FROM workspaces WHERE id = $1", [id]);
+  return rows[0] ? rowToWorkspace(rows[0]) : null;
+}
+
+/** Workspaces this user belongs to, with the role they hold in each. */
+export async function listWorkspacesForUser(
+  userId: string
+): Promise<(Workspace & { role: WorkspaceRole })[]> {
+  const rows = await q(
+    "SELECT w.*, m.role FROM workspaces w JOIN workspace_members m ON m.workspace_id = w.id WHERE m.user_id = $1 ORDER BY w.created_at ASC",
+    [userId]
+  );
+  return rows.map((r) => ({ ...rowToWorkspace(r), role: r.role as WorkspaceRole }));
+}
+
+/** The caller's role in a workspace, or null when they are not a member. */
+export async function workspaceRole(
+  workspaceId: string,
+  userId: string
+): Promise<WorkspaceRole | null> {
+  const rows = await q(
+    "SELECT role FROM workspace_members WHERE workspace_id = $1 AND user_id = $2",
+    [workspaceId, userId]
+  );
+  const role = (rows[0] as { role?: string } | undefined)?.role;
+  return isWorkspaceRole(role) ? role : null;
+}
+
+export async function updateWorkspace(
+  id: string,
+  fields: Partial<Pick<Workspace, "name" | "monthly_budget_usd" | "per_member_budget_usd">>
+): Promise<void> {
+  const sets: string[] = [];
+  const params: unknown[] = [];
+  for (const key of ["name", "monthly_budget_usd", "per_member_budget_usd"] as const) {
+    if (fields[key] !== undefined) {
+      params.push(fields[key]);
+      sets.push(key + " = $" + params.length);
+    }
+  }
+  if (!sets.length) return;
+  params.push(id);
+  await q("UPDATE workspaces SET " + sets.join(", ") + " WHERE id = $" + params.length, params);
+}
+
+export async function deleteWorkspace(id: string): Promise<void> {
+  await q("DELETE FROM workspace_members WHERE workspace_id = $1", [id]);
+  await q("DELETE FROM workspaces WHERE id = $1", [id]);
+}
+
+/** Members with the account details an admin screen needs to show them. */
+export async function listWorkspaceMembers(workspaceId: string): Promise<WorkspaceMember[]> {
+  const rows = await q(
+    "SELECT m.*, u.email, u.name FROM workspace_members m LEFT JOIN users u ON u.id = m.user_id WHERE m.workspace_id = $1 ORDER BY m.added_at ASC",
+    [workspaceId]
+  );
+  return rows.map((r) => ({
+    workspace_id: r.workspace_id as string,
+    user_id: r.user_id as string,
+    role: r.role as WorkspaceRole,
+    added_at: Number(r.added_at),
+    email: (r.email as string) ?? undefined,
+    name: (r.name as string) ?? undefined,
+  }));
+}
+
+/** Add or re-role a member. Idempotent, so a repeated invite is not an error. */
+export async function upsertWorkspaceMember(
+  workspaceId: string,
+  userId: string,
+  role: WorkspaceRole
+): Promise<void> {
+  await q(
+    "INSERT INTO workspace_members (workspace_id, user_id, role, added_at) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, user_id) DO UPDATE SET role = EXCLUDED.role",
+    [workspaceId, userId, role, now()]
+  );
+}
+
+export async function removeWorkspaceMember(workspaceId: string, userId: string): Promise<void> {
+  await q("DELETE FROM workspace_members WHERE workspace_id = $1 AND user_id = $2", [
+    workspaceId,
+    userId,
+  ]);
+}
+
+/** How many owners a workspace has, so the last one can't be removed. */
+export async function countWorkspaceOwners(workspaceId: string): Promise<number> {
+  const rows = await q(
+    "SELECT COUNT(*)::int AS n FROM workspace_members WHERE workspace_id = $1 AND role = 'owner'",
+    [workspaceId]
+  );
+  return Number((rows[0] as { n?: number } | undefined)?.n ?? 0);
+}
+
+/**
+ * Month-to-date spend across every member of a workspace.
+ *
+ * Cost lives on messages, which belong to users rather than workspaces, so
+ * this sums the members' own spend instead of reading a workspace ledger. A
+ * user in two workspaces therefore counts fully toward both, which is the
+ * conservative reading and matches how checkBudgets applies the caps.
+ */
+export async function workspaceSpendThisMonth(workspaceId: string): Promise<number> {
+  const d = new Date();
+  const monthStart = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
+  const rows = await q(
+    "SELECT COALESCE(SUM(m.cost), 0) AS cost FROM messages m " +
+      "JOIN conversations c ON c.id = m.conversation_id " +
+      "JOIN workspace_members wm ON wm.user_id = c.user_id " +
+      "WHERE wm.workspace_id = $1 AND m.role = 'assistant' AND m.created_at >= $2",
+    [workspaceId, monthStart]
+  );
+  return Number((rows[0] as { cost?: number } | undefined)?.cost) || 0;
+}
+
+/**
+ * Budget state for every workspace a user belongs to, ready for checkBudgets.
+ *
+ * Workspaces with no cap and no view-only restriction are dropped before the
+ * spend queries run: they can never block anything, and each one they skip is
+ * an aggregate over the whole messages table avoided on the hot path.
+ */
+export async function workspaceBudgetsFor(userId: string): Promise<WorkspaceBudget[]> {
+  const memberships = await listWorkspacesForUser(userId);
+  const binding = memberships.filter(
+    (w) =>
+      w.monthly_budget_usd != null ||
+      w.per_member_budget_usd != null ||
+      !can(w.role, "spend")
+  );
+  if (binding.length === 0) return [];
+
+  // One member-spend query serves every workspace; only the workspace-wide
+  // total has to be summed per workspace.
+  const memberSpend = binding.some((w) => w.per_member_budget_usd != null)
+    ? await spendThisMonth(userId)
+    : 0;
+
+  return Promise.all(
+    binding.map(async (w) => ({
+      name: w.name,
+      monthlyBudgetUsd: w.monthly_budget_usd,
+      perMemberBudgetUsd: w.per_member_budget_usd,
+      workspaceSpend: w.monthly_budget_usd != null ? await workspaceSpendThisMonth(w.id) : 0,
+      memberSpend,
+      role: w.role,
+    }))
+  );
 }

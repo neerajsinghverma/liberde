@@ -13,13 +13,68 @@ import { execMemoryTool, isMemoryTool, MEMORY_TOOL_DEFS } from "./memory";
 import { processAssistantArtifacts } from "./artifacts";
 import { ARTIFACTS_SYSTEM_PROMPT } from "./artifact-shared";
 import { resolveChatTarget, targetHeaders } from "./providers";
+import { applyPromptCache, cacheSessionId } from "./prompt-cache";
+import { audit } from "./audit";
 import type { AgentRun, AgentStep } from "./types";
 
 export const MAX_STEPS = 5;
 const MAX_ROUNDS_PER_STEP = 4;
+// The planner's reply is prose around a JSON array; this pulls the array out.
+const PLAN_ARRAY = /\[[\s\S]*\]/;
 
 type Emit = (obj: unknown) => void;
 
+/**
+ * Read a planner reply into steps.
+ *
+ * Accepts the grouped object form and the bare string array that older runs
+ * and weaker planner models produce; a string array becomes one step per
+ * group, which is exactly the sequential behaviour this used to have.
+ *
+ * Output is sorted by group so a group's members sit next to each other in
+ * the array. That contiguity is what lets `current_step` stay a single
+ * integer, and it is the whole reason resume still works unchanged.
+ */
+export function parsePlan(reply: string): AgentStep[] {
+  let parsed: unknown;
+  try {
+    const match = reply.match(PLAN_ARRAY);
+    parsed = JSON.parse(match ? match[0] : "[]");
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+
+  const out: AgentStep[] = [];
+  parsed.slice(0, MAX_STEPS).forEach((raw, i) => {
+    // A planner that ignored the schema still gets its plan honoured, one
+    // step per group — degraded to sequential rather than dropped.
+    if (typeof raw === "string") {
+      const title = raw.trim();
+      if (title) out.push({ title, status: "pending", group: i + 1 });
+      return;
+    }
+    if (!raw || typeof raw !== "object") return;
+    const o = raw as { title?: unknown; group?: unknown };
+    const title = String(o.title ?? "").trim();
+    if (!title) return;
+    const g = Number(o.group);
+    out.push({
+      title,
+      status: "pending",
+      group: Number.isFinite(g) && g > 0 ? Math.floor(g) : i + 1,
+    });
+  });
+
+  // Stable sort: equal groups keep the planner's ordering.
+  return out
+    .map((step, i) => ({ step, i }))
+    .sort((a, b) => (a.step.group ?? 0) - (b.step.group ?? 0) || a.i - b.i)
+    .map(({ step }) => step);
+}
+
+/** The group a step belongs to; ungrouped legacy steps stand alone. */
+const groupOf = (steps: AgentStep[], i: number): number => steps[i].group ?? i + 1;
 /**
  * Execute one *slice* of a durable agent run: plan (if not yet planned), then
  * run steps from `run.current_step` until the wall-clock `deadlineMs` or the
@@ -61,16 +116,29 @@ export async function runAgentSlice(
       .join("\n")}`;
 
   const runStep = async (
-    messages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }[]
+    messages: {
+      role: string;
+      content: string | { type: string; [k: string]: unknown }[];
+      tool_calls?: unknown[];
+      tool_call_id?: string;
+    }[]
   ): Promise<string> => {
     for (let round = 0; round < MAX_ROUNDS_PER_STEP; round++) {
       const execTarget = await resolveChatTarget(run.exec_model, run.user_id);
+      if (round === 0) {
+        applyPromptCache(messages, {
+          model: execTarget.bodyModel,
+          isOpenRouter: execTarget.isOpenRouter,
+        });
+      }
       // Per-call 90s timeout + one retry; decoupled from any client signal so a
       // disconnect never cancels work we intend to persist.
       const execBody = JSON.stringify({
         model: execTarget.bodyModel,
         messages,
-        ...(execTarget.isOpenRouter ? { usage: { include: true } } : {}),
+        ...(execTarget.isOpenRouter
+          ? { usage: { include: true }, session_id: cacheSessionId(run.id) }
+          : {}),
         ...(round < MAX_ROUNDS_PER_STEP - 1 && tools.length ? { tools } : {}),
       });
       const res = await fetchWithRetry(
@@ -136,35 +204,65 @@ export async function runAgentSlice(
     // 1. Plan — only if this run hasn't been planned yet.
     if (steps.length === 0) {
       emit({ status: "Planning…" });
-      let titles: string[] = [];
+      let planned: AgentStep[] = [];
       try {
         const plan = await complete(
           run.planner_model,
           [
             {
               role: "user",
-              content: `${dateContextLine()} You are an autonomous agent. Break this into at most ${MAX_STEPS} concrete, sequential steps (fewer is better; the final step should produce the deliverable). Available tools: ${toolNames || "none"}.\n\n${run.context_block}\n\nReply with ONLY a JSON array of short step titles.`,
+              content: [
+                `${dateContextLine()} You are an autonomous agent. Break this goal into at most ${MAX_STEPS} concrete steps (fewer is better; the last step produces the deliverable). Available tools: ${toolNames || "none"}.`,
+                `Give every step a "group" number. Steps sharing a number run at the SAME TIME and cannot see each other's findings, so only share a number when neither step needs the other's output. Groups run in ascending order, and every step sees the findings of all earlier groups.
+
+Gathering from independent sources belongs in one shared group. Anything that compares, summarises, decides, or builds on earlier work belongs in a later group. When in doubt use a later group — a wrongly parallelised step runs blind.`,
+                run.context_block,
+                `Reply with ONLY a JSON array, for example: [{"title":"Research X","group":1},{"title":"Research Y","group":1},{"title":"Compare and write up","group":2}]`,
+              ].join("\n\n"),
             },
           ],
-          { temperature: 0.3, max_tokens: 400 },
+          { temperature: 0.3, max_tokens: 500 },
           run.user_id
         );
-        const parsed = JSON.parse(plan.match(/\[[\s\S]*\]/)?.[0] ?? "[]");
-        if (Array.isArray(parsed)) titles = parsed.slice(0, MAX_STEPS).map(String);
+        planned = parsePlan(plan);
       } catch {
         /* fall through to default */
       }
-      if (titles.length === 0) titles = ["Work on the goal", "Produce the deliverable"];
-      for (const t of titles) steps.push({ title: t, status: "pending" });
-      emit({ status: `Plan: ${steps.length} steps` });
+      if (planned.length === 0) {
+        planned = [
+          { title: "Work on the goal", status: "pending", group: 1 },
+          { title: "Produce the deliverable", status: "pending", group: 2 },
+        ];
+      }
+      steps.push(...planned);
+      const groups = new Set(steps.map((s, i) => s.group ?? i + 1)).size;
+      emit({
+        status:
+          `Plan: ${steps.length} steps` +
+          (groups < steps.length ? ` in ${groups} stages (some run together)` : ""),
+      });
       steps.forEach((s, i) => emit({ status: `   ${i + 1}. ${s.title}` }));
       const runMsg = await addMessage(run.conversation_id, "assistant", progressBlock(), run.model);
       runMsgId = runMsg.id;
       await updateAgentRun(run.id, { steps, run_msg_id: runMsgId });
+      await audit({
+        action: "agent.run_started",
+        userId: run.user_id,
+        targetType: "agent_run",
+        targetId: run.id,
+        detail: { steps: steps.length, groups },
+      });
     }
 
-    // 2. Execute steps from where we left off, pausing at the deadline.
-    for (let i = run.current_step; i < steps.length; i++) {
+    // 2. Execute from where we left off, pausing at the deadline.
+    //
+    //    Steps sharing a group were planned as mutually independent, so they
+    //    run together. Groups stay ordered, because a later group is exactly
+    //    the thing allowed to depend on an earlier one. A group is contiguous
+    //    in the array (parsePlan sorted it), so `current_step` stays a single
+    //    integer and resume works unchanged.
+    let i = run.current_step;
+    while (i < steps.length) {
       if (Date.now() > deadlineMs) {
         await updateAgentRun(run.id, {
           steps,
@@ -180,29 +278,71 @@ export async function runAgentSlice(
         emit({ status: `Pausing at step ${i + 1}/${steps.length} — resuming shortly` });
         return "paused";
       }
-      emit({ status: `Step ${i + 1}/${steps.length}: ${steps[i].title}` });
-      try {
-        const result = await runStep([
-          {
-            role: "system",
-            content: `${dateContextLine()} You are executing one step of a plan. Be thorough but focused on THIS step only. Use tools when they genuinely help. Report your findings/output for the step as dense, factual text.`,
-          },
-          {
-            role: "user",
-            content: `${run.context_block}\n\nPlan:\n${steps.map((s, j) => `${j + 1}. ${s.title}`).join("\n")}\n\nFindings from previous steps:\n${notes.length ? notes.join("\n\n") : "(none yet)"}\n\nExecute step ${i + 1}: ${steps[i].title}`,
-          },
-        ]);
-        notes.push(`## Step ${i + 1}: ${steps[i].title}\n${result.slice(0, 4000)}`);
-        steps[i].status = "done";
-        emit({ status: `Step ${i + 1} done` });
-      } catch (e) {
-        steps[i].status = "failed";
-        notes.push(`## Step ${i + 1}: ${steps[i].title}\n(this step could not complete: ${String(e).slice(0, 120)})`);
-        emit({ status: `Step ${i + 1} skipped (${String(e).slice(0, 60)})` });
+
+      let end = i;
+      while (end + 1 < steps.length && groupOf(steps, end + 1) === groupOf(steps, i)) end++;
+      const batch: number[] = [];
+      for (let k = i; k <= end; k++) batch.push(k);
+
+      // Snapshotted before the batch starts: a step must not read notes its
+      // own siblings are still writing, or "independent" stops being true and
+      // the run stops being reproducible.
+      const priorNotes = notes.length ? notes.join("\n\n") : "(none yet)";
+      const planText = steps.map((s, j) => `${j + 1}. ${s.title}`).join("\n");
+
+      if (batch.length === 1) {
+        emit({ status: `Step ${i + 1}/${steps.length}: ${steps[i].title}` });
+      } else {
+        emit({ status: `Steps ${i + 1}-${end + 1}/${steps.length}, running together:` });
+        for (const k of batch) emit({ status: `   ▸ ${steps[k].title}` });
       }
+
+      // MAX_STEPS caps a whole plan at five, so one group can never be wide
+      // enough to need a concurrency limit of its own.
+      const settled = await Promise.allSettled(
+        batch.map((k) =>
+          runStep([
+            {
+              role: "system",
+              content:
+                `${dateContextLine()} You are executing one step of a plan. Be thorough but focused on THIS step only. Use tools when they genuinely help. Report your findings as dense, factual text.` +
+                (batch.length > 1
+                  ? ` Other steps in this stage are running at the same time; you cannot see their work, and must not wait on it or assume what it found.`
+                  : ""),
+            },
+            {
+              role: "user",
+              content: [
+                run.context_block,
+                `Plan:\n${planText}`,
+                `Findings from earlier stages:\n${priorNotes}`,
+                `Execute step ${k + 1}: ${steps[k].title}`,
+              ].join("\n\n"),
+            },
+          ])
+        )
+      );
+
+      // Applied in batch order rather than completion order, so the notes a
+      // later group reads are identical whichever sibling finished first.
+      settled.forEach((outcome, idx) => {
+        const k = batch[idx];
+        if (outcome.status === "fulfilled") {
+          notes.push(`## Step ${k + 1}: ${steps[k].title}\n${outcome.value.slice(0, 4000)}`);
+          steps[k].status = "done";
+          emit({ status: `Step ${k + 1} done` });
+        } else {
+          steps[k].status = "failed";
+          const why = String(outcome.reason).slice(0, 120);
+          notes.push(`## Step ${k + 1}: ${steps[k].title}\n(this step could not complete: ${why})`);
+          emit({ status: `Step ${k + 1} skipped (${why.slice(0, 60)})` });
+        }
+      });
+
+      i = end + 1;
       await updateAgentRun(run.id, {
         steps,
-        current_step: i + 1,
+        current_step: i,
         notes,
         total_cost: totalCost,
       });
@@ -214,6 +354,7 @@ export async function runAgentSlice(
         }
       }
     }
+
 
     // 3. Synthesize the deliverable, streaming deltas to the client.
     emit({ status: "Producing the deliverable…" });

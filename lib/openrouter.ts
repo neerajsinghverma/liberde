@@ -215,14 +215,25 @@ export function dateContextLine(): string {
   return `Today's date is ${d} (UTC).`;
 }
 
-export function buildSystemPrompt(
+/**
+ * The user/project half of the system prompt, split by how often it changes.
+ *
+ * `stable` is byte-identical for every turn of a conversation, so it can sit
+ * inside a prompt-cache prefix. `volatile` is not: today's date rolls over, and
+ * project knowledge is re-retrieved against each new query. Keeping the two
+ * apart is what makes caching land — one re-retrieved chunk inside the cached
+ * head would invalidate every token after it, protocol prompts included.
+ */
+export function buildSystemPromptParts(
   globalPrompt: string,
   project?: { instructions: string; files: { name: string; content: string }[] } | null,
   personalization?: { aboutUser: string; styleInstructions: string } | null,
   query?: string
-): string {
-  const parts: string[] = [dateContextLine()];
-  if (globalPrompt.trim()) parts.push(globalPrompt.trim());
+): { stable: string; volatile: string } {
+  const stable: string[] = [];
+  const volatile: string[] = [dateContextLine()];
+
+  if (globalPrompt.trim()) stable.push(globalPrompt.trim());
   if (personalization) {
     const p: string[] = [];
     if (personalization.aboutUser.trim()) {
@@ -231,11 +242,11 @@ export function buildSystemPrompt(
     if (personalization.styleInstructions.trim()) {
       p.push(`How the user wants you to respond:\n${personalization.styleInstructions.trim()}`);
     }
-    if (p.length) parts.push(`# User personalization\n\n${p.join("\n\n")}`);
+    if (p.length) stable.push(`# User personalization\n\n${p.join("\n\n")}`);
   }
   if (project) {
     if (project.instructions.trim()) {
-      parts.push(`<project_instructions>\n${project.instructions.trim()}\n</project_instructions>`);
+      stable.push(`<project_instructions>\n${project.instructions.trim()}\n</project_instructions>`);
     }
     if (project.files.length > 0) {
       // Retrieve the chunks most relevant to the query rather than dumping all.
@@ -243,10 +254,26 @@ export function buildSystemPrompt(
       const knowledge = selected
         .map((c) => `<document name="${c.name}">\n${c.text}\n</document>`)
         .join("\n\n");
-      parts.push(`<project_knowledge>\n${knowledge}\n</project_knowledge>`);
+      volatile.push(`<project_knowledge>\n${knowledge}\n</project_knowledge>`);
     }
   }
-  return parts.join("\n\n");
+  return { stable: stable.join("\n\n"), volatile: volatile.join("\n\n") };
+}
+
+/** Both halves as one blob, for callers that don't split on cacheability. */
+export function buildSystemPrompt(
+  globalPrompt: string,
+  project?: { instructions: string; files: { name: string; content: string }[] } | null,
+  personalization?: { aboutUser: string; styleInstructions: string } | null,
+  query?: string
+): string {
+  const { stable, volatile } = buildSystemPromptParts(
+    globalPrompt,
+    project,
+    personalization,
+    query
+  );
+  return [volatile, stable].filter(Boolean).join("\n\n");
 }
 
 // Transient upstream statuses worth retrying (rate limits + gateway/5xx).
@@ -535,6 +562,8 @@ export async function listModels(): Promise<ModelInfo[]> {
       },
       supportsImages: m.architecture?.input_modalities?.includes("image") ?? false,
       supportsTools: m.supported_parameters?.includes("tools") ?? false,
+      supportsStructuredOutputs:
+        m.supported_parameters?.includes("structured_outputs") ?? false,
       outputsImages: m.architecture?.output_modalities?.includes("image") ?? false,
     })
   );

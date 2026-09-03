@@ -17,18 +17,32 @@ export async function GET() {
     // Serverless platforms can't spawn local MCP subprocesses.
     stdioSupported: !process.env.VERCEL,
     connectors: (await listConnectors(userId)).map((c) => {
-      let tools: { name: string; description: string }[] = [];
+      let tools: {
+        name: string;
+        description: string;
+        annotations?: Record<string, unknown>;
+      }[] = [];
       try {
         tools = c.tools_cache ? JSON.parse(c.tools_cache) : [];
       } catch {
         tools = [];
+      }
+      let disabledTools: string[] = [];
+      try {
+        const raw = c.disabled_tools ? JSON.parse(c.disabled_tools) : [];
+        disabledTools = Array.isArray(raw) ? raw.map(String) : [];
+      } catch {
+        disabledTools = [];
       }
       return {
         ...c,
         headers: c.headers ? "(configured)" : null,
         oauth_data: undefined, // never leak tokens to the client
         tools_cache: undefined,
+        disabled_tools: undefined,
         tools,
+        disabledTools,
+        autoRun: Boolean(c.auto_run),
         lastTested: c.last_tested ?? null,
         hasAuth: Boolean(c.oauth_data),
       };
@@ -91,6 +105,19 @@ export async function PATCH(req: NextRequest) {
   if (typeof body.enabled === "boolean") {
     await updateConnector(connector.id, { enabled: body.enabled ? 1 : 0 });
     if (!body.enabled) dropConnection(connector.id);
+  }
+  // Let the model run this server's write/destructive tools without asking.
+  if (typeof body.autoRun === "boolean") {
+    await updateConnector(connector.id, { auto_run: body.autoRun ? 1 : 0 });
+  }
+  // Per-tool visibility, by the server's original tool names. Dropping the live
+  // connection forces the next turn to rebuild the offered tool list.
+  if (Array.isArray(body.disabledTools)) {
+    const names = [...new Set(body.disabledTools.map(String))].slice(0, 500);
+    await updateConnector(connector.id, {
+      disabled_tools: names.length ? JSON.stringify(names) : null,
+    });
+    dropConnection(connector.id);
   }
   const updated = (await getConnector(connector.id))!;
   return Response.json({ ...updated, headers: updated.headers ? "(configured)" : null });
