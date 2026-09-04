@@ -20,7 +20,10 @@ import {
 import { resolveChatTarget, targetHeaders } from "@/lib/providers";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+// 800s is the generally-available ceiling for Pro and Enterprise; 300 is only
+// the platform default. Not raised to the 1800s extended maximum, which is in
+// beta and drops support for Secure Compute and static IPs.
+export const maxDuration = 800;
 
 const sse = (obj: unknown) => `data: ${JSON.stringify(obj)}\n\n`;
 const MAX_SEARCHES = 6;

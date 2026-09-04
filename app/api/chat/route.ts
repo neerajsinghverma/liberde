@@ -84,7 +84,10 @@ import {
 } from "@/lib/recall";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+// 800s is the generally-available ceiling for Pro and Enterprise; 300 is only
+// the platform default. Not raised to the 1800s extended maximum, which is in
+// beta and drops support for Secure Compute and static IPs.
+export const maxDuration = 800;
 
 const MAX_TOOL_ROUNDS = 6;
 
@@ -513,7 +516,7 @@ Only reply in plain text for a genuine question that clearly isn't a design requ
       // already close to the function's maxDuration (300s) — being hard-killed
       // mid-synthesis loses the artifact and wedges the conversation lock.
       const turnStart = Date.now();
-      const FORCE_SYNTH_DEADLINE_MS = 180_000;
+      const FORCE_SYNTH_DEADLINE_MS = 600_000;
       // Hard turn deadline: a zombie upstream stream (accepted the request,
       // then drips error frames forever — seen with saturated free endpoints)
       // otherwise pins the read loop until Vercel hard-kills the function at
@@ -697,7 +700,7 @@ Only reply in plain text for a genuine question that clearly isn't a design requ
           // function's maxDuration (300s) risks a hard kill that persists
           // NOTHING — the turn silently vanishes on reload (seen with slow free
           // models + PDFs + multiple tool rounds). Wrap up instead.
-          if (round > 0 && Date.now() - turnStart > 200_000) {
+          if (round > 0 && Date.now() - turnStart > 700_000) {
             emit({ toolEvent: { status: "Out of time for more steps this turn — wrapping up" } });
             if (!finalText.trim() && !finalImages.length) {
               finalText =

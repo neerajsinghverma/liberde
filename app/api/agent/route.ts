@@ -17,12 +17,15 @@ import type { AgentRun } from "@/lib/types";
 import { waitUntil } from "@vercel/functions";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+// 800s is the generally-available ceiling for Pro and Enterprise; 300 is only
+// the platform default. Not raised to the 1800s extended maximum, which is in
+// beta and drops support for Secure Compute and static IPs.
+export const maxDuration = 800;
 
 const sse = (obj: unknown) => `data: ${JSON.stringify(obj)}\n\n`;
-// Leave headroom under maxDuration (300s) for synthesis + finalize before the
+// Leave headroom under maxDuration for synthesis + finalize before the
 // platform hard-kills the function; steps past this pause and are resumed.
-const SLICE_BUDGET_MS = 220_000;
+const SLICE_BUDGET_MS = 700_000;
 
 /**
  * Agent mode: durable, resumable plan → execute → deliverable. Each request
