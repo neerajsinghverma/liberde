@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Everything that has shipped in Liberde, newest first — features, fixes, and the reasoning behind them." />
+  <meta name="theme-color" content="#f5f0e8" />
+  <title>Changelog — Liberde</title>
+
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Liberde" />
+  <meta property="og:title" content="Liberde Changelog" />
+  <meta property="og:description" content="Everything that has shipped in Liberde, newest first." />
+  <meta property="og:url" content="https://liberde.ai/changelog.html" />
+  <meta property="og:image" content="https://liberde.ai/og.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Liberde Changelog" />
+  <meta name="twitter:description" content="Everything that has shipped in Liberde, newest first." />
+  <meta name="twitter:image" content="https://liberde.ai/og.jpg" />
+
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;500&family=Source+Sans+3:wght@400;500;600;700;800&family=Source+Serif+4:ital@0;1&display=swap" rel="stylesheet" />
+
+  <style>
+    :root {
+      --color-accent: #d97757;
+      --color-accent-hover: #e08a6d;
+      --color-accent-deep: #bd5f42;
+      --color-ink: #1d2523;
+      --color-ink-soft: #2a3532;
+      --color-paper: #f5f0e8;
+      --color-paper-deep: #e6ded0;
+      --color-gold: #d6aa56;
+      --color-muted: #69655e;
+      --color-line: rgba(29, 37, 35, 0.2);
+      --shadow: 8px 8px 0 var(--color-ink);
+      --sans: "Source Sans 3", sans-serif;
+      --serif: "Source Serif 4", serif;
+      --mono: "Source Code Pro", monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      overflow-x: hidden;
+      color: var(--color-ink);
+      background:
+        linear-gradient(rgba(29, 37, 35, 0.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(29, 37, 35, 0.045) 1px, transparent 1px),
+        var(--color-paper);
+      background-size: 32px 32px;
+      font-family: var(--sans);
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    .shell {
+      width: min(1120px, 100% - 48px);
+      margin-inline: auto;
+    }
+
+    /* ---------------------------------------------------------- nav ---- */
+
+    .nav-wrap {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      padding-block: 18px;
+      background: color-mix(in srgb, var(--color-paper) 88%, transparent);
+      backdrop-filter: blur(10px);
+      border-bottom: 1.5px solid var(--color-line);
+    }
+
+    .nav-wrap nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 800;
+      font-size: 18px;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-mark {
+      display: grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      border: 1.5px solid var(--color-ink);
+      border-radius: 9px;
+      background: var(--color-accent);
+      color: #fff;
+      font-size: 17px;
+      font-weight: 800;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 500;
+      text-transform: uppercase;
+    }
+
+    .nav-links a:not(.button):hover { opacity: 0.55; }
+
+    .button {
+      display: inline-flex;
+      min-height: 44px;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 0 20px;
+      border: 1.5px solid var(--color-ink);
+      border-radius: 999px;
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 500;
+      text-transform: uppercase;
+      transition: transform 0.16s ease, background 0.16s ease;
+    }
+
+    .button.accent {
+      background: var(--color-accent);
+      color: #fff;
+    }
+
+    .button.accent:hover {
+      background: var(--color-accent-hover);
+      transform: translateY(-2px);
+    }
+
+    .menu-button {
+      display: none;
+      border: 1.5px solid var(--color-ink);
+      border-radius: 10px;
+      background: transparent;
+      width: 44px;
+      height: 44px;
+      font-size: 18px;
+      cursor: pointer;
+    }
+
+    /* -------------------------------------------------------- header ---- */
+
+    .page-head {
+      padding-block: 72px 40px;
+    }
+
+    .eyebrow {
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--color-muted);
+    }
+
+    .page-head h1 {
+      margin: 14px 0 0;
+      font-size: clamp(40px, 7vw, 68px);
+      line-height: 1.02;
+      letter-spacing: -0.035em;
+      font-weight: 800;
+    }
+
+    .page-head h1 em {
+      font-family: var(--serif);
+      font-style: italic;
+      font-weight: 400;
+      color: var(--color-accent-deep);
+    }
+
+    .page-head p {
+      margin: 20px 0 0;
+      max-width: 62ch;
+      font-size: 18px;
+      line-height: 1.6;
+      color: var(--color-ink-soft);
+    }
+
+    /* --------------------------------------------------------- filter ---- */
+
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding-block: 28px 8px;
+    }
+
+    .chip {
+      border: 1.5px solid var(--color-line);
+      border-radius: 999px;
+      background: transparent;
+      padding: 7px 14px;
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      cursor: pointer;
+      transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+    }
+
+    .chip:hover { border-color: var(--color-ink); color: var(--color-ink); }
+
+    .chip[aria-pressed="true"] {
+      border-color: var(--color-ink);
+      background: var(--color-ink);
+      color: var(--color-paper);
+    }
+
+    /* ------------------------------------------------------- timeline ---- */
+
+    .timeline {
+      position: relative;
+      padding-block: 24px 96px;
+    }
+
+    .release {
+      display: grid;
+      grid-template-columns: 190px 1fr;
+      gap: 32px;
+      padding-block: 40px;
+      border-top: 1.5px solid var(--color-line);
+    }
+
+    .release:first-of-type { border-top: none; }
+
+    .release[hidden] { display: none; }
+
+    .release-when {
+      position: sticky;
+      top: 96px;
+      align-self: start;
+    }
+
+    .release-date {
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .release-title {
+      margin-top: 8px;
+      font-family: var(--serif);
+      font-style: italic;
+      font-size: 20px;
+      line-height: 1.25;
+      color: var(--color-accent-deep);
+    }
+
+    .entries {
+      display: grid;
+      gap: 18px;
+    }
+
+    .entry {
+      border: 1.5px solid var(--color-line);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.42);
+      padding: 18px 20px;
+    }
+
+    .entry[hidden] { display: none; }
+
+    .entry-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 10px;
+    }
+
+    .entry-head h3 {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    .tag {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      border: 1.5px solid var(--color-line);
+      border-radius: 999px;
+      padding: 3px 9px;
+      color: var(--color-muted);
+      white-space: nowrap;
+    }
+
+    .tag.new { border-color: var(--color-accent); color: var(--color-accent-deep); }
+    .tag.fix { border-color: rgba(29, 37, 35, 0.35); }
+
+    .entry p {
+      margin: 9px 0 0;
+      font-size: 15px;
+      line-height: 1.62;
+      color: var(--color-ink-soft);
+      max-width: 72ch;
+    }
+
+    .entry p.why {
+      margin-top: 8px;
+      font-family: var(--serif);
+      font-style: italic;
+      color: var(--color-muted);
+    }
+
+    .empty {
+      padding: 48px 0;
+      font-family: var(--serif);
+      font-style: italic;
+      color: var(--color-muted);
+    }
+
+    .empty[hidden] { display: none; }
+
+    /* --------------------------------------------------------- footer ---- */
+
+    .site-footer {
+      border-top: 1.5px solid var(--color-line);
+      padding-block: 36px 48px;
+      background: var(--color-paper-deep);
+    }
+
+    .footer-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+    }
+
+    .footer-meta,
+    .footer-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 18px;
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      color: var(--color-muted);
+    }
+
+    .footer-links a:hover { color: var(--color-ink); }
+
+    @media (max-width: 860px) {
+      .nav-links {
+        display: none;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 4px;
+        padding: 16px 24px 22px;
+        background: var(--color-paper);
+        border-bottom: 1.5px solid var(--color-line);
+      }
+
+      .nav-links.open { display: flex; }
+      .nav-links a { padding-block: 10px; }
+      .menu-button { display: grid; place-items: center; }
+
+      .release {
+        grid-template-columns: 1fr;
+        gap: 16px;
+      }
+
+      .release-when { position: static; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { transition: none !important; scroll-behavior: auto !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="nav-wrap shell">
+    <nav aria-label="Primary navigation">
+      <a class="brand" href="/" aria-label="Liberde home">
+        <span class="brand-mark">L</span>
+        <span>Liberde</span>
+      </a>
+
+      <div class="nav-links" id="navLinks">
+        <a href="/#why">Why Liberde</a>
+        <a href="/#harness">How it works</a>
+        <a href="/changelog.html" aria-current="page">Changelog</a>
+        <a href="/login">Log in</a>
+        <a class="button accent" href="/login">Try Liberde <span class="arrow">→</span></a>
+      </div>
+
+      <button class="menu-button" id="menuButton" aria-label="Toggle navigation" aria-expanded="false">☰</button>
+    </nav>
+  </header>
+
+  <main>
+    <div class="shell page-head">
+      <p class="eyebrow">Changelog</p>
+      <h1>Everything that <em>shipped.</em></h1>
+      <p>
+        Liberde is built in the open, in both editions at once — the hosted app and the
+        self-host build get the same change on the same day. This is the whole list, newest
+        first, including the things that were fixed because they were wrong.
+      </p>
+    </div>
+
+    <div class="shell">
+      <div class="filters" role="group" aria-label="Filter entries">
+        <button class="chip" data-filter="all" aria-pressed="true">Everything</button>
+        <button class="chip" data-filter="new" aria-pressed="false">New features</button>
+        <button class="chip" data-filter="improved" aria-pressed="false">Improvements</button>
+        <button class="chip" data-filter="security" aria-pressed="false">Security</button>
+        <button class="chip" data-filter="fix" aria-pressed="false">Fixes</button>
+      </div>
+    </div>
+
+    <div class="shell timeline" id="timeline">
+
+      <!-- ------------------------------------------------ 2026-09-04 --- -->
+      <section class="release">
+        <div class="release-when">
+          <div class="release-date">4 Sep 2026</div>
+          <div class="release-title">Code that runs, and a home for everything you build</div>
+        </div>
+        <div class="entries">
+
+          <article class="entry" data-kind="new">
+            <div class="entry-head">
+              <h3>A code interpreter that runs in your browser</h3>
+              <span class="tag new">New</span>
+            </div>
+            <p>
+              The model writes Python and runs it — real CPython with pandas, numpy, matplotlib,
+              scipy and scikit-learn, loaded on demand from the code's own imports. Files you
+              attach to the conversation are handed to it as real files, and anything it produces
+              comes back as a download: a chart, a spreadsheet, a cleaned CSV. Charts appear
+              inline. The kernel stays alive per conversation, so a follow-up question builds on
+              the last result instead of recomputing it.
+            </p>
+            <p class="why">
+              It runs in a sandboxed frame on your own machine — no sandbox service, no
+              credentials, no per-run billing, and it behaves identically on a self-hosted
+              install, which a hosted sandbox could never do.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="new">
+            <div class="entry-head">
+              <h3>An artifacts gallery</h3>
+              <span class="tag new">New</span>
+            </div>
+            <p>
+              Every artifact you have built, and everything shared with you, in one browsable
+              grid with previews, filters and full-text search across contents. Opening one of
+              yours jumps to its conversation; opening a shared one clones an editable copy that
+              leaves the original untouched. "Shared with you" used to be its own view — it is a
+              tab here now, because two places to look for the same kind of thing is one too many.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="new">
+            <div class="entry-head">
+              <h3>A council verdict on second opinions</h3>
+              <span class="tag new">New</span>
+            </div>
+            <p>
+              Run a question through several models side by side and a separate model now reads
+              all the answers and writes a verdict: what they agree on, every place they genuinely
+              contradict each other, and one consolidated answer you can keep in a click. Real
+              conflicts of fact or recommendation are named rather than smoothed over.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="new">
+            <div class="entry-head">
+              <h3>Semantic search over project knowledge</h3>
+              <span class="tag new">New</span>
+            </div>
+            <p>
+              Project files can now be searched by meaning rather than by keyword, so a paragraph
+              that answers your question in different words is still found. Point Liberde at any
+              OpenAI-compatible embeddings endpoint — OpenAI, a local Ollama, LM Studio.
+            </p>
+            <p class="why">
+              Relevance is judged relative to the best match rather than against a fixed score,
+              because embedding models do not share a scale and any absolute cut-off is tuned for
+              exactly one of them. If the endpoint goes away, retrieval quietly returns to keyword
+              matching instead of failing the chat.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="new">
+            <div class="entry-head">
+              <h3>Install a skill from a URL</h3>
+              <span class="tag new">New</span>
+            </div>
+            <p>
+              Paste a link to any <code>SKILL.md</code> and Liberde fetches it for review — what
+              it says, which tools it wants, and the lines worth a second look — before anything
+              is written.
+            </p>
+            <p class="why">
+              Reviewing first is the whole point. A skill is prose that enters the system prompt
+              and that the model then follows, so taking one from a stranger's repository is
+              closer to running their code than to opening their document.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="improved">
+            <div class="entry-head">
+              <h3>Design systems that actually prescribe</h3>
+              <span class="tag">Improved</span>
+            </div>
+            <p>
+              A saved brand now carries icon rules alongside its palette, typography, spacing and
+              voice, and every artifact built under one gets checked against it: colours outside
+              the palette, fonts the system never named, and emoji used where an icon belongs are
+              reported in the panel. It reports drift rather than blocking, because the check
+              reads source text and a design system is a guide.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="improved">
+            <div class="entry-head">
+              <h3>Real icons, everywhere</h3>
+              <span class="tag">Improved</span>
+            </div>
+            <p>
+              Emoji used as interface icons have been replaced with a single drawn set. Emoji
+              render differently on every platform, ignore your theme, and cannot be sized or
+              coloured with the rest of the interface.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="improved">
+            <div class="entry-head">
+              <h3>Longer runs before the clock stops them</h3>
+              <span class="tag">Improved</span>
+            </div>
+            <p>
+              Long routes now run to 800 seconds rather than the 300-second default. A job that
+              would still exceed it checkpoints and resumes on the next invocation, so a long
+              plan survives the limit instead of racing it.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="fix">
+            <div class="entry-head">
+              <h3>Gallery cards say what the artifact is</h3>
+              <span class="tag fix">Fixed</span>
+            </div>
+            <p>
+              Card previews were slicing the first few hundred characters of the source, which for
+              an HTML artifact is a doctype and a stylesheet and for a React one is an import
+              block — every card showed the same wall of custom properties. Previews now pull out
+              the headings and prose a person would use to describe the thing, plus a strip of the
+              artifact's own palette.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="fix">
+            <div class="entry-head">
+              <h3>Auto routing reads content before length</h3>
+              <span class="tag fix">Fixed</span>
+            </div>
+            <p>
+              A short message containing a stack trace was being classified as a trivial follow-up
+              and sent to the cheapest model, because brevity was checked before content. What a
+              message contains is now asked first.
+            </p>
+          </article>
+
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------ 2026-09-03 --- -->
+      <section class="release">
+        <div class="release-when">
+          <div class="release-date">3 Sep 2026</div>
+          <div class="release-title">Governance, cost, and the way it feels to use</div>
+        </div>
+        <div class="entries">
+
+          <article class="entry" data-kind="security">
+            <div class="entry-head">
+              <h3>A tamper-evident audit log</h3>
+              <span class="tag new">New</span>
+            </div>
+            <p>
+              Every entry is hashed against the one before it, so an edited or deleted row breaks
+              verification and the log reports which one. It records logins and failures, key
+              creation and revocation, tool calls, skill imports, membership and budget changes.
+              Verify the chain on demand; export JSONL or CEF straight into a SIEM.
+            </p>
+            <p class="why">
+              Tool arguments are logged by name only, never by value — the log outlives the
+              conversation, and an audit trail should not become a second copy of your data.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="new">
+            <div class="entry-head">
+              <h3>Workspaces, roles and spend caps</h3>
+              <span class="tag new">New</span>
+            </div>
+            <p>
+              Group people under a workspace with owner, admin, member and viewer roles. An admin
+              can manage members but cannot mint or demote an owner, and the last owner cannot be
+              removed. Set a monthly workspace budget, a per-person allowance, or both — an
+              over-budget request is refused with a message naming the limit it hit, before any
+              model is called.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="new">
+            <div class="entry-head">
+              <h3>Prompt caching</h3>
+              <span class="tag new">New</span>
+            </div>
+            <p>
+              Anthropic and Qwen bill the whole prompt again every turn unless a cache breakpoint
+              says otherwise. The system prompt is now split into a stable head and a volatile
+              tail so the cached prefix stays byte-identical between turns, and a session id pins
+              a conversation to one upstream provider so the cache is actually reachable. Hover
+              any reply's cost to see how much of its input came from cache.
+            </p>
+            <p class="why">
+              Every other model family on OpenRouter caches automatically and is deliberately left
+              alone — adding breakpoints where they are not needed is not free.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="improved">
+            <div class="entry-head">
+              <h3>Auto routing ranked by price, not by name</h3>
+              <span class="tag">Improved</span>
+            </div>
+            <p>
+              Model tiers are now derived from the live price distribution rather than from
+              patterns in model names, so a vendor rename can no longer quietly drop a flagship
+              out of the deep tier.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="improved">
+            <div class="entry-head">
+              <h3>Streaming that feels like streaming</h3>
+              <span class="tag">Improved</span>
+            </div>
+            <p>
+              Blocks fade in as they arrive, a caret marks where the model is writing, and the
+              scroll yields the moment you scroll up instead of dragging you back down. The app
+              also gained one motion vocabulary rather than a different animation per component,
+              and it respects a reduced-motion preference.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="improved">
+            <div class="entry-head">
+              <h3>Type while a reply is still streaming</h3>
+              <span class="tag">Improved</span>
+            </div>
+            <p>
+              Your message waits instead of vanishing. A pill above the composer shows it, and it
+              sends the moment the reply finishes — or you discard it.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="improved">
+            <div class="entry-head">
+              <h3>Parallel agent steps</h3>
+              <span class="tag">Improved</span>
+            </div>
+            <p>
+              The planner marks which steps are independent and those now run at the same time,
+              while dependent steps stay ordered. Resume behaviour is unchanged.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="fix">
+            <div class="entry-head">
+              <h3>Artifacts report what went wrong</h3>
+              <span class="tag fix">Fixed</span>
+            </div>
+            <p>
+              An artifact that failed to render used to fail silently. It now says what broke, so
+              the model can be asked to fix it.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="fix">
+            <div class="entry-head">
+              <h3>Code blocks are readable in light mode</h3>
+              <span class="tag fix">Fixed</span>
+            </div>
+            <p>Code block text was rendering invisible against a light background.</p>
+          </article>
+
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------ 2026-08-11 --- -->
+      <section class="release">
+        <div class="release-when">
+          <div class="release-date">11 Aug 2026</div>
+          <div class="release-title">Documents the model can actually read</div>
+        </div>
+        <div class="entries">
+
+          <article class="entry" data-kind="new">
+            <div class="entry-head">
+              <h3>Word documents, including the legacy format</h3>
+              <span class="tag new">New</span>
+            </div>
+            <p>
+              <code>.docx</code> attachments are extracted server-side, and so are legacy
+              <code>.doc</code> files — detected by sniffing the actual format rather than
+              trusting the file extension, because the two are routinely mislabelled.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="fix">
+            <div class="entry-head">
+              <h3>An unreadable attachment is never dropped in silence</h3>
+              <span class="tag fix">Fixed</span>
+            </div>
+            <p>
+              A file the server could not extract used to disappear from the conversation with no
+              indication, so the model answered as though you had sent nothing.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="fix">
+            <div class="entry-head">
+              <h3>PDFs work on every provider</h3>
+              <span class="tag fix">Fixed</span>
+            </div>
+            <p>
+              PDF text is now extracted locally for every provider rather than relying on upstream
+              support, which fixes both models that never received the text and a
+              <code>DOMMatrix is not defined</code> crash on deployed extraction.
+            </p>
+          </article>
+
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------ 2026-08-01 --- -->
+      <section class="release">
+        <div class="release-when">
+          <div class="release-date">1 Aug 2026</div>
+          <div class="release-title">Small fix, large blast radius</div>
+        </div>
+        <div class="entries">
+          <article class="entry" data-kind="fix">
+            <div class="entry-head">
+              <h3>The model knows what day it is</h3>
+              <span class="tag fix">Fixed</span>
+            </div>
+            <p>
+              Today's date is injected into system prompts everywhere. Without it a model answers
+              "this year" and "recently" from its training cutoff, confidently and wrongly.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------ 2026-07-30 --- -->
+      <section class="release">
+        <div class="release-when">
+          <div class="release-date">29–31 Jul 2026</div>
+          <div class="release-title">Ready to be a public, multi-user service</div>
+        </div>
+        <div class="entries">
+
+          <article class="entry" data-kind="security">
+            <div class="entry-head">
+              <h3>Secrets encrypted at rest</h3>
+              <span class="tag new">New</span>
+            </div>
+            <p>
+              Provider API keys, custom-tool secrets and MCP tokens are encrypted with AES-256-GCM
+              using a master key held only in the environment, never in the database.
+            </p>
+            <p class="why">
+              A database-only compromise — a leaked backup, stolen credentials, a read replica —
+              now yields ciphertext an attacker cannot read without also stealing the application
+              environment.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="new">
+            <div class="entry-head">
+              <h3>The full multi-user platform</h3>
+              <span class="tag new">New</span>
+            </div>
+            <p>
+              Per-user keys, settings and data with row-level isolation enforced on every route,
+              an admin panel with a server-side paginated and searchable user list, per-user
+              platform API keys, scheduled tasks, and user-to-user sharing.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="security">
+            <div class="entry-head">
+              <h3>Admin cannot reset a Google account's password</h3>
+              <span class="tag fix">Fixed</span>
+            </div>
+            <p>
+              Accounts that sign in through Google have no password to reset, and offering the
+              action implied a local credential that does not exist.
+            </p>
+          </article>
+
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------ 2026-07-25 --- -->
+      <section class="release">
+        <div class="release-when">
+          <div class="release-date">25 Jul 2026</div>
+          <div class="release-title">Accounts you can recover</div>
+        </div>
+        <div class="entries">
+          <article class="entry" data-kind="new">
+            <div class="entry-head">
+              <h3>Password reset and email verification</h3>
+              <span class="tag new">New</span>
+            </div>
+            <p>
+              With a security-hardening pass alongside it. A password reset invalidates every
+              existing session.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------ 2026-07-24 --- -->
+      <section class="release">
+        <div class="release-when">
+          <div class="release-date">23–24 Jul 2026</div>
+          <div class="release-title">Artifacts grow up</div>
+        </div>
+        <div class="entries">
+
+          <article class="entry" data-kind="new">
+            <div class="entry-head">
+              <h3>Second opinion, design systems, and cost attribution</h3>
+              <span class="tag new">New</span>
+            </div>
+            <p>
+              Run the same question through several models in streaming columns and swap the reply
+              you prefer into the thread. Save named brand specs — palette, typography, spacing,
+              components, voice — and lock a design to one, or share it with another user. Every
+              reply records its real cost and tokens, attributed by category.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="improved">
+            <div class="entry-head">
+              <h3>Edit an artifact yourself</h3>
+              <span class="tag">Improved</span>
+            </div>
+            <p>
+              A syntax-highlighted editor in the panel, plus Adjust and comment-to-edit on any
+              visual artifact rather than only inside the design workspace.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="improved">
+            <div class="entry-head">
+              <h3>Presentations and documents worth exporting</h3>
+              <span class="tag">Improved</span>
+            </div>
+            <p>
+              Slides render on a fixed 1920×1080 canvas with editable speaker notes in the player,
+              and PDF export produces a typeset document instead of a raw markdown dump.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="fix">
+            <div class="entry-head">
+              <h3>Never lose a turn in silence</h3>
+              <span class="tag fix">Fixed</span>
+            </div>
+            <p>
+              A tool-loop budget, a hard turn deadline and a resume banner, so a run that hits a
+              limit says so instead of ending with nothing on screen.
+            </p>
+          </article>
+
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------ 2026-07-22 --- -->
+      <section class="release">
+        <div class="release-when">
+          <div class="release-date">21–22 Jul 2026</div>
+          <div class="release-title">Bring your own clouds</div>
+        </div>
+        <div class="entries">
+
+          <article class="entry" data-kind="new">
+            <div class="entry-head">
+              <h3>OpenAI and Anthropic direct</h3>
+              <span class="tag new">New</span>
+            </div>
+            <p>
+              Route to either provider with your own credentials instead of through OpenRouter,
+              with full feature parity.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="new">
+            <div class="entry-head">
+              <h3>Search your own past chats</h3>
+              <span class="tag new">New</span>
+            </div>
+            <p>
+              The model can look things up in your history — "what did we decide?" — behind a
+              setting that is off until you turn it on.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="improved">
+            <div class="entry-head">
+              <h3>Settings you can navigate</h3>
+              <span class="tag">Improved</span>
+            </div>
+            <p>
+              A grouped, searchable tab rail on desktop with icons, and stacked tabs on mobile.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="fix">
+            <div class="entry-head">
+              <h3>Stop actually stops</h3>
+              <span class="tag fix">Fixed</span>
+            </div>
+            <p>
+              Stop now releases the lock through a cancel endpoint, and research and image
+              generation use the conversation's context rather than starting cold.
+            </p>
+          </article>
+
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------ 2026-07-20 --- -->
+      <section class="release">
+        <div class="release-when">
+          <div class="release-date">20 Jul 2026</div>
+          <div class="release-title">First release</div>
+        </div>
+        <div class="entries">
+          <article class="entry" data-kind="new">
+            <div class="entry-head">
+              <h3>Liberde</h3>
+              <span class="tag new">New</span>
+            </div>
+            <p>
+              A self-hosted, model-agnostic AI platform: streaming chat across 400+ models,
+              artifacts, projects, web search, plan mode, MCP connectors, skills and memory —
+              shipping from day one as two editions of the same app, hosted and self-host.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <p class="empty" id="empty" hidden>Nothing in this category yet.</p>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="shell footer-row">
+      <a class="brand" href="/" aria-label="Liberde home">
+        <span class="brand-mark">L</span>
+        <span>Liberde</span>
+      </a>
+
+      <div class="footer-meta">
+        <span>One experience. Every model. No lock-in.</span>
+        <span>© <span id="year"></span> Liberde</span>
+      </div>
+
+      <div class="footer-links">
+        <a href="/#principles">Principles</a>
+        <a href="/changelog.html">Changelog</a>
+        <a href="https://github.com/neerajsinghverma/liberde" target="_blank" rel="noopener">GitHub (cloud)</a>
+        <a href="https://github.com/neerajsinghverma/liberde-self-host" target="_blank" rel="noopener">GitHub (self-host)</a>
+        <a href="mailto:hello@liberde.ai">Contact</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    document.getElementById("year").textContent = new Date().getFullYear();
+
+    const menuButton = document.getElementById("menuButton");
+    const navLinks = document.getElementById("navLinks");
+    menuButton.addEventListener("click", () => {
+      const open = navLinks.classList.toggle("open");
+      menuButton.setAttribute("aria-expanded", String(open));
+    });
+
+    // Filtering. A release heading is hidden when nothing under it survives the
+    // filter, so the timeline never shows a date with an empty column beside it.
+    const chips = [...document.querySelectorAll(".chip")];
+    const releases = [...document.querySelectorAll(".release")];
+    const empty = document.getElementById("empty");
+
+    function apply(filter) {
+      let shown = 0;
+      for (const release of releases) {
+        let visible = 0;
+        for (const entry of release.querySelectorAll(".entry")) {
+          const match = filter === "all" || entry.dataset.kind === filter;
+          entry.hidden = !match;
+          if (match) visible++;
+        }
+        release.hidden = visible === 0;
+        shown += visible;
+      }
+      empty.hidden = shown > 0;
+    }
+
+    for (const chip of chips) {
+      chip.addEventListener("click", () => {
+        for (const c of chips) c.setAttribute("aria-pressed", String(c === chip));
+        apply(chip.dataset.filter);
+      });
+    }
+  </script>
+</body>
+</html>

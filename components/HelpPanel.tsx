@@ -95,6 +95,7 @@ const DOCS: Doc[] = [
       { h: "Per-slide editing", d: "For decks, the numbered 'Edit slide' bar makes a surgical change to one slide, leaving the rest intact." },
       { h: "Export", d: "Decks export to PDF and PowerPoint (.pptx); any design downloads as a self-contained file." },
       { h: "Full power", d: "Design reuses the whole chat engine, so model choice/switching, web, and attachments all work here too." },
+      { h: "Brand check", d: "When a design is locked to a system, the artifact panel reports where it drifted: colours outside the palette, fonts the system never named, and emoji used where an icon belongs. It reports rather than blocks — the check reads the source, so a colour inside a gradient can show up legitimately." },
     ],
   },
   {
@@ -118,6 +119,7 @@ const DOCS: Doc[] = [
       { h: "Bundle tools", d: "Attach connectors to a skill; when it loads, the model is told exactly which functions to use." },
       { h: "Always available", d: "The model sees each skill's name + when-to-use in every chat and pulls the full instructions on demand." },
       { h: "Agent Skills standard", d: "Skills are SKILL.md files under the open Agent Skills standard, so one written for Claude Code, claude.ai, VS Code or Codex loads here unchanged — and yours export the same way. Settings → Skills → import single files or a whole skills folder; anything the spec defines that Liberde cannot store is reported rather than dropped silently." },
+      { h: "Install from a link", d: "Settings → Skills → Install from a URL. Paste a link to any SKILL.md — a GitHub file page is fine — and you get the full text, the tools it wants, and anything worth a second look before it is installed. Nothing is written until you say so: a skill is prose the model then follows, so taking one from a stranger is closer to running their code than to opening their document." },
     ],
   },
   {
@@ -128,6 +130,7 @@ const DOCS: Doc[] = [
     points: [
       { h: "Create a project", d: "The + next to Projects in the sidebar. Give it instructions every chat inside inherits." },
       { h: "Add knowledge", d: "Upload files to a project; only the parts relevant to what you asked are pulled into context, so a project can grow well past what would fit in a single conversation." },
+      { h: "Search by meaning", d: "By default knowledge is matched on keywords. Add an embeddings endpoint in Settings → General → Semantic search and it matches on meaning instead, so a paragraph that answers your question in different words is still found. Files index as you upload; one button covers the projects you already had. If the endpoint goes away it quietly returns to keyword matching rather than failing the chat." },
     ],
   },
   {

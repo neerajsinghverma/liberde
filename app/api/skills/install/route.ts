@@ -65,6 +65,11 @@ export async function POST(req: NextRequest) {
 
   return Response.json({
     url: raw,
+    // The source exactly as fetched. Installing posts this back to
+    // /api/skills/import rather than writing from the parsed fields here, so
+    // there stays exactly one place that creates a skill — and what the
+    // reviewer approved is byte-for-byte what gets stored.
+    raw: text,
     name: imported.name,
     description: imported.description,
     instructions: imported.instructions,

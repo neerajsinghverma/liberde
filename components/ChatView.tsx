@@ -1659,6 +1659,9 @@ export default function ChatView({
       <ArtifactPanel
         content={panel}
         designCanvas={mode === "design"}
+        designSystem={
+          designSystems.find((d) => d.id === designSystemId) ?? null
+        }
         onClose={() => setPanel(null)}
         onRecordUpdated={handleRecordUpdated}
         onVersionSaved={async (artifactId) => {

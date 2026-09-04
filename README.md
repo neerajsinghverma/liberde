@@ -12,7 +12,7 @@ One API key gives every chat access to Claude, GPT, Gemini, Llama, and 400+ othe
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
 
-[**Live demo → liberde.ai**](https://liberde.ai) · [Features](#highlights) · [Quick start](#quick-start) · [Deploy your own](#deploy-your-own) · [Architecture](#architecture) · [Security](#security)
+[**Live demo → liberde.ai**](https://liberde.ai) · [Features](#highlights) · [Quick start](#quick-start) · [Deploy your own](#deploy-your-own) · [Architecture](#architecture) · [Security](#security) · [Changelog](CHANGELOG.md)
 
 </div>
 
@@ -44,6 +44,8 @@ Liberde is one Next.js server that every form factor talks to — web app, an Op
 - ⚡ **Second opinion, voice, image gen, office exports, cost tracking, dark mode, PWA** — and a lot more below.
 
 > 💡 **Live demo:** [liberde.ai](https://liberde.ai) runs this exact codebase.
+>
+> 📜 **What shipped when:** [CHANGELOG.md](CHANGELOG.md), or the browsable version at [liberde.ai/changelog.html](https://liberde.ai/changelog.html).
 
 ## How it compares
 
@@ -174,7 +176,7 @@ Fresh installs run in **single-user mode** (no login) until the first account is
 - **Recall** — the model can search your own past conversations as a tool
 - **Planner/executor model split** — route agent & research *planning* and step *execution* to cheaper models while the final deliverable keeps your main model
 - **Projects** — group chats under shared instructions + knowledge files
-- **Semantic project retrieval** — project knowledge is embedded and searched by meaning, so a paragraph that answers the question in different words is still found. Configure any OpenAI-compatible `/embeddings` endpoint (OpenAI, a local Ollama, LM Studio) via the `embedding_api_key` / `embedding_base_url` / `embedding_model` settings; files are indexed on upload. Relevance is judged **relative to the best match** rather than against a fixed score, because embedding models don't share a scale and any absolute cut-off is tuned for exactly one of them. With no endpoint configured it falls back to the lexical scorer — a knowledge base that gets less clever is fine, one that silently stops working because a key expired is not
+- **Semantic project retrieval** — project knowledge is embedded and searched by meaning, so a paragraph that answers the question in different words is still found. Point it at any OpenAI-compatible `/embeddings` endpoint (OpenAI, a local Ollama, LM Studio) in **Settings → General → Semantic search**; files are indexed as you upload them, and one button indexes the projects you already had. Relevance is judged **relative to the best match** rather than against a fixed score, because embedding models don't share a scale and any absolute cut-off is tuned for exactly one of them. With no endpoint configured it falls back to the lexical scorer — a knowledge base that gets less clever is fine, one that silently stops working because a key expired is not
 - **Design studio** — a separate Chat/Design workspace for interactive prototypes, decks, landing pages, and apps: asks one round of clarifying questions, builds on a live canvas, supports element-select commenting, per-slide edits, live color/spacing sliders, and AI-generated imagery
 - **Design systems** — save named brand specs (palette, typography, spacing, components, voice) and lock every design to one; create by describing the brand **or by attaching screenshots** (a vision model extracts real colors/fonts), "Remix with AI" to revise
 - **Artifacts gallery** — every artifact you've built, and everything shared with you, in one browsable grid at `/artifacts`: card previews that pull the headings and prose out of the source (not the first 600 characters of a stylesheet) plus a strip of the artifact's own palette, filters for All / Yours / Shared with you, and full-text search across titles and contents. Opening one of yours jumps to its conversation; opening a shared one clones an editable copy

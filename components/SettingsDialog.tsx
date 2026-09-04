@@ -178,6 +178,12 @@ export default function SettingsDialog({
   const [editingMemText, setEditingMemText] = useState("");
   const [newMemText, setNewMemText] = useState("");
   const [temperature, setTemperature] = useState(settings.temperature);
+  const [embeddingApiKey, setEmbeddingApiKey] = useState("");
+  const [embeddingBaseUrl, setEmbeddingBaseUrl] = useState(settings.embeddingBaseUrl ?? "");
+  const [embeddingModel, setEmbeddingModel] = useState(settings.embeddingModel ?? "");
+  const [hasEmbeddingKey, setHasEmbeddingKey] = useState(Boolean(settings.hasEmbeddingKey));
+  const [indexing, setIndexing] = useState(false);
+  const [indexMsg, setIndexMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [keyStatus, setKeyStatus] = useState<
     "checking" | { ok: boolean; msg: string } | null
@@ -234,6 +240,40 @@ export default function SettingsDialog({
     }
   };
 
+  const clearEmbeddingKey = async () => {
+    setEmbeddingApiKey("");
+    await api("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify({ embeddingApiKey: "" }),
+    });
+    setHasEmbeddingKey(false);
+    setIndexMsg("Embeddings turned off. Project knowledge falls back to keyword matching.");
+  };
+
+  const reindexProjects = async () => {
+    setIndexing(true);
+    setIndexMsg(null);
+    try {
+      const r = await api<{
+        projects: number;
+        projectsIndexed: number;
+        filesIndexed: number;
+        failed: string[];
+      }>("/api/projects/index", { method: "POST" });
+      const plural = (n: number) => (n === 1 ? "" : "s");
+      setIndexMsg(
+        r.filesIndexed === 0
+          ? `Nothing to do — all ${r.projects} project${plural(r.projects)} were already indexed.`
+          : `Indexed ${r.filesIndexed} file${plural(r.filesIndexed)} across ${r.projectsIndexed} project${plural(r.projectsIndexed)}.` +
+              (r.failed.length ? ` Failed: ${r.failed.join(", ")}.` : "")
+      );
+    } catch (e) {
+      setIndexMsg(e instanceof Error ? e.message : "Indexing failed.");
+    } finally {
+      setIndexing(false);
+    }
+  };
+
   const save = async () => {
     setSaving(true);
     try {
@@ -254,8 +294,14 @@ export default function SettingsDialog({
           memoryEnabled,
           recallEnabled,
           temperature,
+          // Only sent when the user typed one — the field is blank on load, and an
+          // empty string means "clear it", which is what Remove does on purpose.
+          ...(embeddingApiKey.trim() ? { embeddingApiKey: embeddingApiKey.trim() } : {}),
+          embeddingBaseUrl,
+          embeddingModel,
         }),
       });
+      setHasEmbeddingKey(Boolean(saved.hasEmbeddingKey));
       onSaved(saved);
       onClose();
     } finally {
@@ -463,6 +509,92 @@ export default function SettingsDialog({
                 />
               </Field>
 
+
+              <details className="rounded-xl border border-line">
+                <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
+                  Semantic search over project knowledge
+                  <span className="ml-2 text-xs font-normal text-ink-muted">
+                    {hasEmbeddingKey ? "on" : "off — using keyword matching"}
+                  </span>
+                </summary>
+                <div className="space-y-3 border-t border-line px-3 py-3">
+                  <p className="text-xs text-ink-muted">
+                    By default, project knowledge is searched by keyword: a file matches only
+                    when it happens to use the same words you did. Point Liberde at an
+                    embeddings endpoint and it searches by meaning instead, so a paragraph
+                    that answers the question in different words is still found. OpenRouter
+                    does not serve embeddings, so this needs its own endpoint — OpenAI, a
+                    local Ollama or LM Studio, or anything else speaking{" "}
+                    <code>/embeddings</code>.
+                  </p>
+                  <Field
+                    label="Embeddings API key"
+                    hint={
+                      hasEmbeddingKey
+                        ? "A key is configured. Enter a new one to replace it."
+                        : "Leave blank to keep using keyword matching."
+                    }
+                  >
+                    <div className="flex gap-2">
+                      <input
+                        type="password"
+                        value={embeddingApiKey}
+                        onChange={(e) => setEmbeddingApiKey(e.target.value)}
+                        placeholder={hasEmbeddingKey ? "••••••••••••••••" : "sk-…"}
+                        className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+                      />
+                      {hasEmbeddingKey ? (
+                        <button
+                          type="button"
+                          onClick={clearEmbeddingKey}
+                          className="shrink-0 rounded-lg border border-line px-3 py-2 text-sm hover:bg-surface-2"
+                        >
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
+                  </Field>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="Base URL" hint="Blank = https://api.openai.com/v1">
+                      <input
+                        value={embeddingBaseUrl}
+                        onChange={(e) => setEmbeddingBaseUrl(e.target.value)}
+                        placeholder="https://api.openai.com/v1"
+                        className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+                      />
+                    </Field>
+                    <Field label="Model">
+                      <input
+                        value={embeddingModel}
+                        onChange={(e) => setEmbeddingModel(e.target.value)}
+                        placeholder="text-embedding-3-small"
+                        className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+                      />
+                    </Field>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={reindexProjects}
+                      disabled={indexing || !hasEmbeddingKey}
+                      className="rounded-lg border border-line px-2.5 py-1 text-xs hover:bg-surface-2 disabled:opacity-50"
+                    >
+                      {indexing ? "Indexing…" : "Index existing projects"}
+                    </button>
+                    <span className="text-xs text-ink-muted">
+                      Files are indexed as you upload them. Run this once after saving a key
+                      so the projects you already had are searched by meaning too.
+                    </span>
+                  </div>
+                  {indexMsg ? (
+                    <p className="text-xs text-ink-muted">{indexMsg}</p>
+                  ) : null}
+                  <p className="text-xs text-ink-muted">
+                    If the endpoint is unreachable or the key expires, retrieval quietly
+                    returns to keyword matching rather than failing the chat.
+                  </p>
+                </div>
+              </details>
             </div>
           ) : tab === "personalization" ? (
             <div className="space-y-5">
@@ -2808,6 +2940,18 @@ function DesignSystemsTab({ models }: { models: ModelInfo[] }) {
   );
 }
 
+/** What GET-by-URL returns for review, before anything is written. */
+interface SkillPreview {
+  url: string;
+  raw: string;
+  name: string;
+  description: string;
+  bytes: number;
+  ignoredFields?: string[];
+  nameTaken?: boolean;
+  declaredTools?: string[];
+  notices?: { line: string; why: string }[];
+}
 function SkillsTab({ models }: { models: ModelInfo[] }) {
   const [skills, setSkills] = useState<SkillRow[]>([]);
   const [conns, setConns] = useState<SkillConnLite[]>([]);
@@ -2826,6 +2970,9 @@ function SkillsTab({ models }: { models: ModelInfo[] }) {
   const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
+  const [skillUrl, setSkillUrl] = useState("");
+  const [preview, setPreview] = useState<SkillPreview | null>(null);
+  const [fetching, setFetching] = useState(false);
 
   const load = async () => {
     setSkills(await api<SkillRow[]>("/api/skills"));
@@ -2961,6 +3108,62 @@ function SkillsTab({ models }: { models: ModelInfo[] }) {
 
   /** Import dropped SKILL.md files. Each file reports its own outcome, so one
    *  bad file in a folder doesn't sink the rest of the batch. */
+  /** Fetch a SKILL.md for review. Deliberately does not install it: a skill
+   *  is prose that goes into the system prompt and that the model then
+   *  follows, so taking one from a stranger's repository is closer to running
+   *  their code than to opening their document. */
+  const fetchSkillFromUrl = async () => {
+    const url = skillUrl.trim();
+    if (!url) return;
+    setFetching(true);
+    setImportMsg(null);
+    setPreview(null);
+    try {
+      const r = await api<SkillPreview>("/api/skills/install", {
+        method: "POST",
+        body: JSON.stringify({ url }),
+      });
+      setPreview(r);
+    } catch (e) {
+      setImportMsg(e instanceof Error ? e.message : "Could not fetch that URL.");
+    } finally {
+      setFetching(false);
+    }
+  };
+
+  /** Install what was reviewed. The raw source goes to the same import
+   *  endpoint the file picker uses, so there is one writer and what the
+   *  reviewer approved is byte-for-byte what gets stored. */
+  const installPreviewed = async () => {
+    if (!preview) return;
+    setImporting(true);
+    setImportMsg(null);
+    try {
+      const res = await api<{
+        imported: number;
+        results: { ok: boolean; name?: string; error?: string }[];
+      }>("/api/skills/import", {
+        method: "POST",
+        body: JSON.stringify({
+          content: preview.raw,
+          path: new URL(preview.url).pathname.replace(/^\//, ""),
+        }),
+      });
+      const first = res.results?.[0];
+      if (res.imported > 0) {
+        setImportMsg("Installed " + (first?.name || preview.name) + ".");
+        setPreview(null);
+        setSkillUrl("");
+        load();
+      } else {
+        setImportMsg(first?.error || "Import failed.");
+      }
+    } catch (e) {
+      setImportMsg(e instanceof Error ? e.message : "Import failed.");
+    } finally {
+      setImporting(false);
+    }
+  };
   const importSkillFiles = async (fileList: FileList | null) => {
     if (!fileList?.length) return;
     const isSkillMd = (f: File) => /(^|\/)SKILL\.md$/i.test(
@@ -3198,6 +3401,104 @@ function SkillsTab({ models }: { models: ModelInfo[] }) {
         </div>
       </details>
 
+      <details className="rounded-xl border border-line">
+        <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
+          Install from a URL
+        </summary>
+        <div className="space-y-3 border-t border-line px-3 py-3">
+          <p className="text-xs text-ink-muted">
+            Paste a link to a <code>SKILL.md</code> — a GitHub file page works, it does not
+            have to be the raw URL. Nothing is installed until you have seen what it says.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <input
+              value={skillUrl}
+              onChange={(e) => setSkillUrl(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") fetchSkillFromUrl();
+              }}
+              placeholder="https://github.com/…/SKILL.md"
+              className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+            />
+            <button
+              onClick={fetchSkillFromUrl}
+              disabled={fetching || !skillUrl.trim()}
+              className="rounded-lg border border-line px-3 py-2 text-sm hover:bg-surface-2 disabled:opacity-50"
+            >
+              {fetching ? "Fetching…" : "Fetch"}
+            </button>
+          </div>
+
+          {preview ? (
+            <div className="space-y-2 rounded-lg border border-line bg-surface-2 p-3">
+              <div className="flex flex-wrap items-baseline gap-2">
+                <span className="text-sm font-medium">{preview.name}</span>
+                <span className="text-[11px] text-ink-muted">
+                  {(preview.bytes / 1024).toFixed(1)} KB
+                </span>
+              </div>
+              {preview.description ? (
+                <p className="text-xs text-ink-muted">{preview.description}</p>
+              ) : null}
+
+              {preview.declaredTools && preview.declaredTools.length > 0 ? (
+                <p className="text-xs">
+                  <span className="text-ink-muted">Wants these tools: </span>
+                  {preview.declaredTools.join(", ")}
+                </p>
+              ) : null}
+
+              {preview.nameTaken ? (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  You already have a skill with this name — installing adds a second one.
+                </p>
+              ) : null}
+
+              {preview.ignoredFields && preview.ignoredFields.length > 0 ? (
+                <p className="text-xs text-ink-muted">
+                  Fields Liberde cannot store, which will be dropped: {preview.ignoredFields.join(", ")}
+                </p>
+              ) : null}
+
+              {preview.notices && preview.notices.length > 0 ? (
+                <div className="space-y-1 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2">
+                  <p className="text-xs font-medium">Worth reading before you install</p>
+                  {preview.notices.map((n, i) => (
+                    <p key={i} className="text-[11px] text-ink-muted">
+                      <code className="break-all">{n.line}</code> — {n.why}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
+
+              <details className="text-xs">
+                <summary className="cursor-pointer text-ink-muted">
+                  Read the full instructions
+                </summary>
+                <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-lg bg-bg p-2 text-[11px]">
+                  {preview.raw}
+                </pre>
+              </details>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={installPreviewed}
+                  disabled={importing}
+                  className="rounded-lg bg-accent px-3 py-1.5 text-sm text-white disabled:opacity-50"
+                >
+                  {importing ? "Installing…" : "Install"}
+                </button>
+                <button
+                  onClick={() => setPreview(null)}
+                  className="rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-surface-2"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </details>
       {/* Agent Skills interop. A SKILL.md written for Claude Code, claude.ai,
           VS Code or Codex loads here unchanged, and vice versa. */}
       <details className="rounded-xl border border-line">

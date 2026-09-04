@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import type { ArtifactRecord, ArtifactType, ArtifactVersion } from "@/lib/artifact-shared";
 import { api } from "@/lib/client";
 import { toast } from "@/lib/ui";
 import ArtifactRenderer, { CodeView, CodeEditor } from "./ArtifactRenderer";
 import { buildSrcDoc } from "@/lib/artifact-srcdoc";
 import Icon from "./Icon";
+import { checkConformance } from "@/lib/design-system";
 
 export type ArtifactWithVersions = ArtifactRecord & { versions: ArtifactVersion[] };
 
@@ -86,6 +87,7 @@ export default function ArtifactPanel({
   onClose,
   onRecordUpdated,
   onVersionSaved,
+  designSystem,
 }: {
   content: PanelContent;
   onClose: () => void;
@@ -94,6 +96,9 @@ export default function ArtifactPanel({
   /** Kept for compatibility with ChatView's prop pass; design tools now gate on
    *  the artifact type (isVisual), not the workspace. */
   designCanvas?: boolean;
+  /** The system this conversation is locked to, when there is one. Used to
+   *  report drift from it — never to block or rewrite the artifact. */
+  designSystem?: { name: string; spec: string; palette?: string | null } | null;
 }) {
   const isRenderable = (t: ArtifactType | null) =>
     t === "html" ||
@@ -194,6 +199,21 @@ export default function ArtifactPanel({
   }
 
   const streaming = content.kind === "streaming";
+
+  // Drift from the locked design system. Textual, so it is advisory: a colour
+  // inside a gradient or a font loaded by a CDN can read as a stray. It says
+  // what it found and lets a person judge, rather than pretending to a verdict.
+  const conformance = useMemo(() => {
+    if (!designSystem || streaming) return null;
+    if (!(type === "html" || type === "react" || type === "svg" || type === "slides")) {
+      return null;
+    }
+    try {
+      return checkConformance(body, designSystem);
+    } catch {
+      return null;
+    }
+  }, [designSystem, streaming, type, body]);
 
   // While streaming, show raw code (a half-written page re-rendering constantly is noise);
   // flip to preview when the artifact completes or a different artifact opens.
@@ -626,6 +646,10 @@ export default function ArtifactPanel({
         </button>
       </div>
 
+      {conformance && designSystem ? (
+        <BrandCheck system={designSystem.name} result={conformance} />
+      ) : null}
+
       {record && !streaming && !editing && type && (
         <CanvasBar
           type={type}
@@ -942,6 +966,94 @@ const CANVAS_ACTIONS: Record<string, { label: string; instruction: string }[]> =
 };
 
 /** ChatGPT-Canvas-style one-click AI transforms scoped to the open artifact. */
+/**
+ * Reports where an artifact drifts from its design system.
+ *
+ * Deliberately not a gate. The check is textual and a design system is a
+ * guide, so a false positive that blocked a good artifact would be far worse
+ * than one that is merely noted — and a clean result is worth showing too,
+ * because 'nothing was found' is only reassuring if you can see it was looked
+ * for.
+ */
+function BrandCheck({
+  system,
+  result,
+}: {
+  system: string;
+  result: { strayColours: string[]; strayFonts: string[]; emojiCount: number };
+}) {
+  const clean =
+    result.strayColours.length === 0 &&
+    result.strayFonts.length === 0 &&
+    result.emojiCount === 0;
+
+  return (
+    <details className="border-b border-line bg-surface-2/50 px-3 py-1.5">
+      <summary className="flex cursor-pointer items-center gap-2 text-[11px] text-ink-muted">
+        <span
+          className={"inline-block h-1.5 w-1.5 shrink-0 rounded-full " + (clean ? "bg-emerald-500" : "bg-amber-500")}
+        />
+        {clean ? (
+          <span>
+            On brand — nothing outside <b>{system}</b>
+          </span>
+        ) : (
+          <span>
+            {[
+              result.strayColours.length
+                ? result.strayColours.length + " colour" + (result.strayColours.length === 1 ? "" : "s")
+                : "",
+              result.strayFonts.length
+                ? result.strayFonts.length + " font" + (result.strayFonts.length === 1 ? "" : "s")
+                : "",
+              result.emojiCount ? result.emojiCount + " emoji" : "",
+            ]
+              .filter(Boolean)
+              .join(", ")}{" "}
+            outside <b>{system}</b>
+          </span>
+        )}
+      </summary>
+
+      {clean ? null : (
+        <div className="space-y-1.5 pb-1 pt-2 text-[11px] text-ink-muted">
+          {result.strayColours.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span>Not in the palette:</span>
+              {result.strayColours.slice(0, 12).map((c) => (
+                <span key={c} className="inline-flex items-center gap-1 rounded-full border border-line bg-surface px-1.5 py-0.5">
+                  <span
+                    className="inline-block h-2.5 w-2.5 rounded-full border border-black/10 dark:border-white/20"
+                    style={{ background: c }}
+                  />
+                  {c}
+                </span>
+              ))}
+              {result.strayColours.length > 12 ? (
+                <span>+{result.strayColours.length - 12} more</span>
+              ) : null}
+            </div>
+          ) : null}
+
+          {result.strayFonts.length > 0 ? (
+            <div>Fonts the system does not name: {result.strayFonts.join(", ")}</div>
+          ) : null}
+
+          {result.emojiCount > 0 ? (
+            <div>
+              {result.emojiCount} emoji used where an icon belongs.
+            </div>
+          ) : null}
+
+          <div className="opacity-70">
+            Advisory — the check reads the source, so a colour inside a gradient or a
+            webfont loaded at runtime can show up here legitimately.
+          </div>
+        </div>
+      )}
+    </details>
+  );
+}
 function CanvasBar({
   type,
   onAction,
