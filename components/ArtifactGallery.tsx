@@ -23,6 +23,7 @@ interface Card {
   share_id: string | null;
   updated_at: number;
   preview: string;
+  colors: string[];
   owner: string;
 }
 
@@ -196,7 +197,7 @@ export default function ArtifactGallery({
                 : "Artifacts you build will collect here."}
           </p>
         )}
-        <div className="anim-stagger grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="anim-stagger grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {shown.map((c) => (
             <button
               key={c.id}
@@ -207,26 +208,52 @@ export default function ArtifactGallery({
                   ? "Open in " + (c.conversation_title || "its conversation")
                   : "Open your own editable copy"
               }
-              className="flex h-52 flex-col overflow-hidden rounded-xl border border-line bg-surface text-left transition-colors hover:border-accent"
+              className="group flex flex-col overflow-hidden rounded-xl border border-line bg-surface text-left transition-colors hover:border-accent disabled:opacity-60"
             >
-              <div className="min-h-0 flex-1 overflow-hidden bg-surface-2 px-3 py-2.5 text-[11px] leading-relaxed text-ink-muted">
-                {snippet(c.preview, c.type) || "No preview"}
-              </div>
-              <div className="shrink-0 border-t border-line px-3 py-2">
-                <span className="flex items-center gap-1.5">
-                  <Icon name={typeIcon(c.type)} size={13} className="shrink-0 text-ink-muted" />
+              {/* The artifact's own palette. A row of otherwise identical cards
+                  is the hardest thing to scan, and colour is the only signal
+                  here that survives being glanced at. */}
+              <span className="flex h-1.5 w-full shrink-0">
+                {(c.colors.length ? c.colors : ["var(--color-line)"]).map((col, i) => (
+                  <span key={i} className="h-full flex-1" style={{ background: col }} />
+                ))}
+              </span>
+
+              <span className="flex min-w-0 flex-col gap-1 p-3.5">
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <Icon
+                    name={typeIcon(c.type)}
+                    size={14}
+                    className="shrink-0 text-ink-muted"
+                  />
                   <span className="truncate text-sm font-medium">{c.title}</span>
                 </span>
+
+                {c.preview ? (
+                  <span className="line-clamp-2 text-xs leading-relaxed text-ink-muted">
+                    {c.preview}
+                  </span>
+                ) : (
+                  <span className="text-xs italic text-ink-muted opacity-60">
+                    {c.type} artifact
+                  </span>
+                )}
+
                 <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-ink-muted">
-                  {c.share_id && <Icon name="globe" size={11} className="shrink-0" />}
-                  {c.owner !== "mine" && (
-                    <span className="truncate">
-                      {copying === c.id ? "Opening a copy…" : c.owner + " ·"}
+                  {c.share_id && (
+                    <span title="Published publicly" className="shrink-0">
+                      <Icon name="globe" size={11} />
                     </span>
                   )}
-                  <span className="truncate">{edited(c.updated_at)}</span>
+                  <span className="truncate">
+                    {copying === c.id
+                      ? "Opening a copy…"
+                      : c.owner !== "mine"
+                        ? c.owner + " · " + edited(c.updated_at)
+                        : edited(c.updated_at)}
+                  </span>
                 </span>
-              </div>
+              </span>
             </button>
           ))}
         </div>

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getRequestUserId, unauthorized } from "@/lib/auth";
 import { listOwnedArtifacts, listSharedArtifactCards } from "@/lib/db";
+import { artifactPreview } from "@/lib/artifact-preview";
 
 /**
  * The artifacts gallery: everything the caller made, plus everything shared
@@ -39,7 +40,14 @@ export async function GET(req: NextRequest) {
   // than as owned-then-shared.
   const artifacts = [...mine, ...shared]
     .filter((a) => matches(a, needle))
-    .sort((x, y) => y.updated_at - x.updated_at);
+    .sort((x, y) => y.updated_at - x.updated_at)
+    .map((a) => {
+      // Extracted here rather than in the browser: the raw source is many
+      // kilobytes per card and the description is a couple of hundred bytes,
+      // so sending the source would be the bulk of the response.
+      const { text, colors } = artifactPreview(a.preview, a.type);
+      return { ...a, preview: text, colors };
+    });
 
   return Response.json({
     artifacts,

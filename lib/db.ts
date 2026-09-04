@@ -3244,8 +3244,10 @@ export interface GalleryArtifact {
   owner: string;
 }
 
-/** How much of a version to read for a card preview. */
-const PREVIEW_CHARS = 600;
+/** How much of a version to read before extracting a card preview. A styled
+ *  document spends its first few hundred characters on a stylesheet, so a
+ *  short slice never reaches anything a person would recognise. */
+const PREVIEW_CHARS = 6000;
 
 /**
  * Every artifact the caller owns, newest first.
