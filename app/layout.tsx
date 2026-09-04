@@ -38,6 +38,10 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
+  // Required for env(safe-area-inset-*) to report anything: without it iOS
+  // letterboxes the page inside the safe area and every inset reads 0, so the
+  // composer padding that keeps it clear of the home indicator would be inert.
+  viewportFit: "cover",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#faf9f5" },
     { media: "(prefers-color-scheme: dark)", color: "#262624" },

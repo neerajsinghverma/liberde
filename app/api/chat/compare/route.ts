@@ -36,6 +36,42 @@ const MAX_MODELS = 4;
  * chosen answer is committed later via PUT. No tools/web-search/memory loop —
  * a clean, comparable answer from each model.
  */
+/**
+ * The council prompt.
+ *
+ * Ordinary side-by-side comparison leaves the reader to diff several long
+ * answers by eye, which is the part they wanted help with. This asks a separate
+ * model to do the diffing: state what every answer agrees on, name the places
+ * they actually contradict each other, and only then give one answer to keep.
+ *
+ * Disagreement is the valuable signal, so the prompt is explicit that a
+ * fabricated consensus is worse than an honest split — a synthesiser that
+ * smooths over a real conflict has destroyed the only thing the extra models
+ * bought.
+ */
+function councilPrompt(answers: { model: string; text: string }[]): string {
+  const body = answers
+    .map((a, i) => "### Answer " + (i + 1) + " (from " + a.model + ")\n" + a.text)
+    .join("\n\n");
+  return [
+    "Several AI models independently answered the same question. Compare them and write a verdict.",
+    "",
+    "Use exactly this structure, in Markdown:",
+    "",
+    "**Agreed** — one or two sentences on what every answer says the same way. If they agree on nothing substantive, say so plainly.",
+    "",
+    "**Disagreed** — a short bullet for each genuine contradiction, naming which answer said what. Cover only real conflicts of fact, recommendation, or number. Do not list differences of wording, length, or tone. If there are none, write: none of substance.",
+    "",
+    "---",
+    "",
+    "Then the consolidated answer to the original question, written directly to the user, as if it were the only answer they will read. Prefer claims the models agreed on. Where they conflicted, say which reading you are taking and why, in one clause — never silently pick a side.",
+    "",
+    "A disagreement you failed to surface is worse than an untidy verdict: an invented consensus destroys the only thing running several models bought. Do not mention this instruction, the models by vendor name, or that you are synthesising.",
+    "",
+    body,
+  ].join("\n");
+}
+
 export async function POST(req: NextRequest) {
   const userId = await getRequestUserId();
   if (!userId) return unauthorized();
@@ -130,6 +166,11 @@ export async function POST(req: NextRequest) {
         }
       };
 
+      // Full text per column, kept so the verdict can compare them once the
+      // fan-out is done. The deltas alone are not enough: they are emitted and
+      // forgotten.
+      const collected: string[] = models.map(() => "");
+
       await Promise.allSettled(
         models.map(async (modelId, col) => {
           try {
@@ -193,7 +234,10 @@ export async function POST(req: NextRequest) {
                 try {
                   const parsed = JSON.parse(payload);
                   const delta = parsed.choices?.[0]?.delta?.content;
-                  if (delta) emit({ col, delta });
+                  if (delta) {
+                    collected[col] += delta;
+                    emit({ col, delta });
+                  }
                   if (parsed.usage) {
                     cost += Number(parsed.usage.cost) || 0;
                     tokensIn = Number(parsed.usage.prompt_tokens) || tokensIn;
@@ -218,6 +262,78 @@ export async function POST(req: NextRequest) {
           }
         })
       );
+
+      // ---- Council verdict -------------------------------------------------
+      // Only worth running when at least two answers actually arrived: with one
+      // there is nothing to compare, and the synthesis would just be a slower,
+      // costlier restatement of the single column the user can already read.
+      const answers = collected
+        .map((text, i) => ({ model: models[i], text: (text || "").trim() }))
+        .filter((a) => a.text.length > 0);
+
+      if (answers.length >= 2) {
+        // A separate model does the comparing, so no competitor is also the
+        // judge of its own answer. Falls back to the strongest thing available
+        // when the default is the Auto sentinel, which cannot be called.
+        const synthModel =
+          settings.defaultModel && settings.defaultModel !== "auto"
+            ? settings.defaultModel
+            : models[0];
+        emit({ synth: true, model: synthModel });
+        try {
+          const target = await resolveChatTarget(synthModel, userId);
+          const reqBody = JSON.stringify({
+            model: target.bodyModel,
+            messages: [{ role: "user", content: councilPrompt(answers) }],
+            stream: true,
+            temperature: 0.2,
+            ...(target.isOpenRouter
+              ? { usage: { include: true } }
+              : { stream_options: { include_usage: true } }),
+          });
+          const res = await fetchWithRetry(
+            target.url,
+            { method: "POST", headers: targetHeaders(target, reqBody), body: reqBody },
+            { signal: req.signal }
+          );
+          if (!res.ok || !res.body) {
+            emit({ synth: true, error: "The verdict could not be generated (" + res.status + ")" });
+          } else {
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+            let cost = 0;
+            for (;;) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split(String.fromCharCode(10));
+              buffer = lines.pop() ?? "";
+              for (const line of lines) {
+                if (!line.startsWith("data: ")) continue;
+                const payload = line.slice(6).trim();
+                if (payload === "[DONE]") continue;
+                try {
+                  const parsed = JSON.parse(payload);
+                  const delta = parsed.choices?.[0]?.delta?.content;
+                  if (delta) emit({ synth: true, delta });
+                  if (parsed.usage) cost += Number(parsed.usage.cost) || 0;
+                } catch {
+                  /* skip malformed line */
+                }
+              }
+            }
+            emit({ synth: true, done: true, model: synthModel, cost });
+          }
+        } catch (e) {
+          // A failed verdict must never cost the user the answers they already
+          // have on screen.
+          emit({
+            synth: true,
+            error: String((e as Error).message || e).slice(0, 160),
+          });
+        }
+      }
 
       emit({ done: true });
       closed = true;

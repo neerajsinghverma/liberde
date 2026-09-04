@@ -54,6 +54,15 @@ function suggestDefaults(models: ModelInfo[], current: string): string[] {
   return picks.slice(0, 4);
 }
 
+/** The council verdict: one model comparing the finished answers. */
+interface Synthesis {
+  model: string;
+  text: string;
+  cost: number;
+  done: boolean;
+  error: string | null;
+}
+
 interface Column {
   model: string;
   text: string;
@@ -87,6 +96,7 @@ export default function ComparePanel({
   const [running, setRunning] = useState(false);
   const [finished, setFinished] = useState(false);
   const [columns, setColumns] = useState<Column[]>([]);
+  const [synth, setSynth] = useState<Synthesis | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [committing, setCommitting] = useState(false);
   const [picker, setPicker] = useState(false);
@@ -128,6 +138,7 @@ export default function ComparePanel({
     setFinished(false);
     setRunning(true);
     const runModels = [...selected];
+    setSynth(null);
     setColumns(
       runModels.map((model) => ({
         model,
@@ -161,6 +172,14 @@ export default function ComparePanel({
                 : c
             )
           ),
+        onSynth: (evt) =>
+          setSynth((s) => ({
+            model: evt.model ?? s?.model ?? "",
+            text: (s?.text ?? "") + (evt.delta ?? ""),
+            cost: (s?.cost ?? 0) + (Number(evt.cost) || 0),
+            done: Boolean(evt.done) || Boolean(s?.done),
+            error: evt.error ?? s?.error ?? null,
+          })),
         onColumnError: (col, message) =>
           setColumns((cols) =>
             cols.map((c, i) => (i === col ? { ...c, error: message } : c))
@@ -177,8 +196,14 @@ export default function ComparePanel({
     );
   };
 
-  const pick = async (col: Column) => {
-    if (committing || !col.text.trim()) return;
+  const pickText = async (
+    model: string,
+    content: string,
+    cost: number,
+    tokensIn = 0,
+    tokensOut = 0
+  ) => {
+    if (committing || !content.trim()) return;
     setCommitting(true);
     try {
       await api("/api/chat/compare", {
@@ -186,14 +211,14 @@ export default function ComparePanel({
         body: JSON.stringify({
           conversationId,
           truncateFromMessageId,
-          model: col.model,
-          content: col.text,
-          cost: col.cost,
-          tokens_in: col.tokens_in,
-          tokens_out: col.tokens_out,
+          model,
+          content,
+          cost,
+          tokens_in: tokensIn,
+          tokens_out: tokensOut,
         }),
       });
-      onCommitted(col.model);
+      onCommitted(model);
       onClose();
     } catch (e) {
       setError(String((e as Error).message || e));
@@ -333,6 +358,7 @@ export default function ComparePanel({
                 : "Pick 2–4 models above, then Compare."}
             </div>
           ) : (
+            <>
             <div className="flex gap-3 max-md:flex-col md:h-full">
               {columns.map((col, i) => (
                 <div
@@ -371,7 +397,7 @@ export default function ComparePanel({
                   </div>
                   <div className="border-t border-line p-2">
                     <button
-                      onClick={() => pick(col)}
+                      onClick={() => pickText(col.model, col.text, col.cost, col.tokens_in, col.tokens_out)}
                       disabled={!col.done || !!col.error || !col.text.trim() || committing}
                       className="w-full rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-40"
                     >
@@ -381,6 +407,52 @@ export default function ComparePanel({
                 </div>
               ))}
             </div>
+
+          {synth && (
+            <div className="anim-rise mt-3 overflow-hidden rounded-xl border border-accent/40 bg-surface-2">
+              <div className="flex items-center justify-between gap-2 border-b border-accent/30 px-3 py-2">
+                <span className="flex min-w-0 items-center gap-2">
+                  <Icon name="layers" size={14} className="shrink-0 text-accent" />
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium">Council verdict</span>
+                    <span className="block truncate text-[11px] text-ink-muted">
+                      {synth.error
+                        ? "failed"
+                        : synth.done
+                          ? `${nameOf(synth.model)} · ${fmtCost(synth.cost)}`
+                          : `${nameOf(synth.model)} is comparing the answers…`}
+                    </span>
+                  </span>
+                </span>
+                {!synth.done && !synth.error && (
+                  <Icon name="refresh" size={13} className="shrink-0 animate-spin text-ink-muted" />
+                )}
+              </div>
+              <div className="px-3 py-2 text-sm">
+                {synth.error ? (
+                  <p className="text-xs text-red-600 dark:text-red-400">
+                    {synth.error} — the individual answers above are unaffected.
+                  </p>
+                ) : synth.text ? (
+                  <Markdown content={synth.text} onShowArtifact={() => {}} />
+                ) : (
+                  <p className="text-xs text-ink-muted">…</p>
+                )}
+              </div>
+              {synth.done && !synth.error && synth.text.trim() && (
+                <div className="border-t border-accent/30 p-2">
+                  <button
+                    onClick={() => pickText(synth.model, synth.text, synth.cost)}
+                    disabled={committing}
+                    className="w-full rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-40"
+                  >
+                    {committing ? "Saving…" : "Use the verdict"}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+            </>
           )}
         </div>
       </div>

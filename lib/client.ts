@@ -117,6 +117,8 @@ export interface CompareCallbacks {
     info: { model: string; cost: number; tokens_in: number; tokens_out: number }
   ) => void;
   onColumnError: (col: number, message: string) => void;
+  /** The council verdict: a separate model comparing the finished answers. */
+  onSynth: (evt: { model?: string; delta?: string; done?: boolean; cost?: number; error?: string }) => void;
   onDone: () => void;
   onError: (message: string) => void;
 }
@@ -164,7 +166,12 @@ export function streamCompare(
           if (!line.startsWith("data: ")) continue;
           try {
             const evt = JSON.parse(line.slice(6));
-            if (typeof evt.col === "number") {
+            // Verdict events carry `synth` instead of a column index, and must
+            // be checked first: they also carry `done`, which would otherwise
+            // be read as the terminal frame and close the stream early.
+            if (evt.synth) {
+              callbacks.onSynth(evt);
+            } else if (typeof evt.col === "number") {
               if (evt.error) callbacks.onColumnError(evt.col, evt.error);
               else if (evt.delta) callbacks.onDelta(evt.col, evt.delta);
               if (evt.done) {

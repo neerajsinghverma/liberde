@@ -2816,7 +2816,7 @@ function Composer({
   }, [text]);
 
   return (
-    <div className="px-4 pb-4">
+    <div className="composer-dock px-4">
       <div className="mx-auto max-w-3xl">
         {slashQuery != null && (
           <div className="mb-2 overflow-hidden rounded-xl border border-line bg-surface shadow-lg">
@@ -3018,7 +3018,7 @@ function Composer({
               <button
                 onClick={onStop}
                 title="Stop"
-                className="flex shrink-0 items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm font-medium hover:bg-surface-2"
+                className="tap-target flex shrink-0 items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm font-medium hover:bg-surface-2"
               >
                 <Icon name="stop" size={14} /> Stop
               </button>
@@ -3027,7 +3027,7 @@ function Composer({
                 onClick={submit}
                 disabled={!text.trim() || disabled}
                 title="Send"
-                className="flex shrink-0 items-center justify-center rounded-lg bg-accent p-2 text-white hover:bg-accent-hover disabled:opacity-40"
+                className="tap-target flex shrink-0 items-center justify-center rounded-lg bg-accent p-2 text-white hover:bg-accent-hover disabled:opacity-40"
               >
                 <Icon name="arrowUp" size={18} />
               </button>

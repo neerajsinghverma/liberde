@@ -268,6 +268,27 @@ button, a, .anim-hover {
    what makes an interface feel responsive rather than merely fast. */
 button:active:not(:disabled) { transform: scale(0.985); }
 
+
+/* Mobile ------------------------------------------------------------------
+   The composer is the bottom-most element of an installed PWA, so on a phone
+   with a home indicator it sits underneath it unless the inset is added back.
+   max() rather than a bare env(), because the inset is 0 on every desktop and
+   the padding should not collapse there. */
+.composer-dock {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+/* Thumb reach. The guideline is a 44px target; icon buttons in a dense
+   toolbar routinely come out at 30-34px, which is fine for a mouse and a
+   near-miss for a thumb. Enforced on coarse pointers only, so the desktop
+   toolbar keeps its density. */
+@media (pointer: coarse) {
+  .tap-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .shimmer-text { animation: none; -webkit-text-fill-color: var(--color-ink); }
   .animate-spin-slow { animation: none; }
