@@ -122,7 +122,15 @@ export function resetPythonKernel(key = "default"): void {
   }
 }
 
-function kernelSrcDoc(channel: string): string {
+/**
+ * The kernel page, as a string.
+ *
+ * Exported so a headless browser can boot the real thing rather than a copy
+ * of it — the one question this module cannot answer by reasoning is whether
+ * Pyodide starts under `sandbox="allow-scripts"` with an opaque origin, and a
+ * test against a duplicate would not answer it either.
+ */
+export function kernelSrcDoc(channel: string): string {
   return `<!doctype html><html><head><meta charset="utf-8"></head><body>
 <script src="${PYODIDE_CDN}pyodide.js"><\/script>
 <script>

@@ -20,9 +20,10 @@ A browsable version of this page lives at **[liberde.ai/changelog.html](https://
   **Settings → Agents** to build one; chips under the greeting on a new chat to start one.
 - **Settings → Workspaces** and **Settings → Audit log** — both features existed and had no
   interface at all. The README described them as though they did.
-- **`npm run verify`** — a reachability, parity, documentation-truth and wiring audit (293
-  checks), 71 logic tests, and a live smoke test asserting every private route refuses an
-  anonymous caller (36 checks).
+- **`npm run verify`** — a reachability, parity, documentation-truth and wiring audit (359
+  checks), 71 logic tests, 14 browser tests that boot the real Python kernel in headless
+  Chromium, a 25-step end-to-end walk through a freshly signed-up account, and a live smoke
+  test asserting every private route refuses an anonymous caller (36 checks).
 
 ### Changed
 
@@ -35,6 +36,13 @@ A browsable version of this page lives at **[liberde.ai/changelog.html](https://
 
 ### Fixed
 
+- **The welcome tour came back on every page load.** It shows while no API key is set —
+  which stays true — and dismissal was never remembered, so Skip meant "skip until you
+  click anything". It also ignored Escape and backdrop clicks, unlike every other overlay.
+- **`/help` 404'd on a reload or a shared link.** The shell pushed the URL and parsed it
+  back, but no page file existed, so it only worked while you stayed inside the app.
+- **Creating an agent failed on self-host** with `9 values for 12 columns` — the insert was
+  ported to the SQLite build with three new columns and no matching placeholders.
 - **Comparing models on a thread containing an image** offered models that cannot read one,
   then printed the provider's raw JSON when they 404'd. Text-only models are now
   unselectable with the reason shown, and every upstream error is reported as a sentence.

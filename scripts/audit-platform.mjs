@@ -91,6 +91,19 @@ for (const [p] of cloudSrc) {
   record("reach", `${route} has a caller in the interface`, uiText.includes(probe), p);
 }
 
+// Every URL the shell can push must resolve on its own. In-app navigation uses
+// pushState, so a view without a page file works perfectly while you click and
+// 404s the moment anyone reloads or shares the link — which is how /help
+// shipped broken and stayed that way until a browser was pointed at it.
+{
+  const shell = cloudSrc.get("components/AppShell.tsx") ?? "";
+  for (const m of shell.matchAll(/if \(view\.kind === "(\w+)"\) return "(\/[a-z]*)"/g)) {
+    const [, kind, path] = m;
+    const file = path === "/" ? "app/page.tsx" : `app${path}/page.tsx`;
+    record("reach", `the "${kind}" view resolves at ${path} on a reload`, cloudSrc.has(file), file);
+  }
+}
+
 // ============================================================= 2. PARITY ====
 //
 // The two editions are the same product. A file present in one and absent in

@@ -274,15 +274,18 @@ Set `LIBERDE_URL` to point the shell at a remote Liberde server.
 ## Verifying a change
 
 ```bash
-npm run verify        # audit + logic tests + typecheck (+ live smoke on cloud)
+npm run verify        # audit + logic + typecheck + browser tests (+ live smoke on cloud)
+npm run test:e2e      # drives a running local build in a real browser
 ```
 
-Three checks, because a green build proves less than it looks like it does:
+Five checks, because a green build proves less than it looks like it does:
 
 | Command | Asks |
 |---|---|
 | `npm run audit` | Can a person **reach** every feature? Does the **other edition** have it? Does the **documentation** describe something that exists? Is each capability **wired end to end**? |
 | `npm run test:logic` | Is the logic **right** — routing tiers, budget rules, the audit hash chain, retrieval, conformance, artifact parsing, SSRF? |
+| `npm run test:browser` | Does Pyodide actually **boot** in a sandboxed iframe, read a CSV, draw a chart, and keep state between blocks? Real headless Chromium. |
+| `npm run test:e2e` | Can a **new account** sign up, open every settings tab, create an agent and start a chat as it? Drives the real app; run it against a local self-host build, never production. |
 | `npm run smoke` | Does the deployed site answer, and does every private route **refuse** an anonymous caller? |
 
 The audit exists because four features once shipped that no screen could reach, two of

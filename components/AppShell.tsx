@@ -170,10 +170,32 @@ export default function AppShell({ initialView }: { initialView: View }) {
 
   // First-run: greet new users with a welcome + tour (and a clear path to add
   // their API key) instead of dumping them straight into Settings.
+  //
+  // Dismissal has to persist. The condition is 'no API key yet', which stays
+  // true until they add one — so without remembering the dismissal the tour
+  // came back on every single navigation, and Skip meant 'skip until you click
+  // anything'.
   const [showWelcome, setShowWelcome] = useState(false);
   useEffect(() => {
-    if (settings && !settings.hasApiKey) setShowWelcome(true);
+    if (!settings || settings.hasApiKey) return;
+    let seen = false;
+    try {
+      seen = localStorage.getItem(WELCOME_SEEN) === '1';
+    } catch {
+      // Private windows and blocked site data throw on access; showing the
+      // tour once per session is a better failure than crashing the shell.
+    }
+    if (!seen) setShowWelcome(true);
   }, [settings]);
+
+  const dismissWelcome = useCallback(() => {
+    setShowWelcome(false);
+    try {
+      localStorage.setItem(WELCOME_SEEN, '1');
+    } catch {
+      /* nothing to do — it simply shows again next time */
+    }
+  }, []);
 
   if (!booted) return <BootSplash />;
 
@@ -348,10 +370,10 @@ export default function AppShell({ initialView }: { initialView: View }) {
         <WelcomeTour
           hasKey={Boolean(settings?.hasApiKey)}
           onAddKey={() => {
-            setShowWelcome(false);
+            dismissWelcome();
             setSettingsOpen(true);
           }}
-          onClose={() => setShowWelcome(false)}
+          onClose={dismissWelcome}
         />
       )}
     </div>
@@ -394,6 +416,9 @@ const TOUR_STEPS = [
   },
 ] as const;
 
+/** Remembers that the tour was dismissed, so Skip means skip. */
+const WELCOME_SEEN = "liberde-welcome-seen";
+
 function WelcomeTour({
   hasKey,
   onAddKey,
@@ -406,9 +431,28 @@ function WelcomeTour({
   const [step, setStep] = useState(0);
   const last = step >= TOUR_STEPS.length - 1;
   const s = TOUR_STEPS[step];
+
+  // Escape closes the tour, and clicking the backdrop does too. Every other
+  // overlay in the app already behaves this way; this one trapped a new user
+  // until they found the Skip link, which is the first thing they see and the
+  // last thing they read.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md overflow-hidden rounded-2xl border border-line bg-surface shadow-2xl">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        className="w-full max-w-md overflow-hidden rounded-2xl border border-line bg-surface shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex flex-col items-center gap-3 px-6 pt-8 pb-6 text-center">
           <div className="grid h-14 w-14 place-items-center rounded-2xl bg-accent/10 text-accent">
             <Icon name={s.icon} size={26} />
