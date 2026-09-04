@@ -7,7 +7,6 @@ import Sidebar from "./Sidebar";
 import ChatView from "./ChatView";
 import ProjectPanel from "./ProjectPanel";
 import SettingsDialog from "./SettingsDialog";
-import SharedDialog from "./SharedDialog";
 import TasksDialog from "./TasksDialog";
 import ModelsPanel from "./ModelsPanel";
 import UsagePanel from "./UsagePanel";
@@ -54,7 +53,6 @@ export default function AppShell({ initialView }: { initialView: View }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<string | undefined>(undefined);
   const [tasksOpen, setTasksOpen] = useState(false);
-  const [sharedOpen, setSharedOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [booted, setBooted] = useState(false);
@@ -205,7 +203,6 @@ export default function AppShell({ initialView }: { initialView: View }) {
         onSelect={setView}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenTasks={() => setTasksOpen(true)}
-        onOpenShared={() => setSharedOpen(true)}
         me={me}
         onLogout={async () => {
           await fetch("/api/auth", {
@@ -265,6 +262,13 @@ export default function AppShell({ initialView }: { initialView: View }) {
         ) : view.kind === "artifacts" ? (
           <ArtifactGallery
             onOpen={(conversationId) => setView({ kind: "chat", conversationId })}
+            onOpenCopy={(conversationId) => {
+              // A copy of someone else's artifact is a design conversation, so it
+              // lands in the Design workspace the same way the old dialog did.
+              setWorkspace("design");
+              refreshConversations();
+              setView({ kind: "chat", conversationId });
+            }}
             onClose={() => setView({ kind: "chat", conversationId: null })}
           />
         ) : view.kind === "usage" ? (
@@ -339,17 +343,6 @@ export default function AppShell({ initialView }: { initialView: View }) {
         />
       )}
 
-      {sharedOpen && (
-        <SharedDialog
-          onClose={() => setSharedOpen(false)}
-          onOpenCopy={(conversationId) => {
-            // Copies are design conversations — land in the Design workspace.
-            setWorkspace("design");
-            refreshConversations();
-            setView({ kind: "chat", conversationId });
-          }}
-        />
-      )}
 
       {showWelcome && (
         <WelcomeTour

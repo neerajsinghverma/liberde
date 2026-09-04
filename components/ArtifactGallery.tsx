@@ -68,15 +68,47 @@ function snippet(preview: string, type: string): string {
 
 export default function ArtifactGallery({
   onOpen,
+  onOpenCopy,
   onClose,
 }: {
   onOpen: (conversationId: string) => void;
+  /** Where a copy of someone else's artifact lands once it has been cloned. */
+  onOpenCopy: (conversationId: string) => void;
   onClose: () => void;
 }) {
   const [scope, setScope] = useState<Scope>("all");
   const [query, setQuery] = useState("");
   const [cards, setCards] = useState<Card[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copying, setCopying] = useState<string | null>(null);
+
+  /**
+   * Opening depends on whose it is.
+   *
+   * Your own artifact lives in a conversation you can open. Someone else's does
+   * not — you have no access to their thread — so it has to be cloned into a
+   * conversation of your own first. Sending a shared card to its owner's
+   * conversation id would just 404.
+   */
+  const open = async (c: Card) => {
+    if (c.owner === "mine") {
+      onOpen(c.conversation_id);
+      return;
+    }
+    if (copying) return;
+    setCopying(c.id);
+    setError(null);
+    try {
+      const res = await api<{ conversationId: string }>("/api/shared-artifacts", {
+        method: "POST",
+        body: JSON.stringify({ artifactId: c.id }),
+      });
+      onOpenCopy(res.conversationId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not open a copy");
+      setCopying(null);
+    }
+  };
 
   const load = useCallback(async () => {
     setError(null);
@@ -168,8 +200,13 @@ export default function ArtifactGallery({
           {shown.map((c) => (
             <button
               key={c.id}
-              onClick={() => onOpen(c.conversation_id)}
-              title={"Open in " + (c.conversation_title || "its conversation")}
+              onClick={() => open(c)}
+              disabled={copying === c.id}
+              title={
+                c.owner === "mine"
+                  ? "Open in " + (c.conversation_title || "its conversation")
+                  : "Open your own editable copy"
+              }
               className="flex h-52 flex-col overflow-hidden rounded-xl border border-line bg-surface text-left transition-colors hover:border-accent"
             >
               <div className="min-h-0 flex-1 overflow-hidden bg-surface-2 px-3 py-2.5 text-[11px] leading-relaxed text-ink-muted">
@@ -182,7 +219,11 @@ export default function ArtifactGallery({
                 </span>
                 <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-ink-muted">
                   {c.share_id && <Icon name="globe" size={11} className="shrink-0" />}
-                  {c.owner !== "mine" && <span className="truncate">{c.owner} ·</span>}
+                  {c.owner !== "mine" && (
+                    <span className="truncate">
+                      {copying === c.id ? "Opening a copy…" : c.owner + " ·"}
+                    </span>
+                  )}
                   <span className="truncate">{edited(c.updated_at)}</span>
                 </span>
               </div>

@@ -55,11 +55,12 @@ const DOCS: Doc[] = [
     title: "Artifacts & Canvas",
     blurb: "Documents, code, pages, and apps render live in a side panel.",
     points: [
+      { h: "The Artifacts view", d: "Everything you have built, and everything shared with you, in one browsable grid with previews — Artifacts in the sidebar, or ⌘K. Filter by All / Yours / Shared with you and search across titles and contents. Opening one of yours jumps to its conversation; opening a shared one clones your own editable copy." },
       { h: "Live preview", d: "HTML, React, and docs render as the model writes them; switch between Preview and Code." },
       { h: "Versions", d: "Every edit is a version — step back through them, or pin one." },
       { h: "Canvas edits", d: "Select text or use quick-actions to ask for scoped changes without retyping context." },
       { h: "Share & remix", d: "Publish a read-only link, or remix a shared artifact into your own chat." },
-      { h: "Send to a person", d: "Share → “Send to a Liberde user” by email. It lands in their “Shared with you” (sidebar), where they open their own editable copy — your original stays untouched." },
+      { h: "Send to a person", d: "Share → “Send to a Liberde user” by email. It lands under Artifacts → Shared with you, where opening it clones an editable copy into their own workspace — your original stays untouched." },
       { h: "Publish live", d: "Once published, hit Live for a real hosted public URL that serves the app/page/deck full-screen." },
       { h: "Export files", d: "Tables export to Excel (.xlsx), docs to Word, decks to PDF/PowerPoint — right from the panel." },
     ],
