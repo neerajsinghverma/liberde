@@ -36,6 +36,12 @@ A browsable version of this page lives at **[liberde.ai/changelog.html](https://
 
 ### Fixed
 
+- **Choosing an agent from the new-chat chips did nothing.** The click set the state and the
+  conversation was still created without it, because `send` was a `useCallback` that never
+  listed the agent in its dependencies and so captured `null` from mount. The API path was
+  correct throughout — only a live model could show the difference, and it did.
+- **The Settings close button sat on top of the text.** Long tab descriptions wrapped
+  underneath it, and the footer offered Save on tabs that save through their own controls.
 - **The welcome tour came back on every page load.** It shows while no API key is set —
   which stays true — and dismissal was never remembered, so Skip meant "skip until you
   click anything". It also ignored Escape and backdrop clicks, unlike every other overlay.

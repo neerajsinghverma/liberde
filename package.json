@@ -12,7 +12,8 @@
     "smoke": "node scripts/smoke-live.mjs",
     "verify": "npm run audit && npm run test:logic && npx tsc --noEmit && npm run test:browser && npm run smoke",
     "test:browser": "tsx scripts/test-sandbox-browser.ts",
-    "test:e2e": "tsx scripts/test-e2e.ts"
+    "test:e2e": "tsx scripts/test-e2e.ts",
+    "test:live": "tsx scripts/test-live-chat.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

@@ -808,6 +808,11 @@ export default function ChatView({
       convId,
       model,
       tempMode,
+      // Without this, send captures the agent chosen at mount — which is null —
+      // so clicking a chip set the state and the conversation was still created
+      // without an agent_id. The API path was right the whole time; only the
+      // closure was stale, and nothing but a live model could show it.
+      pendingAgent,
       imageMode,
       research,
       webSearch,

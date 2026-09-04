@@ -110,6 +110,20 @@ type SettingsTabId =
   | "keys"
   | "admin";
 
+/** Tabs whose contents persist through their own controls, not the footer. */
+const SAVES_ON_ITS_OWN = new Set<SettingsTabId>([
+  "agents",
+  "workspaces",
+  "audit",
+  "connectors",
+  "http-tools",
+  "skills",
+  "prompts",
+  "design-systems",
+  "providers",
+  "keys",
+  "admin",
+]);
 // Tab rail config (Claude-style): grouped, icon'd, with search keywords so the
 // search box can match on more than the visible label.
 const SETTINGS_TABS: {
@@ -408,11 +422,13 @@ export default function SettingsDialog({
           <button
             onClick={onClose}
             title="Close"
-            className="absolute right-4 top-4 z-10 hidden text-ink-muted hover:text-ink md:block"
+            aria-label="Close settings"
+            className="absolute right-3 top-3 z-10 hidden place-items-center rounded-lg p-1.5 text-ink-muted hover:bg-surface-2 hover:text-ink md:grid"
           >
-            ✕
+            <Icon name="x" size={16} />
           </button>
-          <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          {/* pr on desktop keeps content clear of the floating ✕ above it. */}
+          <div className="min-h-0 flex-1 overflow-y-auto p-5 md:pr-14">
           {tab === "general" ? (
             <div className="space-y-5">
               <Field
@@ -915,15 +931,17 @@ export default function SettingsDialog({
             onClick={onClose}
             className="rounded-lg px-3 py-1.5 text-sm text-ink-muted hover:bg-surface-2"
           >
-            Cancel
+            {SAVES_ON_ITS_OWN.has(tab) ? "Done" : "Cancel"}
           </button>
-          <button
-            onClick={save}
-            disabled={saving}
-            className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
-          >
-            {saving ? "Saving…" : "Save"}
-          </button>
+          {!SAVES_ON_ITS_OWN.has(tab) && (
+            <button
+              onClick={save}
+              disabled={saving}
+              className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+          )}
         </div>
         </div>
       </div>
