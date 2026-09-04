@@ -114,8 +114,16 @@ export default function ModelPicker({
                 </span>
                 <span className="flex w-full items-center gap-2 text-[11px] text-ink-muted">
                   <span className="truncate">{m.id}</span>
-                  {m.supportsImages && <span title="Accepts image input (vision)">🖼</span>}
-                  {m.outputsImages && <span title="Generates images">🎨</span>}
+                  {m.supportsImages && (
+        <span title="Accepts image input (vision)">
+          <Icon name="eye" size={12} />
+        </span>
+      )}
+                  {m.outputsImages && (
+        <span title="Generates images">
+          <Icon name="image" size={12} />
+        </span>
+      )}
                   {m.context_length > 0 && (
                     <span className="shrink-0">
                       {Math.round(m.context_length / 1000)}k ctx

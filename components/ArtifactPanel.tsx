@@ -27,18 +27,21 @@ export type PanelContent =
       content: string;
     };
 
+/** Artifact type badges, drawn from the shared icon set rather than emoji:
+ *  an emoji renders as a filled colour glyph next to line icons and is the
+ *  one thing in a toolbar that always looks pasted in. */
 const TYPE_ICONS: Record<string, string> = {
-  html: "🌐",
-  react: "⚛",
-  svg: "✒",
-  mermaid: "📊",
-  markdown: "📝",
-  code: "📄",
-  slides: "📽",
+  html: "globe",
+  react: "atom",
+  svg: "palette",
+  mermaid: "flow",
+  markdown: "fileText",
+  code: "code",
+  slides: "presentation",
 };
 
 export function typeIcon(type: string | null) {
-  return TYPE_ICONS[type ?? "code"] ?? "📄";
+  return TYPE_ICONS[type ?? "code"] ?? "code";
 }
 
 const importExternal = (url: string) =>
@@ -363,7 +366,9 @@ export default function ArtifactPanel({
         >
           <Icon name="x" size={15} /> Done
         </button>
-        <span className="text-base max-lg:hidden">{typeIcon(type)}</span>
+        <span className="max-lg:hidden">
+          <Icon name={typeIcon(type)} size={16} className="text-ink-muted" />
+        </span>
         <span className="min-w-0 flex-1 truncate text-sm font-medium max-lg:hidden" title={title}>
           {title}
           {streaming && <span className="ml-2 text-xs text-accent">generating…</span>}

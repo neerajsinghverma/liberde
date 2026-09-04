@@ -1264,11 +1264,17 @@ export default function ChatView({
                                   key={i}
                                   className="rounded-lg border border-line bg-surface-2 px-2 py-1 text-xs text-ink-muted"
                                 >
-                                  {a.mime === "application/pdf"
-                                    ? "📕"
-                                    : a.mime === DOCX_MIME || a.mime === DOC_MIME
-                                      ? "📘"
-                                      : "📄"}{" "}
+                                  <Icon
+                                    name={
+                                      a.mime === "application/pdf" ||
+                                      a.mime === DOCX_MIME ||
+                                      a.mime === DOC_MIME
+                                        ? "filePdf"
+                                        : "fileText"
+                                    }
+                                    size={12}
+                                    className="mr-1 inline-block align-[-2px]"
+                                  />
                                   {a.name}
                                 </span>
                               )
@@ -1287,7 +1293,8 @@ export default function ChatView({
                               }}
                               className="text-xs text-ink-muted hover:text-ink"
                             >
-                              ✎ Edit
+                              <Icon name="pencil" size={12} className="mr-1 inline-block align-[-2px]" />
+                      Edit
                             </button>
                           </div>
                         )}
@@ -1308,7 +1315,8 @@ export default function ChatView({
                             key={i}
                             className="rounded-full border border-line bg-surface-2 px-2.5 py-0.5 text-xs text-ink-muted"
                           >
-                            🔧 {(tc.function?.name ?? "tool").replace(/__/g, ": ")}
+                            <Icon name="wrench" size={12} className="mr-1 inline-block align-[-2px]" />
+                          {(tc.function?.name ?? "tool").replace(/__/g, ": ")}
                           </span>
                         )
                       )}
@@ -1465,7 +1473,7 @@ export default function ChatView({
                           {i === researchStatuses.length - 1 && !streamText ? (
                             <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
                           ) : (
-                            "✓"
+                            <Icon name="check" size={12} className="text-accent" />
                           )}
                         </span>
                         {s}
@@ -1741,7 +1749,9 @@ function RunCard({ code, running }: { code: string; running: boolean }) {
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-2 bg-surface-2 px-3 py-1.5 text-left text-xs text-ink-muted"
       >
-        <span className={running ? "animate-pulse" : ""}>⚙</span>
+        <span className={running ? "animate-pulse" : ""}>
+          <Icon name="flask" size={13} />
+        </span>
         <span className="flex-1">
           {running ? "Writing analysis code…" : "Ran JavaScript analysis"}
         </span>
@@ -2102,7 +2112,13 @@ function ToolResultBlock({ output, name }: { output: string; name?: string }) {
   const [open, setOpen] = useState(false);
   const failed = output.startsWith("Error");
   const icon =
-    name === "web_search" ? "🔍" : name === "fetch_page" ? "🌐" : name?.startsWith("skill__") ? "🎯" : "🔧";
+    name === "web_search"
+      ? "search"
+      : name === "fetch_page"
+        ? "globe"
+        : name?.startsWith("skill__")
+          ? "brain"
+          : "wrench";
   const label =
     name === "web_search"
       ? "Searched the web"
@@ -2124,7 +2140,7 @@ function ToolResultBlock({ output, name }: { output: string; name?: string }) {
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-2 bg-surface-2 px-3 py-1.5 text-left text-xs text-ink-muted"
       >
-        <span>{icon}</span>
+        <Icon name={icon} size={13} className="shrink-0" />
         <span className="flex-1">
           {label}
           {failed ? " (error)" : ""}
@@ -2502,11 +2518,11 @@ function ArtifactCard({
       }`}
     >
       <span
-        className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-surface-2 text-lg ${
+        className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-surface-2 text-ink-muted ${
           pulsing ? "animate-pulse" : ""
         }`}
       >
-        {icon}
+        <Icon name={icon} size={16} />
       </span>
       <span className="min-w-0">
         <span className="block truncate text-sm font-medium">{label}</span>
@@ -2885,12 +2901,18 @@ function Composer({
                     alt={a.name}
                     className="h-10 w-10 rounded object-cover"
                   />
-                ) : a.mime === "application/pdf" ? (
-                  "📕"
-                ) : a.mime === DOCX_MIME || a.mime === DOC_MIME ? (
-                  "📘"
                 ) : (
-                  "📄"
+                  <Icon
+                    name={
+                      a.mime === "application/pdf" ||
+                      a.mime === DOCX_MIME ||
+                      a.mime === DOC_MIME
+                        ? "filePdf"
+                        : "fileText"
+                    }
+                    size={14}
+                    className="shrink-0 text-ink-muted"
+                  />
                 )}
                 <span className="max-w-40 truncate">{a.name}</span>
                 <button
@@ -2904,8 +2926,8 @@ function Composer({
             {!modelSupportsImages &&
               attachments.some((a) => a.mime.startsWith("image/")) && (
                 <span className="text-xs text-amber-600 dark:text-amber-400">
-                  ⚠ The selected model can&apos;t see images — pick one with 🖼 in the
-                  model list.
+                  The selected model can&apos;t see images — pick one marked with
+                  the vision icon in the model list.
                 </span>
               )}
           </div>

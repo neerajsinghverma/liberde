@@ -5,6 +5,41 @@ import type { SVGProps } from "react";
 
 const PATHS: Record<string, React.ReactNode> = {
   plus: <path d="M12 5v14M5 12h14" />,
+  code: (
+    <>
+      <path d="m9 8-5 4 5 4M15 8l5 4-5 4" />
+      <path d="M13 5l-2 14" />
+    </>
+  ),
+  atom: (
+    <>
+      <circle cx="12" cy="12" r="1.6" />
+      <ellipse cx="12" cy="12" rx="9" ry="4" />
+      <ellipse cx="12" cy="12" rx="9" ry="4" transform="rotate(60 12 12)" />
+      <ellipse cx="12" cy="12" rx="9" ry="4" transform="rotate(120 12 12)" />
+    </>
+  ),
+  flow: (
+    <>
+      <rect x="3" y="3" width="7" height="5" rx="1" />
+      <rect x="14" y="16" width="7" height="5" rx="1" />
+      <rect x="3" y="16" width="7" height="5" rx="1" />
+      <path d="M6.5 8v8M10 18.5h4M6.5 12h11v4" />
+    </>
+  ),
+  filePdf: (
+    <>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" />
+      <path d="M14 3v5h5" />
+      <path d="M9 16v-3h1.2a1.2 1.2 0 0 1 0 2.4H9" />
+    </>
+  ),
+  fileText: (
+    <>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" />
+      <path d="M14 3v5h5M9 13h6M9 17h4" />
+    </>
+  ),
   presentation: (
     <>
       <path d="M3 4h18M4 4v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V4" />
