@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
-import { getApiKey, setSetting } from "@/lib/db";
+import { getApiKey, getSetting, setSetting } from "@/lib/db";
+import { DEFAULT_EMBEDDING_MODEL } from "@/lib/embeddings";
 import { getRequestUserId, unauthorized } from "@/lib/auth";
 import { getSettings } from "@/lib/openrouter";
 
@@ -22,6 +23,12 @@ export async function GET() {
     memoryEnabled: s.memoryEnabled,
     recallEnabled: s.recallEnabled,
     temperature: s.temperature,
+    // The key itself is never returned, only whether one is set — the same
+    // contract as the OpenRouter key above.
+    hasEmbeddingKey: Boolean((await getSetting("embedding_api_key", userId)) || ""),
+    embeddingBaseUrl: (await getSetting("embedding_base_url", userId)) || "",
+    embeddingModel:
+      (await getSetting("embedding_model", userId)) || DEFAULT_EMBEDDING_MODEL,
   });
 }
 
@@ -32,6 +39,15 @@ export async function PUT(req: NextRequest) {
   if (typeof body.apiKey === "string" && body.apiKey.trim()) {
     await setSetting("openrouter_api_key", body.apiKey.trim(), userId);
   }
+  if (typeof body.embeddingApiKey === "string") {
+    // An empty string is a deliberate clear, which turns semantic retrieval
+    // off and falls the app back to lexical scoring.
+    await setSetting("embedding_api_key", body.embeddingApiKey.trim(), userId);
+  }
+  if (typeof body.embeddingBaseUrl === "string")
+    await setSetting("embedding_base_url", body.embeddingBaseUrl.trim(), userId);
+  if (typeof body.embeddingModel === "string")
+    await setSetting("embedding_model", body.embeddingModel.trim(), userId);
   if (typeof body.defaultModel === "string") await setSetting("default_model", body.defaultModel, userId);
   if (typeof body.titleModel === "string") await setSetting("title_model", body.titleModel, userId);
   if (typeof body.imageModel === "string") await setSetting("image_model", body.imageModel, userId);

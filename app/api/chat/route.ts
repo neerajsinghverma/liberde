@@ -265,13 +265,18 @@ export async function POST(req: NextRequest) {
     : null;
   const lastUserContent =
     [...history].reverse().find((m) => m.role === "user")?.content ?? "";
-  const systemParts = buildSystemPromptParts(
+  const systemParts = await buildSystemPromptParts(
     settings.systemPrompt,
     project
-      ? { instructions: project.instructions, files: await listProjectFiles(project.id) }
+      ? {
+          id: project.id,
+          instructions: project.instructions,
+          files: await listProjectFiles(project.id),
+        }
       : null,
     { aboutUser: settings.aboutUser, styleInstructions: settings.styleInstructions },
-    lastUserContent
+    lastUserContent,
+    userId
   );
 
   // Memory is skipped entirely in temporary chats (nothing is remembered from them).

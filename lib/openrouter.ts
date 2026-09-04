@@ -1,6 +1,6 @@
 import { getApiKey, getSetting } from "./db";
 import { PDF_NO_TEXT, type Attachment, type Message, type ModelInfo } from "./types";
-import { retrieveRelevant } from "./rag";
+import { retrieveRelevant, retrieveSemantic } from "./rag";
 
 export const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
 
@@ -224,12 +224,17 @@ export function dateContextLine(): string {
  * apart is what makes caching land — one re-retrieved chunk inside the cached
  * head would invalidate every token after it, protocol prompts included.
  */
-export function buildSystemPromptParts(
+export async function buildSystemPromptParts(
   globalPrompt: string,
-  project?: { instructions: string; files: { name: string; content: string }[] } | null,
+  project?: {
+    id?: string;
+    instructions: string;
+    files: { name: string; content: string }[];
+  } | null,
   personalization?: { aboutUser: string; styleInstructions: string } | null,
-  query?: string
-): { stable: string; volatile: string } {
+  query?: string,
+  userId?: string
+): Promise<{ stable: string; volatile: string }> {
   const stable: string[] = [];
   const volatile: string[] = [dateContextLine()];
 
@@ -249,8 +254,12 @@ export function buildSystemPromptParts(
       stable.push(`<project_instructions>\n${project.instructions.trim()}\n</project_instructions>`);
     }
     if (project.files.length > 0) {
-      // Retrieve the chunks most relevant to the query rather than dumping all.
-      const selected = retrieveRelevant(project.files, query ?? "");
+      // Semantic first, lexical when it is unavailable. See lib/rag.ts for why
+      // the fallback is load-bearing rather than a formality.
+      const semantic = project.id
+        ? await retrieveSemantic(project.id, query ?? "", undefined, userId)
+        : null;
+      const selected = semantic ?? retrieveRelevant(project.files, query ?? "");
       const knowledge = selected
         .map((c) => `<document name="${c.name}">\n${c.text}\n</document>`)
         .join("\n\n");
@@ -261,17 +270,23 @@ export function buildSystemPromptParts(
 }
 
 /** Both halves as one blob, for callers that don't split on cacheability. */
-export function buildSystemPrompt(
+export async function buildSystemPrompt(
   globalPrompt: string,
-  project?: { instructions: string; files: { name: string; content: string }[] } | null,
+  project?: {
+    id?: string;
+    instructions: string;
+    files: { name: string; content: string }[];
+  } | null,
   personalization?: { aboutUser: string; styleInstructions: string } | null,
-  query?: string
-): string {
-  const { stable, volatile } = buildSystemPromptParts(
+  query?: string,
+  userId?: string
+): Promise<string> {
+  const { stable, volatile } = await buildSystemPromptParts(
     globalPrompt,
     project,
     personalization,
-    query
+    query,
+    userId
   );
   return [volatile, stable].filter(Boolean).join("\n\n");
 }

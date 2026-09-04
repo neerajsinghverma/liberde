@@ -115,13 +115,18 @@ export async function POST(req: NextRequest) {
     : null;
   const lastUserContent =
     [...context].reverse().find((m) => m.role === "user")?.content ?? "";
-  const systemPrompt = buildSystemPrompt(
+  const systemPrompt = await buildSystemPrompt(
     settings.systemPrompt,
     project
-      ? { instructions: project.instructions, files: await listProjectFiles(project.id) }
+      ? {
+          id: project.id,
+          instructions: project.instructions,
+          files: await listProjectFiles(project.id),
+        }
       : null,
     { aboutUser: settings.aboutUser, styleInstructions: settings.styleInstructions },
-    lastUserContent
+    lastUserContent,
+    userId
   );
 
   // Extract PDF text once, up front — before the fan-out, so all columns see the

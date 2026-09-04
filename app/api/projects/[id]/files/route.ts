@@ -1,5 +1,12 @@
 import { NextRequest } from "next/server";
-import { addProjectFile, deleteProjectFile, getProject, isProjectOwner } from "@/lib/db";
+import {
+  addProjectFile,
+  deleteProjectFile,
+  getProject,
+  isProjectOwner,
+  listProjectFiles,
+} from "@/lib/db";
+import { indexProject } from "@/lib/rag";
 import { getRequestUserId, unauthorized } from "@/lib/auth";
 
 type Params = { params: Promise<{ id: string }> };
@@ -13,7 +20,19 @@ export async function POST(req: NextRequest, { params }: Params) {
   if (!body.name || typeof body.content !== "string") {
     return Response.json({ error: "name and content are required" }, { status: 400 });
   }
-  return Response.json(await addProjectFile(id, body.name, body.content), { status: 201 });
+  const file = await addProjectFile(id, body.name, body.content);
+  // Index in the background. Embedding a large upload can take longer than
+  // the request should, and retrieval falls back to lexical scoring until the
+  // vectors land — so the upload never waits on it and never fails because
+  // of it.
+  void (async () => {
+    try {
+      await indexProject(id, await listProjectFiles(id), userId);
+    } catch (e) {
+      console.error("[liberde] background indexing failed:", String(e).slice(0, 200));
+    }
+  })();
+  return Response.json(file, { status: 201 });
 }
 
 export async function DELETE(req: NextRequest, { params }: Params) {
