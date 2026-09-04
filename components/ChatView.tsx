@@ -42,7 +42,7 @@ import {
   type ParsedBlock,
 } from "@/lib/artifact-shared";
 import { extractRunBlocks, formatRunResult, parseRunResult } from "@/lib/analysis";
-import { runJs } from "@/lib/sandbox";
+import { runJs, runPython, type SandboxFile } from "@/lib/sandbox";
 
 interface Props {
   conversationId: string | null;
@@ -89,6 +89,10 @@ export default function ChatView({
   // Partial text of that reply, mirrored server-side. Lets a reload pick the
   // answer up mid-sentence rather than watching a spinner until it lands.
   const [bgPartial, setBgPartial] = useState("");
+  // Files the analysis tool wrote to /out. Held in state rather than saved:
+  // they are a by-product of a turn, and persisting every intermediate chart
+  // would fill the database with things nobody asked to keep.
+  const [runFiles, setRunFiles] = useState<SandboxFile[]>([]);
   const isStreamingRef = useRef(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [webSearch, setWebSearch] = useState(false);
@@ -412,6 +416,7 @@ export default function ChatView({
   // A queued message belongs to the thread it was typed in.
   useEffect(() => {
     setQueued(null);
+    setRunFiles([]);
   }, [conversation?.id]);
 
   const startVoiceListening = useCallback(() => {
@@ -595,8 +600,29 @@ export default function ChatView({
               if (runBlocks.length > 0 && autoRunsRef.current < 4) {
                 autoRunsRef.current++;
                 const outputs: string[] = [];
-                for (const code of runBlocks) {
-                  outputs.push(await runJs(code));
+                const produced: SandboxFile[] = [];
+                // Python gets the conversation's attachments as real files in
+                // /data, which is the whole point of it — a model should read
+                // the spreadsheet rather than ask the user to paste it.
+                const attached = conversationFiles(fresh);
+                for (const block of runBlocks) {
+                  if (block.lang === "python") {
+                    const r = await runPython(block.code, {
+                      files: attached,
+                      kernelKey: body.conversationId,
+                    });
+                    outputs.push(r.output);
+                    produced.push(...r.files);
+                  } else {
+                    outputs.push(await runJs(block.code));
+                  }
+                }
+                if (produced.length) {
+                  setRunFiles((prev) => [...prev, ...produced]);
+                  outputs.push(
+                    "Files written to /out and offered to the user: " +
+                      produced.map((fl) => fl.name).join(", ")
+                  );
                 }
                 startStreamRef.current?.({
                   conversationId: body.conversationId,
@@ -1547,6 +1573,45 @@ export default function ChatView({
         </div>
       )}
 
+      {runFiles.length > 0 && (
+        <div className="anim-rise mx-auto flex max-w-3xl flex-wrap items-center gap-1.5 px-4 pb-1">
+          <span className="text-[11px] text-ink-muted">Produced:</span>
+          {runFiles.map((file, i) => (
+            <span
+              key={file.name + i}
+              className="flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2 py-1 text-xs"
+            >
+              {/* An image is worth showing rather than only naming — a chart the
+                  analysis produced is usually the answer, not an attachment to it. */}
+              {file.mime.startsWith("image/") ? (
+                <img
+                  src={"data:" + file.mime + ";base64," + file.base64}
+                  alt={file.name}
+                  className="h-8 w-8 rounded object-cover"
+                />
+              ) : (
+                <Icon name="fileText" size={13} className="shrink-0 text-ink-muted" />
+              )}
+              <a
+                href={"data:" + file.mime + ";base64," + file.base64}
+                download={file.name}
+                className="max-w-48 truncate hover:text-accent"
+                title={"Download " + file.name}
+              >
+                {file.name}
+              </a>
+              <button
+                onClick={() => setRunFiles((prev) => prev.filter((_, j) => j !== i))}
+                title="Dismiss"
+                className="shrink-0 rounded p-0.5 text-ink-muted hover:bg-surface-2 hover:text-ink"
+              >
+                <Icon name="x" size={11} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
       {queued && (
         <div className="anim-rise mx-auto flex max-w-3xl items-center gap-2 px-4 pb-1">
           <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-xs text-ink-muted">
@@ -2025,6 +2090,34 @@ function timeGreeting(name?: string): string {
   return chosen.replace("{n}", first);
 }
 
+/**
+ * Every attachment in the thread, as files for the Python sandbox.
+ *
+ * Images are skipped: they are already visible to a vision model, and base64
+ * pictures would dominate the payload written into the sandbox for no gain.
+ * Text extracted from a PDF or document is written under the original
+ * filename, so the model reads /data/report.pdf and gets the text it needs.
+ */
+function conversationFiles(messages: Message[]): SandboxFile[] {
+  const out: SandboxFile[] = [];
+  const seen = new Set<string>();
+  for (const m of messages) {
+    for (const a of m.attachments ?? []) {
+      if (!a.name || seen.has(a.name)) continue;
+      if (a.mime?.startsWith("image/")) continue;
+      let base64: string | null = null;
+      if (typeof a.text === "string" && a.text) {
+        base64 = btoa(unescape(encodeURIComponent(a.text)));
+      } else if (a.dataUrl) {
+        base64 = a.dataUrl.split(",")[1] ?? null;
+      }
+      if (!base64) continue;
+      seen.add(a.name);
+      out.push({ name: a.name, base64, mime: a.mime || "application/octet-stream" });
+    }
+  }
+  return out;
+}
 // Design-studio templates: each seeds a SHORT intent (not a full brief) so the
 // ask-first flow kicks in — clicking a card should interview you, then build.
 const DESIGN_TEMPLATES: {
