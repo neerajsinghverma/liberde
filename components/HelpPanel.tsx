@@ -66,6 +66,19 @@ const DOCS: Doc[] = [
     ],
   },
   {
+    id: "analysis",
+    icon: "code",
+    title: "Run code",
+    blurb: "The model writes real code, runs it in your browser, and reads the result.",
+    points: [
+      { h: "Two runtimes", d: "JavaScript starts instantly — right for arithmetic or checking an algorithm. Python is real CPython with pandas, numpy, matplotlib, scipy and scikit-learn; importing a library is enough to load it, at the cost of a one-time runtime download the first time you use it." },
+      { h: "It reads your files", d: "Every file you attach to the chat is handed to Python as a real file, so “chart this spreadsheet” works on the actual data instead of on a description of it." },
+      { h: "It hands files back", d: "Anything the code produces comes back as a download — a chart, an .xlsx, a cleaned CSV. Images also appear inline." },
+      { h: "It remembers", d: "Variables and dataframes stay alive between blocks in the same conversation, so a follow-up builds on the last result instead of recomputing it." },
+      { h: "On your machine, not a server", d: "Code runs in a sandboxed frame in your own browser, with no access to the app, your cookies, or your network. Nothing is uploaded, no run costs anything, and it behaves identically on a self-hosted install." },
+    ],
+  },
+  {
     id: "design",
     icon: "pencil",
     title: "Design studio",
@@ -114,7 +127,7 @@ const DOCS: Doc[] = [
     blurb: "Group related chats with shared context.",
     points: [
       { h: "Create a project", d: "The + next to Projects in the sidebar. Give it instructions every chat inside inherits." },
-      { h: "Add knowledge", d: "Upload files to a project; relevant chunks are retrieved into context automatically (RAG)." },
+      { h: "Add knowledge", d: "Upload files to a project; only the parts relevant to what you asked are pulled into context, so a project can grow well past what would fit in a single conversation." },
     ],
   },
   {
