@@ -111,8 +111,16 @@ body {
   padding: 0.1em 0.35em;
   font-size: 0.875em;
 }
+/* rehype-highlight only adds .hljs — and with it the theme foreground — to
+   fences that declare a language. An unlabelled fence, which is what the
+   analysis tool emits for its output, gets none of it, so the text fell back
+   to --color-ink: near-black on a dark block, and therefore invisible in light
+   mode while looking fine in dark. Set both colours here so a block is legible
+   whether or not highlighting ran, and use the theme background so highlighted
+   and unhighlighted blocks are the same shade. */
 .prose-chat pre {
-  background: #1e1e1e;
+  background: #0d1117;
+  color: #c9d1d9;
   border-radius: 8px;
   overflow-x: auto;
   font-size: 0.85em;
