@@ -11,6 +11,7 @@ import SharedDialog from "./SharedDialog";
 import TasksDialog from "./TasksDialog";
 import ModelsPanel from "./ModelsPanel";
 import UsagePanel from "./UsagePanel";
+import ArtifactGallery from "./ArtifactGallery";
 import HelpPanel from "./HelpPanel";
 import CommandPalette from "./CommandPalette";
 import UiHost from "./UiHost";
@@ -21,12 +22,14 @@ export type View =
   | { kind: "project"; projectId: string }
   | { kind: "models" }
   | { kind: "usage" }
+  | { kind: "artifacts" }
   | { kind: "help" };
 
 function viewToPath(view: View): string {
   if (view.kind === "project") return `/projects/${view.projectId}`;
   if (view.kind === "models") return "/models";
   if (view.kind === "usage") return "/usage";
+  if (view.kind === "artifacts") return "/artifacts";
   if (view.kind === "help") return "/help";
   return view.conversationId ? `/c/${view.conversationId}` : "/";
 }
@@ -36,6 +39,7 @@ function pathToView(path: string): View {
   if (project) return { kind: "project", projectId: project[1] };
   if (/^\/models/.test(path)) return { kind: "models" };
   if (/^\/usage/.test(path)) return { kind: "usage" };
+  if (/^\/artifacts/.test(path)) return { kind: "artifacts" };
   if (/^\/help/.test(path)) return { kind: "help" };
   const chat = path.match(/^\/c\/([^/]+)/);
   return { kind: "chat", conversationId: chat ? chat[1] : null };
@@ -258,6 +262,11 @@ export default function AppShell({ initialView }: { initialView: View }) {
             }}
             onDefaultChanged={setSettings}
           />
+        ) : view.kind === "artifacts" ? (
+          <ArtifactGallery
+            onOpen={(conversationId) => setView({ kind: "chat", conversationId })}
+            onClose={() => setView({ kind: "chat", conversationId: null })}
+          />
         ) : view.kind === "usage" ? (
           <UsagePanel />
         ) : view.kind === "help" ? (
@@ -291,6 +300,7 @@ export default function AppShell({ initialView }: { initialView: View }) {
           newChat: () => setView({ kind: "chat", conversationId: null }),
           goModels: () => setView({ kind: "models" }),
           goUsage: () => setView({ kind: "usage" }),
+          goArtifacts: () => setView({ kind: "artifacts" }),
           openTasks: () => setTasksOpen(true),
           openSettings: () => setSettingsOpen(true),
           openChat: (id) => setView({ kind: "chat", conversationId: id }),

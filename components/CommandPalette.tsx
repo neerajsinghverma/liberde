@@ -29,6 +29,7 @@ export default function CommandPalette({
     newChat: () => void;
     goModels: () => void;
     goUsage: () => void;
+    goArtifacts: () => void;
     openTasks: () => void;
     openSettings: () => void;
     openChat: (id: string) => void;
@@ -52,6 +53,7 @@ export default function CommandPalette({
     const base: Command[] = [
       { id: "new", label: "New chat", icon: "plus", run: actions.newChat },
       { id: "models", label: "Models & pricing", icon: "grid", run: actions.goModels },
+      { id: "artifacts", label: "Artifacts", icon: "layers", run: actions.goArtifacts },
       { id: "usage", label: "Usage", icon: "target", run: actions.goUsage },
       { id: "tasks", label: "Scheduled tasks", icon: "clock", run: actions.openTasks },
       { id: "settings", label: "Settings", icon: "settings", run: actions.openSettings },

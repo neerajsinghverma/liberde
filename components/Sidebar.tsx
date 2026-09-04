@@ -473,6 +473,14 @@ export default function Sidebar({
 
       <div className="border-t border-line p-3">
         <button
+          onClick={() => onSelect({ kind: "artifacts" })}
+          className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-surface hover:text-ink ${
+            view.kind === "artifacts" ? "bg-surface font-medium" : "text-ink-muted"
+          }`}
+        >
+          <Icon name="layers" size={15} /> Artifacts
+        </button>
+        <button
           onClick={() => onSelect({ kind: "models" })}
           className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-surface hover:text-ink ${
             view.kind === "models" ? "bg-surface font-medium" : "text-ink-muted"
