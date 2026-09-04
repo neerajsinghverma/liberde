@@ -1476,11 +1476,13 @@ export default function ChatView({
         <div className="mx-auto flex max-w-3xl flex-wrap gap-1.5 px-4 pb-1">
           {DESIGN_TWEAKS.map((t) => (
             <button
-              key={t}
-              onClick={() => send(t, [])}
-              className="rounded-full border border-line bg-surface px-2.5 py-1 text-xs text-ink-muted hover:border-accent hover:text-ink"
+              key={t.label}
+              onClick={() => send(t.prompt, [])}
+              title={t.prompt}
+              className="flex items-center gap-1.5 rounded-full border border-line bg-surface px-2.5 py-1 text-xs text-ink-muted transition-colors hover:border-accent hover:text-ink"
             >
-              {t}
+              <Icon name={t.icon} size={13} />
+              {t.label}
             </button>
           ))}
         </div>
@@ -1949,50 +1951,56 @@ const DESIGN_TEMPLATES: {
   prompt: string;
 }[] = [
   {
-    icon: "play",
+    icon: "presentation",
     label: "Pitch deck",
     desc: "Interactive startup deck",
     prompt: "I want to create an interactive startup pitch deck. Ask me a few quick questions first, then build it.",
   },
   {
-    icon: "grid",
+    icon: "barChart",
     label: "Analytics dashboard",
     desc: "KPIs, charts, table",
     prompt: "I want to design an analytics dashboard. Ask me a few quick questions first, then build it.",
   },
   {
-    icon: "sparkles",
+    icon: "layout",
     label: "SaaS landing page",
     desc: "Hero → pricing → CTA",
     prompt: "I want to design a SaaS landing page. Ask me a few quick questions first, then build it.",
   },
   {
-    icon: "message",
+    icon: "smartphone",
     label: "Mobile app flow",
     desc: "Clickable onboarding",
     prompt: "I want to design a clickable mobile app onboarding prototype. Ask me a few quick questions first, then build it.",
   },
   {
-    icon: "book",
+    icon: "lightbulb",
     label: "Explainer deck",
     desc: "Teach a concept",
     prompt: "I want to create an interactive explainer slide deck. Ask me a few quick questions first, then build it.",
   },
   {
-    icon: "target",
+    icon: "milestone",
     label: "Product roadmap",
     desc: "Timeline deck",
     prompt: "I want to design an interactive product roadmap presentation. Ask me a few quick questions first, then build it.",
   },
 ];
 
-const DESIGN_TWEAKS = [
-  "Make it dark mode",
-  "Change the color palette",
-  "Add a slide",
-  "Make it more minimal",
-  "Add smooth animations",
-  "Make it more playful",
+const DESIGN_TWEAKS: { icon: string; label: string; prompt: string }[] = [
+  // Grouped roughly style, then structure, then motion — the order people
+  // actually iterate in, and the reason each chip carries an icon: a row of
+  // bare sentences reads as a wall of text at the exact moment the user is
+  // scanning for one small change.
+  { icon: "moon", label: "Dark mode", prompt: "Make it dark mode." },
+  { icon: "droplet", label: "New palette", prompt: "Change the colour palette." },
+  { icon: "type", label: "Bigger type", prompt: "Increase the type scale and tighten the headings." },
+  { icon: "layout", label: "More minimal", prompt: "Make it more minimal — less chrome, more whitespace." },
+  { icon: "plus", label: "Add a slide", prompt: "Add a slide." },
+  { icon: "smartphone", label: "Mobile view", prompt: "Make it work well on a phone screen." },
+  { icon: "sparkles", label: "More playful", prompt: "Make it more playful." },
+  { icon: "play", label: "Add motion", prompt: "Add smooth animations and transitions." },
 ];
 
 function BranchSwitcher({

@@ -5,6 +5,84 @@ import type { SVGProps } from "react";
 
 const PATHS: Record<string, React.ReactNode> = {
   plus: <path d="M12 5v14M5 12h14" />,
+  presentation: (
+    <>
+      <path d="M3 4h18M4 4v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V4" />
+      <path d="M12 15v4M9 21l3-2 3 2" />
+    </>
+  ),
+  smartphone: (
+    <>
+      <rect x="7" y="2" width="10" height="20" rx="2" />
+      <path d="M11 18h2" />
+    </>
+  ),
+  layout: (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M3 9h18M9 21V9" />
+    </>
+  ),
+  milestone: (
+    <>
+      <path d="M12 3v18" />
+      <path d="M12 5h7l2 3-2 3h-7z" />
+      <path d="M12 13H5l-2 3 2 3h7" />
+    </>
+  ),
+  barChart: (
+    <>
+      <path d="M3 21h18" />
+      <path d="M7 21V11M12 21V4M17 21v-7" />
+    </>
+  ),
+  lightbulb: (
+    <>
+      <path d="M9 18h6M10 21h4" />
+      <path d="M12 3a6 6 0 0 0-3.5 10.9c.4.3.6.7.6 1.1v.5h5.8v-.5c0-.4.2-.8.6-1.1A6 6 0 0 0 12 3Z" />
+    </>
+  ),
+  layers: (
+    <>
+      <path d="m12 3 9 5-9 5-9-5 9-5Z" />
+      <path d="m3 13 9 5 9-5M3 17l9 5 9-5" />
+    </>
+  ),
+  type: (
+    <>
+      <path d="M4 6V4h16v2" />
+      <path d="M12 4v16M9 20h6" />
+    </>
+  ),
+  droplet: <path d="M12 3s6 5.7 6 10a6 6 0 0 1-12 0c0-4.3 6-10 6-10Z" />,
+  undo: (
+    <>
+      <path d="M3 8h11a5 5 0 0 1 0 10H9" />
+      <path d="m7 4-4 4 4 4" />
+    </>
+  ),
+  eye: (
+    <>
+      <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  check: <path d="m4 12 5 5L20 6" />,
+  sliders: (
+    <>
+      <path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" />
+      <circle cx="16" cy="6" r="2" />
+      <circle cx="10" cy="12" r="2" />
+      <circle cx="18" cy="18" r="2" />
+    </>
+  ),
+  wand: (
+    <>
+      <path d="m4 20 10-10" />
+      <path d="M16 4v4M14 6h4M18 12v3M16.5 13.5h3" />
+      <path d="m13 7 4 4" />
+    </>
+  ),
   search: (
     <>
       <circle cx="11" cy="11" r="7" />
