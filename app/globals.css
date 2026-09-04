@@ -178,7 +178,54 @@ body {
 }
 @keyframes liberde-spin-slow { to { transform: rotate(360deg); } }
 .animate-spin-slow { animation: liberde-spin-slow 3s linear infinite; }
+
+/* Motion ------------------------------------------------------------------
+   One small vocabulary, used everywhere, so the app moves consistently rather
+   than in a handful of unrelated places. Durations stay under a fifth of a
+   second: this is feedback, not decoration, and anything slower reads as lag
+   when a reply is already streaming. Every rule is switched off under
+   prefers-reduced-motion at the bottom of this file. */
+@keyframes liberde-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes liberde-pop {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes liberde-slide-in {
+  from { opacity: 0; transform: translateX(14px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* A message arriving in the thread. */
+.anim-rise { animation: liberde-rise 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+/* A dialog or popover taking focus. */
+.anim-pop { animation: liberde-pop 0.16s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+/* The artifact panel entering from the side. */
+.anim-panel { animation: liberde-slide-in 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
+/* Cards that appear as a set — a short stagger reads as one group settling
+   rather than six things flickering at once. */
+.anim-stagger > * { animation: liberde-rise 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.anim-stagger > *:nth-child(2) { animation-delay: 0.03s; }
+.anim-stagger > *:nth-child(3) { animation-delay: 0.06s; }
+.anim-stagger > *:nth-child(4) { animation-delay: 0.09s; }
+.anim-stagger > *:nth-child(5) { animation-delay: 0.12s; }
+.anim-stagger > *:nth-child(6) { animation-delay: 0.15s; }
+
+/* Interactive chrome: colour and border shifts should never snap. */
+button, a, .anim-hover {
+  transition: background-color 0.14s ease, border-color 0.14s ease,
+    color 0.14s ease, opacity 0.14s ease;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .shimmer-text { animation: none; -webkit-text-fill-color: var(--color-ink); }
   .animate-spin-slow { animation: none; }
+  .anim-rise,
+  .anim-pop,
+  .anim-panel,
+  .anim-stagger > * { animation: none; }
+  button, a, .anim-hover { transition: none; }
 }

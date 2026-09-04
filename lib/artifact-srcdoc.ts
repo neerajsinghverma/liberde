@@ -9,13 +9,51 @@ export const escapeHtml = (s: string) =>
 /** Safely embed arbitrary source text inside an inline <script>. */
 export const embedJson = (s: string) => JSON.stringify(s).replace(/</g, "\\u003c");
 
+/**
+ * Reporter injected into every artifact preview: shows problems in the frame
+ * and posts them to the parent, which is what the Fix-with-AI button acts on.
+ *
+ * The error listener is capture-phase deliberately. Resource failures do not
+ * bubble, so a bubbling listener never sees them — and a broken image is the
+ * most common way a generated design is visibly wrong without throwing
+ * anything at all. console.error is wrapped for the same reason: React reports
+ * most render problems there without ever raising.
+ *
+ * Reports are de-duplicated because a failing render loop would otherwise post
+ * the same line hundreds of times.
+ */
 export const ERROR_OVERLAY = `
 <style>#liberde-err{display:none;position:fixed;inset:auto 0 0 0;max-height:45%;overflow:auto;background:#450a0a;color:#fecaca;font:12px/1.5 ui-monospace,monospace;padding:10px 14px;white-space:pre-wrap;border-top:2px solid #dc2626;z-index:99999}</style>
 <div id="liberde-err"></div>
 <script>
-function liberdeShowErr(m){var e=document.getElementById('liberde-err');e.style.display='block';e.textContent='Error: '+m;try{parent.postMessage({__liberdeArtifactError:String(m)},'*');}catch(_){}}
-window.addEventListener('error',function(e){liberdeShowErr(e.message)});
-window.addEventListener('unhandledrejection',function(e){liberdeShowErr((e.reason&&e.reason.message)||String(e.reason))});
+(function(){
+  var seen={},box=null;
+  function report(kind,msg){
+    var line=kind+': '+String(msg||'').slice(0,300);
+    if(seen[line])return;
+    seen[line]=1;
+    if(!box)box=document.getElementById('liberde-err');
+    if(box){box.style.display='block';box.textContent=box.textContent?box.textContent+String.fromCharCode(10)+line:line;}
+    try{parent.postMessage({__liberdeArtifactError:line},'*');}catch(_){}
+  }
+  window.liberdeShowErr=function(m){report('Error',m&&m.message?m.message:m);};
+  window.addEventListener('error',function(e){
+    var t=e.target;
+    if(t&&t!==window&&t.tagName){
+      report('Failed to load',t.tagName.toLowerCase()+' '+(t.currentSrc||t.src||t.href||''));
+    }else{
+      report('Error',e.message);
+    }
+  },true);
+  window.addEventListener('unhandledrejection',function(e){
+    report('Error',(e.reason&&e.reason.message)||String(e.reason));
+  });
+  var orig=console.error;
+  console.error=function(){
+    try{report('Console',Array.prototype.map.call(arguments,String).join(' '));}catch(_){}
+    try{orig.apply(console,arguments);}catch(_){}
+  };
+})();
 </script>`;
 
 export function buildReactSrcDoc(source: string): string {

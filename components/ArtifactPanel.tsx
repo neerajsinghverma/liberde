@@ -327,7 +327,7 @@ export default function ArtifactPanel({
   return (
     <div
       ref={asideRef}
-      className="relative flex w-[46%] min-w-[380px] shrink-0 flex-col border-l border-line bg-surface max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 max-lg:w-full max-lg:min-w-0"
+      className="anim-panel relative flex w-[46%] min-w-[380px] shrink-0 flex-col border-l border-line bg-surface max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 max-lg:w-full max-lg:min-w-0"
       // maxWidth's % resolves against the flex parent (chat+panel row), so the
       // chat column always keeps >= CHAT_MIN even if a stale saved width or a
       // drag would otherwise overshoot. Only enforced on desktop.

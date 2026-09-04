@@ -1100,7 +1100,7 @@ export default function ChatView({
               />
             </div>
             {settings?.hasApiKey && (
-              <div className="mt-8 grid w-full max-w-3xl grid-cols-1 gap-2 sm:grid-cols-3">
+              <div className="anim-stagger mt-8 grid w-full max-w-3xl grid-cols-1 gap-2 sm:grid-cols-3">
                 {DESIGN_TEMPLATES.map((t) => (
                   <button
                     key={t.label}
@@ -1121,7 +1121,7 @@ export default function ChatView({
               {timeGreeting(userName)}
             </h1>
             {settings?.hasApiKey && (
-              <div className="mt-8 grid max-w-2xl grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="anim-stagger mt-8 grid max-w-2xl grid-cols-1 gap-2 sm:grid-cols-2">
                 {STARTER_PROMPTS.map((p) => (
                   <button
                     key={p.label}
@@ -1168,7 +1168,7 @@ export default function ChatView({
               ) : msg.role === "tool" ? (
                 <ToolResultBlock output={msg.content} name={toolName} />
               ) : msg.role === "user" ? (
-                <div className="group mb-6 flex justify-end">
+                <div className="anim-rise group mb-6 flex justify-end">
                   <div className="max-w-[85%]">
                     {editingId === msg.id ? (
                       <div className="rounded-2xl border border-accent bg-surface p-2">
@@ -1245,7 +1245,7 @@ export default function ChatView({
                   </div>
                 </div>
               ) : (
-                <div className="group mb-6">
+                <div className="anim-rise group mb-6">
                   {msg.reasoning && (
                     <ThinkingBlock text={msg.reasoning} durationMs={msg.reasoning_ms} />
                   )}
