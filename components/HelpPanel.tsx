@@ -19,6 +19,7 @@ const DOCS: Doc[] = [
     points: [
       { h: "Add your key", d: "Settings → General → paste your key from openrouter.ai/keys and click Verify. It's encrypted at rest and stored against your account only." },
       { h: "Pick a model", d: "Use the selector top-left of any chat — or choose ✨ Auto to let Liberde route each message to the right model automatically. Not sure which specific model? Click “Help me pick” for a recommendation." },
+      { h: "How Auto decides", d: "Tiers come from where a model sits in the live price list, not from its name, so a rename never quietly drops a flagship out of the deep tier. Most messages are placed instantly from the text itself; only genuinely ambiguous ones cost a classification step. The reason for each choice is shown under the reply." },
       { h: "Start chatting", d: "Type below and hit Enter. New chat: the + in the sidebar, or Ctrl/⌘+Shift+O." },
     ],
   },
@@ -30,7 +31,8 @@ const DOCS: Doc[] = [
     points: [
       { h: "✨ Auto routing", d: "Choose Auto in the selector and Liberde routes every message to the best model — quick asks to a fast, cheap model; hard reasoning to a frontier model; design work to a strong builder. The reply footer shows what it picked (Auto → model)." },
       { h: "Switch mid-chat", d: "Change the model any time — the full conversation and artifacts carry over to the new model." },
-      { h: "Second opinion", d: "On any answer, click Second opinion to run the same question through 2–4 models side by side — with each one's cost — and swap in the reply you like best." },
+      { h: "Second opinion", d: "On any answer, click Second opinion to run the same question through 2–4 models side by side, each with its own cost, and swap in the reply you like best." },
+      { h: "Council verdict", d: "When the answers land, a separate model compares them: what they all agree on, every place they genuinely contradict each other, and one consolidated answer you can keep in a click. Disagreement is the point — it names real conflicts rather than smoothing them over." },
       { h: "Set a default", d: "Settings → General — you can even set ✨ Auto as your default so new chats route automatically. Or “Set as my default” inside Help me pick." },
       { h: "Browse the catalog", d: "The Models view lists everything with pricing, context window, and capabilities." },
     ],
@@ -42,7 +44,7 @@ const DOCS: Doc[] = [
     blurb: "Toggle these under the composer for different kinds of work.",
     points: [
       { h: "🌐 Web search", d: "Pulls live results with citations. Answers link straight to sources." },
-      { h: "✦ Plan", d: "Plans a goal into steps, uses tools, and delivers a finished result — resumable if it runs long." },
+      { h: "✦ Plan", d: "Plans a goal into steps, uses tools, and delivers a finished result — resumable if it runs long. Independent steps run at the same time, so research that does not depend on itself finishes in one pass instead of several." },
       { h: "🔬 Research", d: "Deep multi-round research: plans queries, searches, chases gaps in a second pass, then writes a long, cited report." },
       { h: "🎨 Image", d: "Generates images with an image-capable model (set one in Settings)." },
     ],
@@ -101,6 +103,7 @@ const DOCS: Doc[] = [
       { h: "Train with AI", d: "Settings → Skills → describe it → Draft. It writes the instructions and attaches the right tools. Pick which model drafts with the “Draft model” selector (Auto = your planner model)." },
       { h: "Bundle tools", d: "Attach connectors to a skill; when it loads, the model is told exactly which functions to use." },
       { h: "Always available", d: "The model sees each skill's name + when-to-use in every chat and pulls the full instructions on demand." },
+      { h: "Agent Skills standard", d: "Skills are SKILL.md files under the open Agent Skills standard, so one written for Claude Code, claude.ai, VS Code or Codex loads here unchanged — and yours export the same way. Settings → Skills → import single files or a whole skills folder; anything the spec defines that Liberde cannot store is reported rather than dropped silently." },
     ],
   },
   {
@@ -136,6 +139,21 @@ const DOCS: Doc[] = [
       { h: "Voice", d: "Dictate with the mic, or go fully hands-free with voice mode." },
       { h: "Fork / export", d: "Duplicate a chat to branch an idea, or export any chat to Markdown or PDF." },
       { h: "Usage & cost", d: "The Usage view shows spend, tokens, your balance, and “Where it goes” — model vs web search vs images. Hover any reply's cost for its own split; each reply's footer also shows its model, cost, tokens, and generation time." },
+      { h: "Prompt caching", d: "On models that support it, the unchanging part of a conversation is cached upstream, so later turns re-read it at a fraction of the price. Hover a reply's cost to see how much of its input came from cache — a long thread on Claude typically serves most of it that way." },
+      { h: "Queued messages", d: "Type while a reply is still streaming and your message waits rather than vanishing. A pill above the composer shows it, and it sends the moment the reply finishes — or discard it with the ×." },
+      { h: "Reload mid-reply", d: "Close the tab or reload while an answer is being written and it keeps going on the server. Come back and the partial text is already there, still filling in." },
+    ],
+  },
+  {
+    id: "teams",
+    icon: "users",
+    title: "Workspaces & audit",
+    blurb: "Shared membership, spend limits, and a trail of what happened.",
+    points: [
+      { h: "Workspaces", d: "Group people under one workspace with roles: owner, admin, member, or viewer. A viewer can see the workspace but cannot spend against it, and an admin can manage members without being able to create or demote an owner." },
+      { h: "Spend caps", d: "Set a monthly budget for the whole workspace, a per-person allowance, or both. A capped request is refused before any model is called, with a message saying which limit was hit and by how much — nothing is spent finding out." },
+      { h: "Audit log", d: "Admins get a record of logins, key creation, tool calls, skill imports and membership changes at Admin → Audit. Tool arguments are recorded by name only, never by value, because the log outlives the conversation." },
+      { h: "Tamper-evident", d: "Each entry is hashed against the one before it, so an edited or deleted row breaks verification and says which one. Verify the chain any time; export as JSONL or CEF for a SIEM." },
     ],
   },
   {
