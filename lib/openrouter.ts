@@ -497,12 +497,15 @@ export function localTier(
       : { tier: "fast", reason: "empty message" };
   }
   if (LIGHT_WORK.test(t) && t.length < 40) return { tier: "fast", reason: "acknowledgement" };
-  if (t.length < 24 && !t.includes("?")) return { tier: "fast", reason: "quick follow-up" };
   // A long input is where a weak model is most obviously wasted, and the
   // classifier would only have read the first 1200 characters of it anyway.
   if (t.length > 4000) return { tier: "deep", reason: "long input" };
   if (HARD_WORK.test(t)) return { tier: "deep", reason: "hard reasoning" };
   if (CODE_FENCE.test(t)) return { tier: "balanced", reason: "code in the message" };
+  // Length is the weakest signal, so it is asked last. A short message that
+  // carries a stack trace or a snippet is not a trivial follow-up, and reading
+  // brevity before content sent exactly those to the mini.
+  if (t.length < 24 && !t.includes("?")) return { tier: "fast", reason: "quick follow-up" };
   return null;
 }
 
