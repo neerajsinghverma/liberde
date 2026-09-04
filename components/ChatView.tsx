@@ -384,6 +384,36 @@ export default function ChatView({
   // ---- Voice conversation mode: listen → send → speak reply → listen again ----
   const sendRef = useRef<((text: string, attachments: Attachment[]) => void) | null>(null);
 
+  // A message typed while a reply is still streaming. Pressing Enter mid-stream
+  // used to be a silent no-op — the text stayed in the box with nothing to
+  // explain why nothing happened. Holding it and sending it when the turn ends
+  // is what every other chat app does, and it costs nothing on the server.
+  const [queued, setQueued] = useState<{ text: string; attachments: Attachment[] } | null>(
+    null
+  );
+
+  const queueMessage = useCallback((text: string, attachments: Attachment[]) => {
+    // A second thought appends rather than replaces: overwriting would throw
+    // away something the user already typed and watched disappear.
+    setQueued((q) =>
+      q
+        ? { text: q.text + "\n\n" + text, attachments: [...q.attachments, ...attachments] }
+        : { text, attachments }
+    );
+  }, []);
+
+  useEffect(() => {
+    if (isStreaming || !queued) return;
+    const pending = queued;
+    setQueued(null);
+    sendRef.current?.(pending.text, pending.attachments);
+  }, [isStreaming, queued]);
+
+  // A queued message belongs to the thread it was typed in.
+  useEffect(() => {
+    setQueued(null);
+  }, [conversation?.id]);
+
   const startVoiceListening = useCallback(() => {
     const Ctor = getRecognitionCtor();
     if (!Ctor) {
@@ -1509,10 +1539,32 @@ export default function ChatView({
         </div>
       )}
 
+      {queued && (
+        <div className="anim-rise mx-auto flex max-w-3xl items-center gap-2 px-4 pb-1">
+          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-xs text-ink-muted">
+            <Icon name="clock" size={13} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate" title={queued.text}>
+              {queued.text}
+            </span>
+            <span className="shrink-0 whitespace-nowrap">
+              sends when this reply finishes
+            </span>
+            <button
+              onClick={() => setQueued(null)}
+              title="Discard this queued message"
+              className="shrink-0 rounded p-0.5 hover:bg-surface hover:text-ink"
+            >
+              <Icon name="x" size={13} />
+            </button>
+          </div>
+        </div>
+      )}
+
       <Composer
         disabled={!settings?.hasApiKey}
         isStreaming={isStreaming}
         onSend={send}
+        onQueue={queueMessage}
         onStop={stop}
         webSearch={webSearch}
         onToggleWebSearch={() => setWebSearch((v) => !v)}
@@ -2555,6 +2607,7 @@ function Composer({
   disabled,
   isStreaming,
   onSend,
+  onQueue,
   onStop,
   webSearch,
   onToggleWebSearch,
@@ -2571,6 +2624,8 @@ function Composer({
   disabled: boolean;
   isStreaming: boolean;
   onSend: (text: string, attachments: Attachment[]) => void;
+  /** Called instead of onSend while a reply is still streaming. */
+  onQueue: (text: string, attachments: Attachment[]) => void;
   onStop: () => void;
   webSearch: boolean;
   onToggleWebSearch: () => void;
@@ -2723,8 +2778,11 @@ function Composer({
 
   const submit = () => {
     const trimmed = text.trim();
-    if (!trimmed || isStreaming || disabled) return;
-    onSend(trimmed, attachments);
+    if (!trimmed || disabled) return;
+    // Clearing the box either way is deliberate: the message has been accepted,
+    // and the pill above the composer is what says it is waiting rather than sent.
+    if (isStreaming) onQueue(trimmed, attachments);
+    else onSend(trimmed, attachments);
     setText("");
     setAttachments([]);
   };
