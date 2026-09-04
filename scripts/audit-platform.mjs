@@ -200,6 +200,90 @@ for (const doc of [
   }
 }
 
+// ======================================================== 3b. COVERAGE =====
+//
+// The opposite question to TRUTH. That section asks whether the docs describe
+// something real; this asks whether everything real is described. A feature
+// nobody wrote down is a feature nobody finds, which is the same outcome as
+// not building it.
+
+const readmeBoth = readme + "\n" + (readIf(join(SELF, "README.md")) || "");
+const changelog = cloudSrc.get("CHANGELOG.md") ?? "";
+const changelogPage = cloudSrc.get("public/changelog.html") ?? "";
+
+// Every Settings tab is a feature. Each must be named in the README, in Help,
+// and — since it shipped — in the changelog.
+const DOC_EXEMPT = new Set(["general", "personalization", "admin"]);
+for (const [i, id] of tabIds.entries()) {
+  if (DOC_EXEMPT.has(id)) continue;
+  const label = tabLabels[i];
+  if (!label) continue;
+  const word = label.split(" ")[0];
+  record("coverage", `README mentions the "${label}" tab`, readmeBoth.includes(word), label);
+  record("coverage", `Help mentions "${label}"`, help.includes(word), label);
+}
+
+// Headline features, and where each must appear. A feature missing from the
+// changelog looks like it was always there; missing from the README, like it
+// does not exist.
+const FEATURE_DOCS = [
+  ["Agents", "Agents"],
+  ["artifacts gallery", "gallery"],
+  ["code interpreter", "interpreter"],
+  ["semantic retrieval", "Semantic"],
+  ["workspaces", "Workspace"],
+  ["audit log", "audit log"],
+  ["prompt caching", "Prompt caching"],
+  ["design systems", "Design system"],
+  ["deep research", "Deep Research"],
+  ["plan mode", "Plan mode"],
+  ["second opinion", "Second opinion"],
+  ["skills", "Skills"],
+  ["projects", "Projects"],
+  ["memory", "Memory"],
+  ["scheduled tasks", "Scheduled tasks"],
+  ["platform API", "Platform API"],
+];
+
+for (const [feature, needle] of FEATURE_DOCS) {
+  const re = new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+  record("coverage", `README documents ${feature}`, re.test(readmeBoth), needle);
+  record("coverage", `the changelog records ${feature}`, re.test(changelog), needle);
+}
+
+// The published page and the markdown must not drift apart.
+{
+  const mdReleases = (changelog.match(/^## \d{4}-\d{2}-\d{2}/gm) ?? []).length;
+  const htmlReleases = (changelogPage.match(/class="release"/g) ?? []).length;
+  record(
+    "coverage",
+    "the changelog page has a section per markdown release",
+    htmlReleases >= mdReleases,
+    `${htmlReleases} on the page, ${mdReleases} in CHANGELOG.md`
+  );
+}
+
+// Both editions must carry the same changelog and the same comparison table.
+{
+  const selfChangelog = readIf(join(SELF, "CHANGELOG.md"));
+  record("coverage", "both editions ship the same changelog", selfChangelog === changelog, "");
+  const tableOf = (t) => (t.match(/^\| \| \*\*Liberde\*\*[\s\S]*?\n\n/m) ?? [""])[0];
+  record(
+    "coverage",
+    "both READMEs carry the same comparison table",
+    tableOf(readme) === tableOf(readIf(join(SELF, "README.md"))),
+    ""
+  );
+}
+
+// A comparison is only credible if it admits where the project loses.
+record(
+  "coverage",
+  "the comparison says where Liberde is behind",
+  readme.includes("Where Liberde is behind"),
+  ""
+);
+
 // ============================================================= 4. WIRING ====
 //
 // End-to-end connections that are easy to half-build: a control that saves a
@@ -288,7 +372,7 @@ for (const [what, fn] of WIRING) {
 
 // ============================================================== report ======
 
-const areas = ["reach", "parity", "truth", "wiring"];
+const areas = ["reach", "parity", "truth", "coverage", "wiring"];
 const failed = results.filter((r) => !r.ok);
 
 if (JSON_OUT) {

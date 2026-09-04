@@ -233,5 +233,6 @@ A browsable version of this page lives at **[liberde.ai/changelog.html](https://
 ## 2026-07-20 — First release
 
 **Liberde** — a self-hosted, model-agnostic AI platform: streaming chat across 400+ models via
-OpenRouter, artifacts, projects, web search, plan mode, MCP connectors, custom tools, skills and
-memory. Shipped from day one as two editions of the same app.
+OpenRouter, artifacts, projects, **Deep Research** (plans queries, searches in parallel, streams a
+cited report), agentic **Plan mode**, web search, MCP connectors, custom tools, skills, saved
+prompts and memory. Shipped from day one as two editions of the same app.

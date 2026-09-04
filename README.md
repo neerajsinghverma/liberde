@@ -35,12 +35,14 @@ Liberde is one Next.js server that every form factor talks to — web app, an Op
 - 🔍 **Web search & 🔬 Deep Research** — Claude-style built-in `web_search`/`fetch_page` tools with source citations, plus a research pipeline that plans, searches in parallel, and streams a cited report.
 - ✦ **Agentic Plan mode** — plan-then-execute with the full tool belt, resumable across serverless invocations.
 - 🐍 **Code interpreter in your browser** — the model runs real Python (pandas, numpy, matplotlib, scipy, scikit-learn) on your attached files and hands back charts and spreadsheets, in a sandboxed frame on your own machine. No sandbox service, no per-run cost, nothing to configure.
+- 🤖 **Agents** — a named configuration you start a chat as: a model, standing instructions, a project's knowledge, the skills it always loads, and the tools it should reach for. Its model and project are defaults the conversation can override, and unlike a skill its instructions are in force from the first message.
 - 🔌 **MCP connectors & 🛠 custom API tools** — add any MCP server (bearer or full OAuth 2.1) *or* define your own REST endpoints as callable tools (manual, OpenAPI import, or let the model add them mid-chat).
 - 📚 **Skills, memory & recall** — reusable procedures with progressive disclosure, model-editable persistent memory, and search over your own past chats.
 - 👥 **Multi-user by design** — per-user keys, settings, data, and full row-level isolation; admin panel, per-user platform API keys, scheduled tasks, and user-to-user sharing.
 - 🏢 **Workspaces, roles & spend caps** — group people under owner / admin / member / viewer, set a monthly budget for the workspace or per person, and have over-budget requests refused *before* a model is called.
 - 🔒 **Tamper-evident audit log** — hash-chained record of logins, key creation, tool calls, skill imports and membership changes; verify the chain on demand, export JSONL or CEF straight into a SIEM.
 - 💸 **Prompt caching** — explicit cache breakpoints for the model families that need them, so later turns in a long thread re-read the stable prefix at a fraction of the price. Per-message cache hits are shown next to the cost.
+- ✅ **Verified, not asserted** — `npm run verify` checks that every feature is reachable from the interface, present in both editions, described accurately by these docs, and wired end to end, then runs the logic tests. Written after four features shipped that no screen could reach.
 - ⚡ **Second opinion, voice, image gen, office exports, cost tracking, dark mode, PWA** — and a lot more below.
 
 > 💡 **Live demo:** [liberde.ai](https://liberde.ai) runs this exact codebase.
@@ -56,25 +58,37 @@ Liberde isn't the only open-source AI chat app — [LibreChat](https://github.co
 | | **Liberde** | LibreChat | Open WebUI | LobeChat |
 |---|:---:|:---:|:---:|:---:|
 | Model access | **OpenRouter-native**<br>1 key, 400+ models | multi-provider<br>(+OpenRouter) | Ollama + OpenAI-<br>compatible | 40+ providers |
-| Claude-style artifacts (versioned, live) | ✅ | ✅ | ⚠️ | ✅ |
-| **Design Studio** (interactive prototypes / decks / sites) | ✅ | ❌ | ❌ | ❌ |
 | **✨ Auto** per-message model routing | ✅ | ❌ | ❌ | ❌ |
-| Multi-model side-by-side compare | ✅ | ❌ | ✅ | ⚠️ |
-| Web search **+ deep research** | ✅ | ⚠️ | ⚠️ | ⚠️ |
-| MCP connectors (stdio + HTTP + OAuth) | ✅ | ✅ | ⚠️ | ✅ |
-| No-code custom REST tools (+ OpenAPI import) | ✅ | ⚠️ | ⚠️ | ⚠️ |
-| Code interpreter (Python, reads your files, no server) | ✅ | ⚠️ | ✅ | ⚠️ |
-| Built-in API server + CLI + desktop + PWA | ✅ all four | ⚠️ | ⚠️ | ⚠️ |
+| Multi-model answer **+ synthesised verdict** | ✅ | ❌ | ⚠️ | ⚠️ |
+| Tamper-evident audit log (JSONL / CEF export) | ✅ | ❌ | ❌ | ❌ |
 | Cost + token **+ environmental** transparency | ✅ | ⚠️ | ⚠️ | ❌ |
+| **Design Studio** (interactive prototypes / decks / sites) | ✅ | ❌ | ❌ | ❌ |
+| Built-in API server + CLI + desktop + PWA | ✅ all four | ⚠️ | ⚠️ | ⚠️ |
 | Zero-config self-host (single SQLite file) | ✅ | ❌ (MongoDB) | ✅ | ⚠️ |
 | Secrets encrypted at rest (key in env) | ✅ | ⚠️ | ⚠️ | ⚠️ |
-| Tamper-evident audit log (JSONL / CEF export) | ✅ | ❌ | ❌ | ❌ |
-| Workspace roles + spend caps | ✅ | ⚠️ | ⚠️ | ❌ |
-| Multi-model answer **+ synthesised verdict** | ✅ | ❌ | ⚠️ | ⚠️ |
+| No-code custom REST tools (+ OpenAPI import) | ✅ | ⚠️ | ⚠️ | ⚠️ |
+| Web search **+ deep research** | ✅ | ⚠️ | ⚠️ | ⚠️ |
+| Multi-model side-by-side compare | ✅ | ⚠️ | ✅ | ⚠️ |
+| Claude-style artifacts (versioned, live) | ✅ | ✅ | ❌ | ✅ |
+| Agents / custom assistants | ✅ | ✅ | ✅ | ✅ |
+| MCP connectors (stdio + HTTP + OAuth) | ✅ | ✅ | ✅ | ✅ |
+| Memory across conversations | ✅ | ✅ | ✅ | ✅ |
+| Code interpreter | ✅ browser | ✅ server, many languages | ✅ browser + terminal | ⚠️ |
+| Spend caps / usage limits | ✅ | ✅ token balance | ❌ | ❌ |
+| Roles & permissions | ⚠️ workspace-level | ⚠️ | ✅ groups + per-resource | ❌ |
+| Agent / plugin marketplace | ❌ | ⚠️ | ⚠️ | ✅ 500+ |
+| Real shell / terminal | ❌ | ✅ | ✅ | ❌ |
 
-**Where Liberde stands out:** **✨ Auto** per-message routing, **cost + environmental transparency**, an **OpenRouter-native one-key** setup (400+ models, no per-provider config), **single-file self-hosting**, a **tamper-evident audit log with workspace roles and spend caps**, and shipping as a **whole platform** — web + OpenAI-compatible API + CLI + desktop + PWA — rather than just a chat UI.
+**Where Liberde stands out:** **✨ Auto** per-message routing (tiers derived from the live price distribution, not from model names), a **synthesised verdict** across several models that names where they genuinely contradict each other, a **tamper-evident hash-chained audit log** exportable as JSONL or CEF, **cost + environmental transparency** per reply, the **Design Studio**, an **OpenRouter-native one-key** setup, **single-file self-hosting**, and shipping as a **whole platform** — web + OpenAI-compatible API + CLI + desktop + PWA — rather than a chat UI alone.
 
-A note on honesty: live artifacts, MCP and conversation branching were differentiators when this table was first written and are table stakes now — they are listed above because you should expect them, not because they set Liberde apart. The **Design Studio** is good and it is not unique either; the hosted assistants ship comparable canvases. **Browser-run Python is not a differentiator against Open WebUI**, which ships the same Pyodide approach — it is here because a code interpreter that needs no sandbox service, no credentials and no per-run billing is the right design for a self-hostable app, not because it is ours alone. What none of them can offer is running the whole thing **on your own database, under your own key, with an audit trail you can verify** — which is why that is the first thing in the list rather than the last.
+**Where Liberde is behind.** These are real gaps, not modesty:
+
+- **No marketplace.** LobeChat ships 500+ ready-made agents. Liberde's agents and skills are yours to write, and there is nowhere to browse someone else's.
+- **Permissions stop at the workspace.** Open WebUI has groups and per-resource permissions; a Liberde workspace carries budgets and roles but does not yet own individual models, projects or connectors.
+- **No shell.** LibreChat and Open WebUI can run real commands on a server. Liberde's code interpreter is the browser only — Python and JavaScript, no processes, no network beyond CORS.
+- **One language server-side: none.** LibreChat's interpreter runs Python, JavaScript, Go and Rust in a hosted sandbox. Liberde's runs in your browser, which costs nothing and configures nothing, and cannot do what a server can.
+
+**A note on honesty.** Live artifacts, MCP, memory, branching and agents were all differentiators when versions of this table were first written, and every one of them is table stakes now — they are listed because you should expect them, not because they set Liberde apart. **Browser-run Python is not a differentiator either**: Open WebUI ships the same Pyodide approach and LibreChat has a stronger server-side one. It is here because a code interpreter needing no sandbox service, no credentials and no per-run billing is the right design for a self-hostable app. What none of them offers is running the whole thing **on your own database, under your own key, with an audit trail you can verify** — which is why that is first in the list rather than last.
 
 ## The platform
 
@@ -164,6 +178,7 @@ Fresh installs run in **single-user mode** (no login) until the first account is
 - **Queued messages** — type while a reply is streaming and it waits rather than vanishing; a pill shows it and it sends when the turn finishes
 - **Agent Skills (SKILL.md) interop** — skills follow the open [Agent Skills](https://agentskills.io) standard, so one written for Claude Code, claude.ai, VS Code or Codex loads here unchanged, and yours export the same way. Import single files or a whole skills folder; spec fields Liberde cannot store are reported rather than dropped silently
 - **Agents** — a named configuration you start a chat as: a model, standing instructions, a project's knowledge, the skills it always loads, and the connectors and custom tools it should reach for. Build one in **Settings → Agents**; start a chat as it from the chips under the greeting on a new chat. Its model and project are *defaults* — anything the conversation says outranks them, because switching mid-thread is a deliberate act an agent should not undo. Unlike a skill (which waits for a matching task) an agent's skills are in force from the first message
+- **Saved prompts** (**Settings → Prompts**) — keep reusable prompts and insert one by name: type `/` in the composer and pick it by its slash name
 - **Skills** — teach reusable procedures; the model sees each skill's name + description and loads full instructions only when the task matches (progressive disclosure); instructions can reference connector and custom-tool names
 - **Voice conversations** (🎧) — hands-free speak/listen loop, plus 🎤 dictation
 - **Editable artifacts** — ✏ edit any artifact (saves a new version), or select text and hit 💬 for a targeted change

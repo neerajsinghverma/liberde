@@ -99,6 +99,19 @@ const DOCS: Doc[] = [
     ],
   },
   {
+    id: "providers",
+    icon: "globe",
+    title: "Your own clouds",
+    blurb: "Route directly to a provider with your own credentials.",
+    points: [
+      { h: "Add a provider", d: "Settings → Providers — OpenAI, Anthropic, Azure AI Foundry, AWS Bedrock, Google Gemini/Vertex, or any OpenAI-compatible endpoint (Groq, Ollama, vLLM). Their models appear in the picker as “Provider · model”." },
+      { h: "Full parity", d: "They work with the tool loop, web search, PDF extraction, reasoning effort and cost estimates, exactly like an OpenRouter model." },
+      { h: "Per-user", d: "Credentials are yours alone, encrypted at rest, and never returned to the browser once saved." },
+      { h: "Custom tools", d: "Settings → Custom tools — define your own REST endpoints as callable tools three ways: a manual builder with a Test button, an OpenAPI 3.x import, or ask the model to add one mid-chat. Non-GET methods sit behind a write-guard, and secrets are redacted before they reach the client." },
+      { h: "Platform API keys", d: "Settings → Keys mints an lbd- key so your own code, the CLI, or any OpenAI SDK can call this server at /v1/chat/completions. A key is shown once and stored only as a hash." },
+    ],
+  },
+  {
     id: "connectors",
     icon: "wrench",
     title: "Connectors (MCP)",
