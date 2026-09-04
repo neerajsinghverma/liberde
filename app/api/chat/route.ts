@@ -57,6 +57,7 @@ import {
 } from "@/lib/memory";
 import { ANALYSIS_SYSTEM_PROMPT } from "@/lib/analysis";
 import { getRequestUserId, unauthorized } from "@/lib/auth";
+import { designSystemBlock as buildDesignSystemBlock } from "@/lib/design-system";
 import { bodyTooLarge, attachmentsProblem, MAX_CONTENT_CHARS } from "@/lib/limits";
 import { resolveChatTarget, targetHeaders, type ChatTarget } from "@/lib/providers";
 import { applyPromptCache, cacheSessionId, readCacheStats } from "@/lib/prompt-cache";
@@ -356,10 +357,10 @@ Only reply in plain text for a genuine question that clearly isn't a design requ
     try {
       const ds = await getDesignSystem(conversation.design_system_id);
       if (ds && (await canAccessDesignSystem(ds.id, userId))) {
-        designSystemBlock = `# Active design system: ${ds.name}
-The user selected this design system for this conversation. Every artifact you build MUST follow it — declare its palette as CSS custom properties in :root, use its fonts (via Google Fonts <link>), spacing rhythm, and component styles throughout. When asking clarifying questions, skip questions the system already answers (colors, fonts, vibe). Before finishing an artifact, re-check it against the system (palette, typography, spacing, components) and fix any drift. If the user explicitly asks to deviate from the system, the user wins.
-
-${ds.spec}`;
+        // Built from the saved spec rather than inlined here, so the rules the
+        // model is held to and the check that verifies them read the same
+        // palette, fonts and icon style. See lib/design-system.ts.
+        designSystemBlock = buildDesignSystemBlock(ds);
       }
     } catch (e) {
       console.error("design system load failed (continuing without):", e);
