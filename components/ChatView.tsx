@@ -59,6 +59,15 @@ interface Props {
   mode?: string;
 }
 
+/** An agent as the chat surface needs it — see Settings → Agents. */
+interface ChatAgent {
+  id: string;
+  name: string;
+  description: string;
+  model: string;
+  icon: string;
+}
+
 export default function ChatView({
   conversationId,
   models,
@@ -115,6 +124,10 @@ export default function ChatView({
     messageId: string;
     question: string;
   } | null>(null);
+  const [agents, setAgents] = useState<ChatAgent[]>([]);
+  // The agent a not-yet-created chat will start as. It becomes the
+  // conversation's agent_id at creation; after that the conversation owns it.
+  const [pendingAgent, setPendingAgent] = useState<ChatAgent | null>(null);
   const [designSystems, setDesignSystems] = useState<DesignSystem[]>([]);
   const [designSystemId, setDesignSystemId] = useState<string | null>(null);
   const designSystemsRef = useRef<DesignSystem[]>([]);
@@ -264,6 +277,15 @@ export default function ChatView({
         }
       })
       .catch(() => {});
+  }, []);
+
+  // Agents are a small, rarely-changing list, so one load per mount is enough.
+  useEffect(() => {
+    api<ChatAgent[]>("/api/agents")
+      .then(setAgents)
+      .catch(() => {
+        /* an agentless install is the normal case */
+      });
   }, []);
 
   useEffect(() => {
@@ -668,6 +690,7 @@ export default function ChatView({
             temp: tempMode,
             mode,
             ...(mode === "design" && designSystemId ? { designSystemId } : {}),
+            ...(pendingAgent ? { agentId: pendingAgent.id } : {}),
           }),
         });
         id = conv.id;
@@ -926,6 +949,11 @@ export default function ChatView({
     ? projects.find((p) => p.id === conversation.project_id)?.name
     : null;
 
+  // Once a conversation exists it owns the agent; before that, the pick does.
+  const activeAgent =
+    agents.find((a) => a.id === conversation?.agent_id) ??
+    (convId ? null : pendingAgent);
+
   const showWelcome = messages.length === 0 && !isStreaming;
 
   return (
@@ -960,6 +988,24 @@ export default function ChatView({
           >
             <Icon name="menu" size={20} />
           </button>
+        )}
+        {activeAgent && (
+          <span
+            title={activeAgent.description || "Started as this agent"}
+            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-2 py-1 text-xs"
+          >
+            <Icon name={activeAgent.icon || "sparkles"} size={13} className="text-accent" />
+            <span className="max-w-[10rem] truncate font-medium">{activeAgent.name}</span>
+            {!convId && (
+              <button
+                onClick={() => setPendingAgent(null)}
+                title="Start an ordinary chat instead"
+                className="text-ink-muted hover:text-ink"
+              >
+                ✕
+              </button>
+            )}
+          </span>
         )}
         <ModelPicker models={models} value={model} onChange={changeModel} />
         <button
@@ -1118,6 +1164,9 @@ export default function ChatView({
           truncateFromMessageId={compareFor.messageId}
           currentModel={model}
           question={compareFor.question}
+          // Compare replays the thread server-side, so an image anywhere in the
+          // retained history reaches every column — not just one on this message.
+          hasImages={messages.some((m) => (m.images?.length ?? 0) > 0)}
           onClose={() => setCompareFor(null)}
           onCommitted={(picked) => {
             setModel(picked);
@@ -1197,6 +1246,42 @@ export default function ChatView({
             <h1 className="font-display text-4xl font-medium tracking-tight">
               {timeGreeting(userName)}
             </h1>
+            {agents.length > 0 && (
+              <div className="anim-stagger mt-6 w-full max-w-2xl">
+                <p className="mb-2 text-xs uppercase tracking-wide text-ink-muted">
+                  Start as an agent
+                </p>
+                <div className="flex flex-wrap justify-center gap-2">
+                  {agents.map((a) => (
+                    <button
+                      key={a.id}
+                      onClick={() => {
+                        setPendingAgent(a);
+                        // The agent's model is a starting point; showing it now means
+                        // the picker never disagrees with what will answer.
+                        if (a.model) changeModel(a.model);
+                      }}
+                      title={a.description || a.name}
+                      className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm ${
+                        pendingAgent?.id === a.id
+                          ? "border-accent bg-accent/10"
+                          : "border-line bg-surface hover:border-accent"
+                      }`}
+                    >
+                      <Icon name={a.icon || "sparkles"} size={14} className="text-accent" />
+                      {a.name}
+                    </button>
+                  ))}
+                </div>
+                {pendingAgent && (
+                  <p className="mt-2 text-xs text-ink-muted">
+                    {pendingAgent.description
+                      ? pendingAgent.description + " — ask it anything below."
+                      : "Ask it anything below."}
+                  </p>
+                )}
+              </div>
+            )}
             {settings?.hasApiKey && (
               <div className="anim-stagger mt-8 grid max-w-2xl grid-cols-1 gap-2 sm:grid-cols-2">
                 {STARTER_PROMPTS.map((p) => (

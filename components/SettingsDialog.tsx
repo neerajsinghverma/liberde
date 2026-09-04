@@ -96,6 +96,9 @@ function AccountStatus() {
 }
 
 type SettingsTabId =
+  | "agents"
+  | "workspaces"
+  | "audit"
   | "general"
   | "personalization"
   | "providers"
@@ -120,9 +123,12 @@ const SETTINGS_TABS: {
   { id: "personalization", label: "Personal", icon: "star", group: "Settings", keywords: "about you name style instructions memory recall past chats push notifications response" },
   { id: "providers", label: "Providers", icon: "wrench", group: "Settings", keywords: "azure bedrock aws google gemini vertex custom openai compatible groq ollama endpoint clouds" },
   { id: "keys", label: "Keys", icon: "key", group: "Settings", keywords: "api platform key cli token v1 external apps" },
+  { id: "workspaces", label: "Workspaces", icon: "users", group: "Settings", keywords: "workspace team roles owner admin member viewer budget spend cap allowance shared" },
   { id: "admin", label: "Admin", icon: "users", group: "Settings", keywords: "users signups accounts members administration" },
+  { id: "audit", label: "Audit log", icon: "key", group: "Settings", keywords: "audit log hash chain tamper evident security siem cef jsonl export verify compliance" },
   { id: "connectors", label: "Connectors", icon: "globe", group: "Customize", keywords: "mcp server tools deepwiki context7 remote http stdio" },
   { id: "http-tools", label: "Custom tools", icon: "wrench", group: "Customize", keywords: "http rest api tool endpoint openapi swagger custom function call get post" },
+  { id: "agents", label: "Agents", icon: "sparkles", group: "Customize", keywords: "agent assistant persona named configuration role instructions start chat as" },
   { id: "skills", label: "Skills", icon: "book", group: "Customize", keywords: "skill instructions reusable" },
   { id: "prompts", label: "Prompts", icon: "message", group: "Customize", keywords: "prompt template saved snippet" },
   { id: "design-systems", label: "Design systems", icon: "palette", group: "Customize", keywords: "brand colors palette typography fonts design system style guide share" },
@@ -182,8 +188,13 @@ export default function SettingsDialog({
   const [embeddingBaseUrl, setEmbeddingBaseUrl] = useState(settings.embeddingBaseUrl ?? "");
   const [embeddingModel, setEmbeddingModel] = useState(settings.embeddingModel ?? "");
   const [hasEmbeddingKey, setHasEmbeddingKey] = useState(Boolean(settings.hasEmbeddingKey));
+  const [embeddingEnabled, setEmbeddingEnabled] = useState(Boolean(settings.embeddingEnabled));
   const [indexing, setIndexing] = useState(false);
   const [indexMsg, setIndexMsg] = useState<string | null>(null);
+  // The models that can actually emit an image. Typing the id by hand was the
+  // only way to set this, which meant a typo produced a runtime failure the
+  // settings screen could have prevented.
+  const [imageModelIds, setImageModelIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [keyStatus, setKeyStatus] = useState<
     "checking" | { ok: boolean; msg: string } | null
@@ -222,6 +233,14 @@ export default function SettingsDialog({
     );
     setMemories((m) => [...m, created]);
   };
+
+  useEffect(() => {
+    api<string[]>("/api/models/image")
+      .then((ids) => setImageModelIds(Array.isArray(ids) ? ids : []))
+      .catch(() => {
+        /* fall back to free text below */
+      });
+  }, []);
 
   const verifyKey = async () => {
     setKeyStatus("checking");
@@ -297,11 +316,13 @@ export default function SettingsDialog({
           // Only sent when the user typed one — the field is blank on load, and an
           // empty string means "clear it", which is what Remove does on purpose.
           ...(embeddingApiKey.trim() ? { embeddingApiKey: embeddingApiKey.trim() } : {}),
+          embeddingEnabled,
           embeddingBaseUrl,
           embeddingModel,
         }),
       });
       setHasEmbeddingKey(Boolean(saved.hasEmbeddingKey));
+      setEmbeddingEnabled(Boolean(saved.embeddingEnabled));
       onSaved(saved);
       onClose();
     } finally {
@@ -466,12 +487,27 @@ export default function SettingsDialog({
                 label="Image model"
                 hint="Used by the 🎨 Image composer toggle (must support image output)."
               >
-                <input
-                  value={imageModel}
-                  onChange={(e) => setImageModel(e.target.value)}
-                  placeholder="google/gemini-2.5-flash-image"
-                  className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
-                />
+                {imageModelIds.length ? (
+                  <select
+                    value={imageModel}
+                    onChange={(e) => setImageModel(e.target.value)}
+                    className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+                  >
+                    <option value="">Use the default</option>
+                    {imageModelIds.map((id) => (
+                      <option key={id} value={id}>
+                        {id}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={imageModel}
+                    onChange={(e) => setImageModel(e.target.value)}
+                    placeholder="google/gemini-3.1-flash-image"
+                    className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+                  />
+                )}
               </Field>
 
               <Field
@@ -514,75 +550,98 @@ export default function SettingsDialog({
                 <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
                   Semantic search over project knowledge
                   <span className="ml-2 text-xs font-normal text-ink-muted">
-                    {hasEmbeddingKey ? "on" : "off — using keyword matching"}
+                    {embeddingEnabled || hasEmbeddingKey ? "on" : "off — using keyword matching"}
                   </span>
                 </summary>
                 <div className="space-y-3 border-t border-line px-3 py-3">
                   <p className="text-xs text-ink-muted">
                     By default, project knowledge is searched by keyword: a file matches only
-                    when it happens to use the same words you did. Point Liberde at an
-                    embeddings endpoint and it searches by meaning instead, so a paragraph
-                    that answers the question in different words is still found. OpenRouter
-                    does not serve embeddings, so this needs its own endpoint — OpenAI, a
-                    local Ollama or LM Studio, or anything else speaking{" "}
-                    <code>/embeddings</code>.
+                    when it happens to use the same words you did. Turn this on and it is
+                    searched by meaning instead, so a paragraph that answers the question in
+                    different words is still found.
                   </p>
-                  <Field
-                    label="Embeddings API key"
-                    hint={
-                      hasEmbeddingKey
-                        ? "A key is configured. Enter a new one to replace it."
-                        : "Leave blank to keep using keyword matching."
-                    }
-                  >
-                    <div className="flex gap-2">
-                      <input
-                        type="password"
-                        value={embeddingApiKey}
-                        onChange={(e) => setEmbeddingApiKey(e.target.value)}
-                        placeholder={hasEmbeddingKey ? "••••••••••••••••" : "sk-…"}
-                        className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
-                      />
-                      {hasEmbeddingKey ? (
-                        <button
-                          type="button"
-                          onClick={clearEmbeddingKey}
-                          className="shrink-0 rounded-lg border border-line px-3 py-2 text-sm hover:bg-surface-2"
-                        >
-                          Remove
-                        </button>
-                      ) : null}
+                  <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-line p-3 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={embeddingEnabled}
+                      onChange={(e) => setEmbeddingEnabled(e.target.checked)}
+                      className="mt-0.5 accent-(--color-accent)"
+                    />
+                    <span>
+                      <span className="font-medium">Search project knowledge by meaning</span>
+                      <span className="mt-0.5 block text-xs text-ink-muted">
+                        Uses your existing OpenRouter key — there is nothing else to set up.
+                        Indexing a file costs a fraction of a cent, which is the only reason
+                        this is a switch rather than the default.
+                      </span>
+                    </span>
+                  </label>
+                  <details className="rounded-lg border border-line">
+                    <summary className="cursor-pointer px-3 py-2 text-xs text-ink-muted">
+                      Use a different provider instead
+                    </summary>
+                    <div className="space-y-3 border-t border-line px-3 py-3">
+                      <p className="text-xs text-ink-muted">
+                        Any OpenAI-compatible <code>/embeddings</code> endpoint — a local
+                        Ollama, LM Studio, OpenAI direct. Entering a key here overrides the
+                        switch above and is used instead of your OpenRouter key.
+                      </p>
+                      <Field
+                        label="Embeddings API key"
+                        hint={
+                          hasEmbeddingKey
+                            ? "A separate key is configured. Enter a new one to replace it."
+                            : "Leave blank to use your OpenRouter key."
+                        }
+                      >
+                        <div className="flex gap-2">
+                          <input
+                            type="password"
+                            value={embeddingApiKey}
+                            onChange={(e) => setEmbeddingApiKey(e.target.value)}
+                            placeholder={hasEmbeddingKey ? "••••••••••••••••" : "sk-…"}
+                            className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+                          />
+                          {hasEmbeddingKey ? (
+                            <button
+                              type="button"
+                              onClick={clearEmbeddingKey}
+                              className="shrink-0 rounded-lg border border-line px-3 py-2 text-sm hover:bg-surface-2"
+                            >
+                              Remove
+                            </button>
+                          ) : null}
+                        </div>
+                      </Field>
+                      <Field label="Base URL" hint="Blank = OpenRouter">
+                        <input
+                          value={embeddingBaseUrl}
+                          onChange={(e) => setEmbeddingBaseUrl(e.target.value)}
+                          placeholder="https://openrouter.ai/api/v1"
+                          className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+                        />
+                      </Field>
                     </div>
+                  </details>
+                  <Field label="Embedding model">
+                    <input
+                      value={embeddingModel}
+                      onChange={(e) => setEmbeddingModel(e.target.value)}
+                      placeholder="openai/text-embedding-3-small"
+                      className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+                    />
                   </Field>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Field label="Base URL" hint="Blank = https://api.openai.com/v1">
-                      <input
-                        value={embeddingBaseUrl}
-                        onChange={(e) => setEmbeddingBaseUrl(e.target.value)}
-                        placeholder="https://api.openai.com/v1"
-                        className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
-                      />
-                    </Field>
-                    <Field label="Model">
-                      <input
-                        value={embeddingModel}
-                        onChange={(e) => setEmbeddingModel(e.target.value)}
-                        placeholder="text-embedding-3-small"
-                        className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
-                      />
-                    </Field>
-                  </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
                       onClick={reindexProjects}
-                      disabled={indexing || !hasEmbeddingKey}
+                      disabled={indexing || !(embeddingEnabled || hasEmbeddingKey)}
                       className="rounded-lg border border-line px-2.5 py-1 text-xs hover:bg-surface-2 disabled:opacity-50"
                     >
                       {indexing ? "Indexing…" : "Index existing projects"}
                     </button>
                     <span className="text-xs text-ink-muted">
-                      Files are indexed as you upload them. Run this once after saving a key
+                      Files are indexed as you upload them. Run this once after turning it on
                       so the projects you already had are searched by meaning too.
                     </span>
                   </div>
@@ -762,6 +821,10 @@ export default function SettingsDialog({
                 </div>
               </div>
             </div>
+          ) : tab === "workspaces" ? (
+            <WorkspacesTab />
+          ) : tab === "audit" ? (
+            <AuditTab />
           ) : tab === "admin" ? (
             <AdminTab />
           ) : tab === "providers" ? (
@@ -770,6 +833,8 @@ export default function SettingsDialog({
             <ConnectorsTab />
           ) : tab === "http-tools" ? (
             <HttpToolsTab />
+          ) : tab === "agents" ? (
+            <AgentsTab models={models} />
           ) : tab === "skills" ? (
             <SkillsTab models={models} />
           ) : tab === "prompts" ? (
@@ -2396,6 +2461,907 @@ function OpenApiImport({ onClose, onDone }: { onClose: () => void; onDone: () =>
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+interface AgentRow {
+  id: string;
+  name: string;
+  description: string;
+  model: string;
+  instructions: string;
+  project_id: string | null;
+  skill_ids: string[];
+  connector_ids: string[];
+  http_tool_ids: string[];
+  icon: string;
+}
+
+/** Icons an agent can wear. Drawn, not emoji, so they follow the theme. */
+const AGENT_ICONS = [
+  "sparkles", "brain", "wrench", "book", "pencil", "message",
+  "globe", "target", "key", "users", "folder", "code",
+] as const;
+
+const BLANK_AGENT = {
+  id: "",
+  name: "",
+  description: "",
+  model: "",
+  instructions: "",
+  project_id: null as string | null,
+  skill_ids: [] as string[],
+  connector_ids: [] as string[],
+  http_tool_ids: [] as string[],
+  icon: "sparkles",
+};
+
+/**
+ * Agents: a named configuration you start a chat as.
+ *
+ * A skill describes how to do a task and loads when one matches; a project
+ * holds shared context. An agent is the thing a person picks by name — model,
+ * standing instructions, and optionally a project's knowledge, under one label.
+ */
+function AgentsTab({ models }: { models: ModelInfo[] }) {
+  const [agents, setAgents] = useState<AgentRow[]>([]);
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
+  const [skills, setSkills] = useState<{ id: string; name: string; description: string }[]>([]);
+  const [conns, setConns] = useState<{ id: string; name: string }[]>([]);
+  const [httpTools, setHttpTools] = useState<{ id: string; name: string }[]>([]);
+  const [form, setForm] = useState<typeof BLANK_AGENT | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = async () => {
+    setAgents(await api<AgentRow[]>("/api/agents"));
+    try {
+      setProjects(await api<{ id: string; name: string }[]>("/api/projects"));
+    } catch {
+      /* projects are optional context for an agent */
+    }
+    try {
+      setSkills(await api<{ id: string; name: string; description: string }[]>("/api/skills"));
+    } catch {
+      /* an agent without skills is perfectly normal */
+    }
+    try {
+      const d = await api<{ connectors: { id: string; name: string }[] }>("/api/connectors");
+      setConns(d.connectors.map((c) => ({ id: c.id, name: c.name })));
+    } catch {
+      /* connectors optional */
+    }
+    try {
+      const h = await api<{ tools: { id: string; name: string }[] }>("/api/http-tools");
+      setHttpTools((h.tools ?? []).map((t) => ({ id: t.id, name: t.name })));
+    } catch {
+      /* custom tools optional */
+    }
+  };
+  useEffect(() => {
+    load();
+  }, []);
+
+  const save = async () => {
+    if (!form || !form.name.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const payload = {
+        ...(form.id ? { id: form.id } : {}),
+        name: form.name,
+        description: form.description,
+        model: form.model,
+        instructions: form.instructions,
+        projectId: form.project_id,
+        skillIds: form.skill_ids,
+        connectorIds: form.connector_ids,
+        httpToolIds: form.http_tool_ids,
+        icon: form.icon,
+      };
+      const res = await api<{ error?: string }>("/api/agents", {
+        method: form.id ? "PATCH" : "POST",
+        body: JSON.stringify(payload),
+      });
+      if (res && res.error) {
+        setError(res.error);
+        return;
+      }
+      setForm(null);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save that agent.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (a: AgentRow) => {
+    if (!confirm(`Delete "${a.name}"? Chats already started as it keep working.`)) return;
+    await api(`/api/agents?id=${a.id}`, { method: "DELETE" });
+    await load();
+  };
+
+  /** What an agent carries, in one line, so the list is legible at a glance. */
+  const bundleSummary = (a: AgentRow) => {
+    const bits: string[] = [];
+    const n = (a.skill_ids ?? []).length;
+    const t = (a.connector_ids ?? []).length + (a.http_tool_ids ?? []).length;
+    if (n) bits.push(n + " skill" + (n === 1 ? "" : "s"));
+    if (t) bits.push(t + " tool" + (t === 1 ? "" : "s"));
+    return bits.join(" · ");
+  };
+
+  const modelName = (id: string) =>
+    id ? models.find((m) => m.id === id)?.name ?? id : "Whatever the chat is set to";
+
+  if (form) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setForm(null)}
+            className="text-sm text-ink-muted hover:text-ink"
+          >
+            ← Back
+          </button>
+          <h3 className="font-display text-lg font-semibold">
+            {form.id ? "Edit agent" : "New agent"}
+          </h3>
+        </div>
+
+        {error ? (
+          <p className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm">
+            {error}
+          </p>
+        ) : null}
+
+        <Field label="Name" hint="What you'll see in the list and in the chat header.">
+          <input
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            placeholder="Release notes writer"
+            maxLength={60}
+            className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+          />
+        </Field>
+
+        <Field label="Description" hint="A reminder for you. Not sent to the model.">
+          <input
+            value={form.description}
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
+            placeholder="Turns a diff into notes our users can read"
+            maxLength={300}
+            className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+          />
+        </Field>
+
+        <Field label="Icon">
+          <div className="flex flex-wrap gap-1.5">
+            {AGENT_ICONS.map((name) => (
+              <button
+                key={name}
+                type="button"
+                onClick={() => setForm({ ...form, icon: name })}
+                title={name}
+                className={`grid h-9 w-9 place-items-center rounded-lg border ${
+                  form.icon === name
+                    ? "border-accent bg-accent text-white"
+                    : "border-line text-ink-muted hover:bg-surface-2"
+                }`}
+              >
+                <Icon name={name} size={16} />
+              </button>
+            ))}
+          </div>
+        </Field>
+
+        <Field
+          label="Model"
+          hint="A starting point, not a lock — switching model mid-chat still wins."
+        >
+          <select
+            value={form.model}
+            onChange={(e) => setForm({ ...form, model: e.target.value })}
+            className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+          >
+            <option value="">Use my default model</option>
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <Field
+          label="Project knowledge"
+          hint="Every chat with this agent gets that project's files and instructions."
+        >
+          <select
+            value={form.project_id ?? ""}
+            onChange={(e) => setForm({ ...form, project_id: e.target.value || null })}
+            className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+          >
+            <option value="">None</option>
+            {projects.map((pr) => (
+              <option key={pr.id} value={pr.id}>
+                {pr.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <Field
+          label="Skills it always has"
+          hint="Normally a skill loads when a task matches. An agent's skills are in force from the first message."
+        >
+          {skills.length === 0 ? (
+            <p className="text-xs text-ink-muted">
+              No skills yet — make one in Settings → Skills.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {skills.map((sk) => {
+                const on = form.skill_ids.includes(sk.id);
+                return (
+                  <button
+                    key={sk.id}
+                    type="button"
+                    title={sk.description}
+                    onClick={() =>
+                      setForm({
+                        ...form,
+                        skill_ids: on
+                          ? form.skill_ids.filter((x) => x !== sk.id)
+                          : [...form.skill_ids, sk.id],
+                      })
+                    }
+                    className={`rounded-full border px-2.5 py-1 text-xs ${
+                      on
+                        ? "border-accent bg-accent/10"
+                        : "border-line text-ink-muted hover:bg-surface-2"
+                    }`}
+                  >
+                    {sk.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </Field>
+
+        <Field
+          label="Tools it should reach for"
+          hint="Connectors and custom tools are callable anyway; picking them here tells the agent which ones this job is about."
+        >
+          {conns.length + httpTools.length === 0 ? (
+            <p className="text-xs text-ink-muted">
+              No connectors or custom tools yet.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {conns.map((c) => {
+                const on = form.connector_ids.includes(c.id);
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() =>
+                      setForm({
+                        ...form,
+                        connector_ids: on
+                          ? form.connector_ids.filter((x) => x !== c.id)
+                          : [...form.connector_ids, c.id],
+                      })
+                    }
+                    className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs ${
+                      on
+                        ? "border-accent bg-accent/10"
+                        : "border-line text-ink-muted hover:bg-surface-2"
+                    }`}
+                  >
+                    <Icon name="globe" size={11} />
+                    {c.name}
+                  </button>
+                );
+              })}
+              {httpTools.map((t) => {
+                const on = form.http_tool_ids.includes(t.id);
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() =>
+                      setForm({
+                        ...form,
+                        http_tool_ids: on
+                          ? form.http_tool_ids.filter((x) => x !== t.id)
+                          : [...form.http_tool_ids, t.id],
+                      })
+                    }
+                    className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs ${
+                      on
+                        ? "border-accent bg-accent/10"
+                        : "border-line text-ink-muted hover:bg-surface-2"
+                    }`}
+                  >
+                    <Icon name="wrench" size={11} />
+                    {t.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </Field>
+        <Field
+          label="Instructions"
+          hint="Standing instructions, applied to every message in the chat."
+        >
+          <textarea
+            value={form.instructions}
+            onChange={(e) => setForm({ ...form, instructions: e.target.value })}
+            rows={9}
+            placeholder={
+              "You write release notes for a technical audience.\n\n" +
+              "- Lead with what changed for the reader, not the internal name of the change\n" +
+              "- Name the fixes as well as the features\n" +
+              "- Never invent a version number; ask if one is missing"
+            }
+            className="w-full resize-y rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+          />
+        </Field>
+
+        <div className="flex gap-2">
+          <button
+            onClick={save}
+            disabled={busy || !form.name.trim()}
+            className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-40"
+          >
+            {busy ? "Saving…" : form.id ? "Save changes" : "Create agent"}
+          </button>
+          <button
+            onClick={() => setForm(null)}
+            className="rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-surface-2"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-ink-muted">
+        An agent is a named configuration you start a chat as: a model, standing
+        instructions, and optionally a project whose knowledge it always has. Start one
+        from the <b>New chat</b> screen — they appear under the greeting.
+      </p>
+
+      <button
+        onClick={() => {
+          setError(null);
+          setForm({ ...BLANK_AGENT });
+        }}
+        className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover"
+      >
+        New agent
+      </button>
+
+      <div className="divide-y divide-line rounded-xl border border-line">
+        {agents.map((a) => (
+          <div key={a.id} className="flex items-start gap-3 px-3 py-2.5">
+            <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-surface-2 text-accent">
+              <Icon name={a.icon || "sparkles"} size={16} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-baseline gap-2">
+                <span className="text-sm font-medium">{a.name}</span>
+                <span className="text-[11px] text-ink-muted">{modelName(a.model)}</span>
+                {a.project_id ? (
+                  <span className="text-[11px] text-ink-muted">
+                    · {projects.find((pr) => pr.id === a.project_id)?.name ?? "a project"}
+                  </span>
+                ) : null}
+                {bundleSummary(a) ? (
+                  <span className="text-[11px] text-ink-muted">· {bundleSummary(a)}</span>
+                ) : null}
+              </div>
+              {a.description ? (
+                <p className="mt-0.5 line-clamp-2 text-xs text-ink-muted">{a.description}</p>
+              ) : null}
+            </div>
+            <div className="flex shrink-0 gap-2 text-xs">
+              <button
+                onClick={() => {
+                  setError(null);
+                  setForm({
+                    id: a.id,
+                    name: a.name,
+                    description: a.description,
+                    model: a.model,
+                    instructions: a.instructions,
+                    project_id: a.project_id,
+                    skill_ids: a.skill_ids ?? [],
+                    connector_ids: a.connector_ids ?? [],
+                    http_tool_ids: a.http_tool_ids ?? [],
+                    icon: a.icon || "sparkles",
+                  });
+                }}
+                className="text-ink-muted hover:text-ink"
+              >
+                Edit
+              </button>
+              <button
+                onClick={() => remove(a)}
+                className="text-ink-muted hover:text-red-500"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        ))}
+        {agents.length === 0 && (
+          <p className="px-3 py-4 text-center text-sm text-ink-muted">
+            No agents yet.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Small costs need cents; a monthly total does not. */
+const fmtUsd = (n: number) =>
+  n === 0 ? "$0" : n < 0.01 ? "<$0.01" : "$" + n.toFixed(n < 10 ? 2 : 0);
+
+interface WorkspaceRow {
+  id: string;
+  name: string;
+  owner_id: string;
+  monthly_budget_usd: number | null;
+  per_member_budget_usd: number | null;
+  spend: number;
+}
+
+interface MemberRow {
+  user_id: string;
+  role: "owner" | "admin" | "member" | "viewer";
+  email?: string;
+  name?: string;
+}
+
+const ROLE_ORDER = ["owner", "admin", "member", "viewer"] as const;
+
+/**
+ * Workspaces: shared budgets and who may do what.
+ *
+ * The rules live on the server — an admin cannot mint or demote an owner, and
+ * the last owner cannot be removed — so this asks and reports rather than
+ * deciding. Showing a control that the server will refuse is worse than not
+ * showing it, so the actions the caller's role cannot take are simply absent.
+ */
+function WorkspacesTab() {
+  const [rows, setRows] = useState<WorkspaceRow[]>([]);
+  const [open, setOpen] = useState<string | null>(null);
+  const [members, setMembers] = useState<MemberRow[]>([]);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<MemberRow["role"]>("member");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    try {
+      setRows(await api<WorkspaceRow[]>("/api/workspaces"));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load workspaces.");
+    }
+  };
+  useEffect(() => {
+    load();
+  }, []);
+
+  const loadMembers = async (id: string) => {
+    setOpen(id);
+    setMembers([]);
+    try {
+      setMembers(await api<MemberRow[]>(`/api/workspaces/${id}/members`));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load members.");
+    }
+  };
+
+  const act = async (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await fn();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That did not work.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const create = () =>
+    act(async () => {
+      if (!name.trim()) return;
+      await api("/api/workspaces", {
+        method: "POST",
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      setName("");
+      await load();
+    });
+
+  const setBudget = (w: WorkspaceRow, field: "monthly" | "perMember", value: string) =>
+    act(async () => {
+      const n = value.trim() === "" ? null : Number(value);
+      if (n !== null && (!Number.isFinite(n) || n < 0)) return;
+      await api("/api/workspaces", {
+        method: "PATCH",
+        body: JSON.stringify({
+          id: w.id,
+          ...(field === "monthly" ? { monthlyBudgetUsd: n } : { perMemberBudgetUsd: n }),
+        }),
+      });
+      await load();
+    });
+
+  const addMember = (id: string) =>
+    act(async () => {
+      if (!email.trim()) return;
+      await api(`/api/workspaces/${id}/members`, {
+        method: "POST",
+        body: JSON.stringify({ email: email.trim(), role }),
+      });
+      setEmail("");
+      await loadMembers(id);
+    });
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-ink-muted">
+        A workspace groups people under one budget and one set of roles. An over-budget
+        request is refused before any model is called, with a message naming the limit it
+        hit.
+      </p>
+
+      {error ? (
+        <p className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm">
+          {error}
+        </p>
+      ) : null}
+
+      <div className="flex gap-2">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="New workspace name"
+          className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+        />
+        <button
+          onClick={create}
+          disabled={busy || !name.trim()}
+          className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-40"
+        >
+          Create
+        </button>
+      </div>
+
+      <div className="divide-y divide-line rounded-xl border border-line">
+        {rows.map((w) => (
+          <div key={w.id} className="px-3 py-3">
+            <div className="flex flex-wrap items-baseline gap-2">
+              <span className="text-sm font-medium">{w.name}</span>
+              <span className="text-[11px] text-ink-muted">
+                {fmtUsd(w.spend)} spent this month
+                {w.monthly_budget_usd != null
+                  ? ` of ${fmtUsd(w.monthly_budget_usd)}`
+                  : " · no cap"}
+              </span>
+              <button
+                onClick={() => (open === w.id ? setOpen(null) : loadMembers(w.id))}
+                className="ml-auto text-xs text-ink-muted hover:text-ink"
+              >
+                {open === w.id ? "Hide" : "Members"}
+              </button>
+            </div>
+
+            {w.monthly_budget_usd != null && w.monthly_budget_usd > 0 ? (
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2">
+                <div
+                  className={
+                    w.spend >= w.monthly_budget_usd ? "h-full bg-red-500" : "h-full bg-accent"
+                  }
+                  style={{
+                    width: `${Math.min(100, (w.spend / w.monthly_budget_usd) * 100)}%`,
+                  }}
+                />
+              </div>
+            ) : null}
+
+            <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
+              <label className="text-xs text-ink-muted">
+                Monthly cap (USD)
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  defaultValue={w.monthly_budget_usd ?? ""}
+                  onBlur={(e) => setBudget(w, "monthly", e.target.value)}
+                  placeholder="none"
+                  className="mt-1 w-full rounded-lg border border-line bg-bg px-2.5 py-1.5 text-sm text-ink outline-none focus:border-accent"
+                />
+              </label>
+              <label className="text-xs text-ink-muted">
+                Per-person allowance (USD)
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  defaultValue={w.per_member_budget_usd ?? ""}
+                  onBlur={(e) => setBudget(w, "perMember", e.target.value)}
+                  placeholder="none"
+                  className="mt-1 w-full rounded-lg border border-line bg-bg px-2.5 py-1.5 text-sm text-ink outline-none focus:border-accent"
+                />
+              </label>
+            </div>
+
+            {open === w.id ? (
+              <div className="mt-3 space-y-2 rounded-lg border border-line p-2.5">
+                {members.map((m) => (
+                  <div key={m.user_id} className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="min-w-0 flex-1 truncate">
+                      {m.name || m.email || m.user_id}
+                    </span>
+                    <select
+                      value={m.role}
+                      onChange={(e) =>
+                        act(async () => {
+                          await api(`/api/workspaces/${w.id}/members`, {
+                            method: "PATCH",
+                            body: JSON.stringify({ userId: m.user_id, role: e.target.value }),
+                          });
+                          await loadMembers(w.id);
+                        })
+                      }
+                      className="rounded-lg border border-line bg-bg px-2 py-1 text-xs outline-none focus:border-accent"
+                    >
+                      {ROLE_ORDER.map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() =>
+                        act(async () => {
+                          await api(
+                            `/api/workspaces/${w.id}/members?userId=${encodeURIComponent(m.user_id)}`,
+                            { method: "DELETE" }
+                          );
+                          await loadMembers(w.id);
+                        })
+                      }
+                      className="text-xs text-ink-muted hover:text-red-500"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                {members.length === 0 && (
+                  <p className="text-xs text-ink-muted">No members loaded.</p>
+                )}
+                <div className="flex flex-wrap gap-2 border-t border-line pt-2">
+                  <input
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="person@example.com"
+                    className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-2.5 py-1.5 text-sm outline-none focus:border-accent"
+                  />
+                  <select
+                    value={role}
+                    onChange={(e) => setRole(e.target.value as MemberRow["role"])}
+                    className="rounded-lg border border-line bg-bg px-2 py-1.5 text-xs outline-none focus:border-accent"
+                  >
+                    {ROLE_ORDER.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => addMember(w.id)}
+                    disabled={busy || !email.trim()}
+                    className="rounded-lg border border-line px-2.5 py-1.5 text-xs hover:bg-surface-2 disabled:opacity-40"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ))}
+        {rows.length === 0 && (
+          <p className="px-3 py-4 text-center text-sm text-ink-muted">
+            No workspaces yet.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface AuditRow {
+  id: string;
+  seq: number;
+  at: number;
+  user_id: string | null;
+  action: string;
+  target_type: string | null;
+  target_id: string | null;
+  detail: string | null;
+  ip: string | null;
+  hash: string;
+}
+
+/**
+ * The audit log, and the thing that makes it worth having: verification.
+ *
+ * The chain is only meaningful if someone can check it, so Verify is the first
+ * control rather than a footnote, and a break reports the exact sequence number
+ * where the hashes stop agreeing.
+ */
+function AuditTab() {
+  const [rows, setRows] = useState<AuditRow[]>([]);
+  const [action, setAction] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [verdict, setVerdict] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+
+  const load = async (filter = action) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const qs = filter ? `?action=${encodeURIComponent(filter)}` : "";
+      setRows(await api<AuditRow[]>(`/api/admin/audit${qs}`));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load the audit log.");
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => {
+    load("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const verify = async () => {
+    setVerifying(true);
+    setVerdict(null);
+    try {
+      const r = await api<{ ok: boolean; checked: number; brokenAt?: number | null }>(
+        "/api/admin/audit?verify=1"
+      );
+      setVerdict(
+        r.ok
+          ? `Chain intact — ${r.checked} entries verified.`
+          : `Chain broken at entry #${r.brokenAt}. Everything before it still verifies.`
+      );
+    } catch (e) {
+      setVerdict(e instanceof Error ? e.message : "Could not verify.");
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-ink-muted">
+        Every entry is hashed against the one before it, so an edited or deleted row breaks
+        verification and the check reports which one. Tool arguments are recorded by name
+        only, never by value — the log outlives the conversation.
+      </p>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          onClick={verify}
+          disabled={verifying}
+          className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-40"
+        >
+          {verifying ? "Verifying…" : "Verify chain"}
+        </button>
+        <a
+          href="/api/admin/audit?format=jsonl"
+          className="rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-surface-2"
+        >
+          Export JSONL
+        </a>
+        <a
+          href="/api/admin/audit?format=cef"
+          className="rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-surface-2"
+        >
+          Export CEF
+        </a>
+      </div>
+
+      {verdict ? (
+        <p
+          className={`rounded-lg border px-3 py-2 text-sm ${
+            verdict.startsWith("Chain intact")
+              ? "border-emerald-500/40 bg-emerald-500/10"
+              : "border-red-500/40 bg-red-500/10"
+          }`}
+        >
+          {verdict}
+        </p>
+      ) : null}
+
+      <div className="flex gap-2">
+        <input
+          value={action}
+          onChange={(e) => setAction(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") load();
+          }}
+          placeholder="Filter by action (e.g. login, tool_call)"
+          className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+        />
+        <button
+          onClick={() => load()}
+          className="shrink-0 rounded-lg border border-line px-3 py-2 text-sm hover:bg-surface-2"
+        >
+          Filter
+        </button>
+      </div>
+
+      {error ? (
+        <p className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm">
+          {error}
+        </p>
+      ) : null}
+
+      <div className="overflow-x-auto rounded-xl border border-line">
+        <table className="w-full text-left text-xs">
+          <thead className="border-b border-line text-ink-muted">
+            <tr>
+              <th className="px-2.5 py-2 font-medium">#</th>
+              <th className="px-2.5 py-2 font-medium">When</th>
+              <th className="px-2.5 py-2 font-medium">Action</th>
+              <th className="px-2.5 py-2 font-medium">Target</th>
+              <th className="px-2.5 py-2 font-medium">IP</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td className="px-2.5 py-1.5 font-mono text-ink-muted">{r.seq}</td>
+                <td className="whitespace-nowrap px-2.5 py-1.5">
+                  {new Date(r.at).toLocaleString()}
+                </td>
+                <td className="px-2.5 py-1.5 font-medium">{r.action}</td>
+                <td className="max-w-[16rem] truncate px-2.5 py-1.5 text-ink-muted">
+                  {[r.target_type, r.target_id].filter(Boolean).join(" ")}
+                </td>
+                <td className="px-2.5 py-1.5 text-ink-muted">{r.ip ?? ""}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!loading && rows.length === 0 && (
+          <p className="px-3 py-4 text-center text-sm text-ink-muted">
+            Nothing recorded yet.
+          </p>
+        )}
+        {loading && (
+          <p className="px-3 py-4 text-center text-sm text-ink-muted">Loading…</p>
+        )}
+      </div>
     </div>
   );
 }

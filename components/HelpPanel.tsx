@@ -110,6 +110,23 @@ const DOCS: Doc[] = [
     ],
   },
   {
+    id: "agents",
+    icon: "sparkles",
+    title: "Agents",
+    blurb: "A named configuration you start a chat as.",
+    points: [
+      { h: "What an agent is", d: "One name that carries a model, standing instructions, a project's knowledge, the skills it always has, and the tools it should reach for. A skill describes how to do a task and loads when one matches; a project holds documents. An agent is the thing you pick by name and talk to." },
+      { h: "Make one", d: "Settings → Agents → New agent. Only a name is required — everything else narrows what it does. Give it an icon so it is recognisable in the list." },
+      { h: "Start a chat as it", d: "Open a new chat: your agents appear under the greeting as chips. Click one and ask your question. The chat header shows which agent is answering, and ✕ turns it back into an ordinary chat before you send." },
+      { h: "Instructions", d: "Standing instructions applied to every message in that chat — the agent's job, its rules, its house style. This is the part that does most of the work." },
+      { h: "Knowledge", d: "Bind a project and every chat with the agent gets that project's files and instructions. If you start the chat inside a different project, that project wins — your explicit choice outranks the agent's default." },
+      { h: "Skills it always has", d: "Normally a skill waits to be called. An agent's skills are in force from the first message, because you already said what kind of work this is by picking the agent." },
+      { h: "Tools it reaches for", d: "Connectors and custom tools are callable anyway; naming them here tells the agent which ones this job is about, so it uses the right one instead of guessing." },
+      { h: "Model", d: "A starting point, not a lock. Anything you or the conversation choose outranks it, because switching model mid-thread is a deliberate act an agent should not undo." },
+      { h: "Deleting one", d: "Chats already started as an agent keep working and keep their history — they simply stop being bound to it." },
+    ],
+  },
+  {
     id: "skills",
     icon: "brain",
     title: "Skills",
@@ -169,9 +186,11 @@ const DOCS: Doc[] = [
     points: [
       { h: "Workspaces", d: "Group people under one workspace with roles: owner, admin, member, or viewer. A viewer can see the workspace but cannot spend against it, and an admin can manage members without being able to create or demote an owner." },
       { h: "Spend caps", d: "Set a monthly budget for the whole workspace, a per-person allowance, or both. A capped request is refused before any model is called, with a message saying which limit was hit and by how much — nothing is spent finding out." },
-      { h: "Audit log", d: "Admins get a record of logins, key creation, tool calls, skill imports and membership changes at Admin → Audit. Tool arguments are recorded by name only, never by value, because the log outlives the conversation." },
+      { h: "Audit log", d: "Admins get a record of logins, key creation, tool calls, skill imports and membership changes at Settings → Audit log, where Verify chain walks every entry and names the exact one where the hashes stop agreeing. Tool arguments are recorded by name only, never by value, because the log outlives the conversation." },
       { h: "Tamper-evident", d: "Each entry is hashed against the one before it, so an edited or deleted row breaks verification and says which one. Verify the chain any time; export as JSONL or CEF for a SIEM." },
-    ],
+
+      { h: "Where workspaces live", d: "Settings → Workspaces. Create one, set a monthly cap or a per-person allowance, and add people by email with a role. An over-budget request is refused before any model is called, with a message naming the limit it hit." },
+      { h: "Where the audit log lives", d: "Settings → Audit log (admins). Verify chain walks every entry and reports the exact one where the hashes stop agreeing; Export JSONL or CEF hands the whole thing to a SIEM." },    ],
   },
   {
     id: "trouble",

@@ -75,6 +75,36 @@ function councilPrompt(answers: { model: string; text: string }[]): string {
   ].join("\n");
 }
 
+/**
+ * Turn an upstream error body into something a person can act on.
+ *
+ * Providers answer with a JSON envelope, and pasting 120 characters of it into
+ * a column tells the reader the run failed without telling them why or what to
+ * do — the most common case, a text-only model handed an image, has an obvious
+ * remedy that the raw text buries.
+ */
+function upstreamMessage(status: number, body: string): string {
+  let detail = body.trim();
+  try {
+    const parsed = JSON.parse(body);
+    detail = String(parsed?.error?.message ?? parsed?.message ?? detail);
+  } catch {
+    /* not JSON — fall through to the raw text */
+  }
+
+  if (/support image input|image input|does not support.*image/i.test(detail)) {
+    return "This model can't read images, and the conversation contains one.";
+  }
+  if (status === 429 || /rate.?limit/i.test(detail)) {
+    return "Rate limited upstream — try this model again in a moment.";
+  }
+  if (status === 402 || /credit|insufficient|quota/i.test(detail)) {
+    return "Out of credit for this model on your account.";
+  }
+  if (status === 404 && !detail) return "This model isn't available on your account.";
+
+  return detail ? detail.slice(0, 200) : `The provider returned ${status}.`;
+}
 export async function POST(req: NextRequest) {
   const userId = await getRequestUserId();
   if (!userId) return unauthorized();
@@ -214,12 +244,7 @@ export async function POST(req: NextRequest) {
             );
             if (!res.ok || !res.body) {
               const detail = await res.text().catch(() => "");
-              emit({
-                col,
-                error: `Model failed (${res.status})${
-                  detail ? `: ${detail.slice(0, 120)}` : ""
-                }`,
-              });
+              emit({ col, error: upstreamMessage(res.status, detail) });
               emit({ col, done: true, model: modelId });
               return;
             }

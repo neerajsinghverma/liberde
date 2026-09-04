@@ -311,6 +311,74 @@ export async function assembleTools(userId?: string): Promise<{
   return { tools, errors };
 }
 
+/**
+ * The skills and tools an agent always brings, as prompt text.
+ *
+ * A skill normally waits to be called — the model sees its name and loads it
+ * when a task matches. An agent's skills are not conditional: the person
+ * chose this agent for this kind of work, so its instructions are already in
+ * force and making the model spend a tool round to discover them wastes a
+ * round and lets it decide not to.
+ *
+ * Tools stay merely named. They are already callable; the agent's list says
+ * which ones this job is about.
+ */
+export async function agentBundleBlock(
+  agent: {
+    skill_ids: string[];
+    connector_ids: string[];
+    http_tool_ids: string[];
+  },
+  userId: string
+): Promise<string> {
+  const parts: string[] = [];
+
+  if (agent.skill_ids.length) {
+    const all = await listSkills(userId);
+    for (const id of agent.skill_ids) {
+      const skill = all.find((x) => x.id === id);
+      if (!skill || !skill.enabled) continue;
+      parts.push(`## ${skill.name}\n\n${skill.instructions}`);
+    }
+  }
+
+  const toolLines: string[] = [];
+  if (agent.connector_ids.length) {
+    const all = await listConnectors(userId);
+    for (const id of agent.connector_ids) {
+      const c = all.find((x) => x.id === id);
+      if (!c || !c.enabled) continue;
+      const off = disabledTools(c);
+      let cached: DiscoveredTool[] = [];
+      try {
+        cached = c.tools_cache ? JSON.parse(c.tools_cache) : [];
+      } catch {
+        cached = [];
+      }
+      for (const t of cached) {
+        if (off.has(t.name)) continue;
+        toolLines.push(
+          `- \`${namespacedToolName(c, t.name)}\` — ${t.description}`.slice(0, 300)
+        );
+      }
+    }
+  }
+  if (agent.http_tool_ids.length) {
+    const all = await listHttpTools(userId);
+    for (const id of agent.http_tool_ids) {
+      const t = all.find((x) => x.id === id);
+      if (!t || !t.enabled) continue;
+      toolLines.push(`- \`${t.name}\` — ${t.description}`.slice(0, 300));
+    }
+  }
+  if (toolLines.length) {
+    parts.push(
+      "## Tools for this agent\nPrefer these to carry out the work:\n" + toolLines.join("\n")
+    );
+  }
+
+  return parts.join("\n\n");
+}
 /** Cap on a single tool result fed back into the model's context. */
 const MAX_TOOL_OUTPUT = 8000;
 

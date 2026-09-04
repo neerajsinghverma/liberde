@@ -255,7 +255,9 @@ export interface AppSettings {
   /** Let the model search the user's own past chats (search_past_chats tool). */
   recallEnabled: boolean;
   temperature: number;
-  /** true when an embeddings key is configured (the key itself never leaves the server) */
+  /** Semantic retrieval is on, using the account's OpenRouter key. */
+  embeddingEnabled?: boolean;
+  /** true when a *separate* embeddings key is configured (the key never leaves the server) */
   hasEmbeddingKey?: boolean;
   /** OpenAI-compatible /embeddings base URL; blank means the OpenAI default. */
   embeddingBaseUrl?: string;

@@ -156,13 +156,14 @@ Fresh installs run in **single-user mode** (no login) until the first account is
 - **Plan mode** (✦) — plan-then-execute with the full tool belt (search, page reading, MCP, skills); live checklist, final deliverable (often an artifact), resumable across serverless invocations
 - **MCP connectors** — add any MCP server (remote HTTP) in Settings → Connectors; tools become callable mid-conversation with a live activity trail. Remote servers support bearer tokens **and the full MCP OAuth 2.1 flow** (discovery, dynamic client registration, PKCE)
 - **Custom HTTP/REST tools** — define your own API endpoints as callable tools three ways: a manual builder with a Test button, **OpenAPI 3.x import**, or let the model add one mid-chat (`create_http_tool`). Per-user encrypted secrets (redacted to the client), a write-guard on non-GET methods, and skills can bundle tools
-- **Workspaces, roles and spend caps** — group people under a workspace with owner / admin / member / viewer roles. An admin can manage members but cannot mint or demote an owner, and the last owner cannot be removed. Set a monthly workspace budget, a per-person allowance, or both; an over-budget request is refused with a message naming the limit it hit, before any model is called
-- **Tamper-evident audit log** (Admin → Audit) — every entry is hashed against the one before it, so an edited or deleted row breaks verification and reports which one. Records logins and failures, key creation and revocation, tool calls, skill imports, membership and budget changes. Tool arguments are logged by *name* only, never by value, because the log outlives the conversation. Verify on demand; export JSONL or CEF for a SIEM; retention is configurable and defaults to keeping everything
+- **Workspaces, roles and spend caps** (**Settings → Workspaces**) — group people under a workspace with owner / admin / member / viewer roles. An admin can manage members but cannot mint or demote an owner, and the last owner cannot be removed. Set a monthly workspace budget, a per-person allowance, or both; an over-budget request is refused with a message naming the limit it hit, before any model is called
+- **Tamper-evident audit log** (**Settings → Audit log**) — every entry is hashed against the one before it, so an edited or deleted row breaks verification and the check reports which one. Records logins and failures, key creation and revocation, tool calls, skill imports, membership and budget changes. Tool arguments are logged by *name* only, never by value, because the log outlives the conversation. Verify the chain on demand; export JSONL or CEF for a SIEM; retention is configurable and defaults to keeping everything
 - **Prompt caching** — Anthropic and Qwen bill the whole prompt again each turn unless a `cache_control` breakpoint says otherwise; every other family on OpenRouter caches automatically and is left alone. The system prompt is split into a stable head and a volatile tail so the cached prefix stays byte-identical between turns, and `session_id` pins a conversation to one upstream provider so the cache is actually reachable. Hover a reply's cost to see how much of its input came from cache
 - **Parallel agent steps** — the planner marks which steps are independent; those run at the same time while dependent steps stay ordered. Resume is unchanged
 - **Reload mid-reply** — a reply in flight is mirrored server-side, so closing the tab or reloading picks the answer up in progress instead of showing a spinner until it lands
 - **Queued messages** — type while a reply is streaming and it waits rather than vanishing; a pill shows it and it sends when the turn finishes
 - **Agent Skills (SKILL.md) interop** — skills follow the open [Agent Skills](https://agentskills.io) standard, so one written for Claude Code, claude.ai, VS Code or Codex loads here unchanged, and yours export the same way. Import single files or a whole skills folder; spec fields Liberde cannot store are reported rather than dropped silently
+- **Agents** — a named configuration you start a chat as: a model, standing instructions, a project's knowledge, the skills it always loads, and the connectors and custom tools it should reach for. Build one in **Settings → Agents**; start a chat as it from the chips under the greeting on a new chat. Its model and project are *defaults* — anything the conversation says outranks them, because switching mid-thread is a deliberate act an agent should not undo. Unlike a skill (which waits for a matching task) an agent's skills are in force from the first message
 - **Skills** — teach reusable procedures; the model sees each skill's name + description and loads full instructions only when the task matches (progressive disclosure); instructions can reference connector and custom-tool names
 - **Voice conversations** (🎧) — hands-free speak/listen loop, plus 🎤 dictation
 - **Editable artifacts** — ✏ edit any artifact (saves a new version), or select text and hit 💬 for a targeted change
@@ -205,7 +206,7 @@ Liberde implements the same artifact architecture as Claude.ai:
 
 ## Platform API
 
-Create a key in **Settings → Platform API keys**, then call the server like any OpenAI-compatible endpoint:
+Create a key in **Settings → Keys**, then call the server like any OpenAI-compatible endpoint:
 
 ```bash
 curl https://your-server/v1/chat/completions \
@@ -255,6 +256,23 @@ Set `LIBERDE_URL` to point the shell at a remote Liberde server.
 - `app/v1/*` — the public platform API; authenticates `lbd-` keys (SHA-256 hashes in `api_keys`) and proxies to OpenRouter
 - `components/AppShell.tsx` — a single client shell using `history.pushState` navigation so streams survive route changes
 
+## Verifying a change
+
+```bash
+npm run verify        # audit + logic tests + typecheck (+ live smoke on cloud)
+```
+
+Three checks, because a green build proves less than it looks like it does:
+
+| Command | Asks |
+|---|---|
+| `npm run audit` | Can a person **reach** every feature? Does the **other edition** have it? Does the **documentation** describe something that exists? Is each capability **wired end to end**? |
+| `npm run test:logic` | Is the logic **right** — routing tiers, budget rules, the audit hash chain, retrieval, conformance, artifact parsing, SSRF? |
+| `npm run smoke` | Does the deployed site answer, and does every private route **refuse** an anonymous caller? |
+
+The audit exists because four features once shipped that no screen could reach, two of
+them documented as though they had a home. Types and builds were green throughout —
+neither asks whether a user can get to the thing.
 ## Security
 
 Liberde is built to run as a public, multi-user service. Highlights:

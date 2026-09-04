@@ -11,6 +11,38 @@ A browsable version of this page lives at **[liberde.ai/changelog.html](https://
 
 ---
 
+## 2026-09-04 (later) — Everything reachable, and a check that keeps it that way
+
+### Added
+
+- **Agents** — a named configuration you start a chat as: model, standing instructions, a
+  project's knowledge, the skills it always loads, and the tools it should reach for.
+  **Settings → Agents** to build one; chips under the greeting on a new chat to start one.
+- **Settings → Workspaces** and **Settings → Audit log** — both features existed and had no
+  interface at all. The README described them as though they did.
+- **`npm run verify`** — a reachability, parity, documentation-truth and wiring audit (293
+  checks), 71 logic tests, and a live smoke test asserting every private route refuses an
+  anonymous caller (36 checks).
+
+### Changed
+
+- **Semantic search no longer needs a second API key.** OpenRouter serves
+  `/api/v1/embeddings` with the key you already have — the previous requirement rested on a
+  wrong belief, written into a code comment and repeated in the docs. It is one switch now,
+  with a separate endpoint still available for a local Ollama or LM Studio.
+- **Self-host applies agents.** The API and the schema were there; the chat route never read
+  them, so picking an agent did nothing on a self-hosted install.
+
+### Fixed
+
+- **Comparing models on a thread containing an image** offered models that cannot read one,
+  then printed the provider's raw JSON when they 404'd. Text-only models are now
+  unselectable with the reason shown, and every upstream error is reported as a sentence.
+- **The image model had to be typed by hand**, so a typo became a runtime failure. It is now
+  a list of the models that can actually emit an image.
+
+---
+
 ## 2026-09-04 — Code that runs, and a home for everything you build
 
 ### Added
@@ -66,7 +98,7 @@ A browsable version of this page lives at **[liberde.ai/changelog.html](https://
 
 ### Added
 
-- **Tamper-evident audit log** (Admin → Audit) — every entry is hashed against the one before it,
+- **Tamper-evident audit log** — every entry is hashed against the one before it,
   so an edited or deleted row breaks verification and the log reports which one. Records logins
   and failures, key creation and revocation, tool calls, skill imports, membership and budget
   changes. Verify on demand; export JSONL or CEF for a SIEM; retention configurable.

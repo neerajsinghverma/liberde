@@ -79,6 +79,7 @@ export default function ComparePanel({
   truncateFromMessageId,
   currentModel,
   question,
+  hasImages,
   onClose,
   onCommitted,
 }: {
@@ -87,11 +88,16 @@ export default function ComparePanel({
   truncateFromMessageId: string;
   currentModel: string;
   question: string;
+  /** The thread carries an image, so a text-only model cannot answer it. */
+  hasImages?: boolean;
   onClose: () => void;
   onCommitted: (model: string) => void;
 }) {
   const [selected, setSelected] = useState<string[]>(() =>
-    suggestDefaults(models, currentModel)
+    suggestDefaults(models, currentModel).filter((id) => {
+      const m = models.find((x) => x.id === id);
+      return !hasImages || (m?.supportsImages ?? false);
+    })
   );
   const [running, setRunning] = useState(false);
   const [finished, setFinished] = useState(false);
@@ -114,6 +120,11 @@ export default function ComparePanel({
     return () => document.removeEventListener("mousedown", onClick);
   }, [picker]);
 
+  // A text-only model asked to read an image does not degrade — it 404s with
+  // 'No endpoints found that support image input' and the column dies. Better
+  // to say so in the picker than to spend the turn finding out.
+  const canAnswer = (m: ModelInfo) => !hasImages || m.supportsImages;
+
   const nameOf = (id: string) => models.find((m) => m.id === id)?.name ?? id;
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -126,9 +137,12 @@ export default function ComparePanel({
   }, [models, query]);
 
   const toggle = (id: string) =>
-    setSelected((s) =>
-      s.includes(id) ? s.filter((x) => x !== id) : s.length >= 4 ? s : [...s, id]
-    );
+    setSelected((s) => {
+      if (s.includes(id)) return s.filter((x) => x !== id);
+      const m = models.find((x) => x.id === id);
+      if (!m || !canAnswer(m)) return s;
+      return s.length >= 4 ? s : [...s, id];
+    });
 
   const totalCost = columns.reduce((sum, c) => sum + c.cost, 0);
 
@@ -289,25 +303,34 @@ export default function ComparePanel({
                     className="w-full border-b border-line bg-transparent px-3 py-2 text-sm outline-none placeholder:text-ink-muted"
                   />
                   <div className="max-h-72 overflow-y-auto p-1">
-                    {filtered.map((m) => (
-                      <button
-                        key={m.id}
-                        onClick={() => toggle(m.id)}
-                        className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm hover:bg-surface-2 ${
-                          selected.includes(m.id) ? "bg-surface-2" : ""
-                        }`}
-                      >
-                        <span className="min-w-0">
-                          <span className="block truncate font-medium">{m.name}</span>
-                          <span className="block truncate text-[11px] text-ink-muted">
-                            {m.id}
+                    {filtered.map((m) => {
+                      const eligible = canAnswer(m);
+                      return (
+                        <button
+                          key={m.id}
+                          onClick={() => toggle(m.id)}
+                          disabled={!eligible}
+                          title={
+                            eligible
+                              ? undefined
+                              : "This thread contains an image and this model cannot read one."
+                          }
+                          className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm ${
+                            eligible ? "hover:bg-surface-2" : "cursor-not-allowed opacity-45"
+                          } ${selected.includes(m.id) ? "bg-surface-2" : ""}`}
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate font-medium">{m.name}</span>
+                            <span className="block truncate text-[11px] text-ink-muted">
+                              {eligible ? m.id : "Can't read images"}
+                            </span>
                           </span>
-                        </span>
-                        {selected.includes(m.id) && (
-                          <span className="shrink-0 text-accent">✓</span>
-                        )}
-                      </button>
-                    ))}
+                          {selected.includes(m.id) && (
+                            <span className="shrink-0 text-accent">✓</span>
+                          )}
+                        </button>
+                      );
+                    })}
                     {filtered.length === 0 && (
                       <p className="px-3 py-4 text-center text-sm text-ink-muted">
                         No models match.
@@ -334,6 +357,12 @@ export default function ComparePanel({
             <span className="text-xs text-ink-muted">
               Runs {selected.length} models on your question — about {selected.length}× a
               normal turn.
+              {hasImages && (
+                <>
+                  {" "}
+                  Only vision models can be picked — this thread contains an image.
+                </>
+              )}
               {totalCost > 0 && (
                 <>
                   {" "}

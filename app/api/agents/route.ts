@@ -18,6 +18,12 @@ import {
  * actually reach for.
  */
 
+/** Accept an array of ids from an untrusted body, bounded and de-duplicated. */
+const idsOf = (v: unknown): string[] =>
+  Array.isArray(v)
+    ? [...new Set(v.filter((x): x is string => typeof x === "string" && !!x))].slice(0, 50)
+    : [];
+
 const NAME_MAX = 60;
 const DESCRIPTION_MAX = 300;
 const INSTRUCTIONS_MAX = 20_000;
@@ -68,6 +74,9 @@ export async function POST(req: NextRequest) {
       instructions: typeof body.instructions === "string" ? body.instructions : "",
       project_id: typeof body.projectId === "string" && body.projectId ? body.projectId : null,
       icon: typeof body.icon === "string" ? body.icon : "sparkles",
+      skill_ids: idsOf(body.skillIds),
+      connector_ids: idsOf(body.connectorIds),
+      http_tool_ids: idsOf(body.httpToolIds),
     },
     userId
   );
@@ -89,6 +98,9 @@ export async function PATCH(req: NextRequest) {
   if (typeof body.model === "string") fields.model = body.model;
   if (typeof body.instructions === "string") fields.instructions = body.instructions;
   if (typeof body.icon === "string") fields.icon = body.icon;
+  if (body.skillIds !== undefined) fields.skill_ids = idsOf(body.skillIds);
+  if (body.connectorIds !== undefined) fields.connector_ids = idsOf(body.connectorIds);
+  if (body.httpToolIds !== undefined) fields.http_tool_ids = idsOf(body.httpToolIds);
   // Null clears the binding; undefined leaves it alone.
   if (body.projectId === null || typeof body.projectId === "string") {
     fields.project_id = body.projectId || null;

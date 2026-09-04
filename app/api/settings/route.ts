@@ -26,6 +26,7 @@ export async function GET() {
     // The key itself is never returned, only whether one is set — the same
     // contract as the OpenRouter key above.
     hasEmbeddingKey: Boolean((await getSetting("embedding_api_key", userId)) || ""),
+    embeddingEnabled: (await getSetting("embedding_enabled", userId)) === "1",
     embeddingBaseUrl: (await getSetting("embedding_base_url", userId)) || "",
     embeddingModel:
       (await getSetting("embedding_model", userId)) || DEFAULT_EMBEDDING_MODEL,
@@ -43,6 +44,9 @@ export async function PUT(req: NextRequest) {
     // An empty string is a deliberate clear, which turns semantic retrieval
     // off and falls the app back to lexical scoring.
     await setSetting("embedding_api_key", body.embeddingApiKey.trim(), userId);
+  }
+  if (typeof body.embeddingEnabled === "boolean") {
+    await setSetting("embedding_enabled", body.embeddingEnabled ? "1" : "0", userId);
   }
   if (typeof body.embeddingBaseUrl === "string")
     await setSetting("embedding_base_url", body.embeddingBaseUrl.trim(), userId);

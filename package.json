@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "deploy": "bash scripts/deploy.sh"
+    "deploy": "bash scripts/deploy.sh",
+    "audit": "node scripts/audit-platform.mjs",
+    "test:logic": "tsx scripts/test-logic.ts",
+    "smoke": "node scripts/smoke-live.mjs",
+    "verify": "npm run audit && npm run test:logic && npx tsc --noEmit && npm run smoke"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

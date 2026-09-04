@@ -1,18 +1,24 @@
 /**
  * Embeddings for semantic retrieval.
  *
- * Deliberately configured separately from the chat model. OpenRouter does not
- * serve embeddings, so the one key that powers everything else cannot power
- * this: it needs its own OpenAI-compatible endpoint, which may be OpenAI
- * itself, a local Ollama, an LM Studio, or anything else speaking /embeddings.
+ * This used to demand a second API key on the belief that OpenRouter did not
+ * serve embeddings. It does — POST /api/v1/embeddings, the same key and the
+ * same base URL as everything else — so the default path now needs nothing but
+ * the key the user already gave us, and the separate endpoint is an override
+ * for people who want a local model or a provider of their own.
  *
- * When it is not configured, nothing breaks. Retrieval falls back to the
+ * It stays behind a switch rather than being always-on, because indexing a
+ * knowledge base costs real money and a feature that quietly spends is worse
+ * than one you have to turn on.
+ *
+ * When it is off or unreachable, nothing breaks. Retrieval falls back to the
  * lexical scorer, which is what shipped before this existed — a knowledge base
  * that silently stops working because a key expired would be far worse than one
  * that quietly gets less clever.
  */
 
-import { getSetting } from "./db";
+import { getApiKey, getSetting } from "./db";
+import { OPENROUTER_BASE } from "./openrouter-base";
 
 export interface EmbeddingConfig {
   baseUrl: string;
@@ -20,21 +26,35 @@ export interface EmbeddingConfig {
   model: string;
 }
 
-export const DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small";
-const DEFAULT_BASE_URL = "https://api.openai.com/v1";
+/** An embedding model OpenRouter serves, so the default needs no extra setup. */
+export const DEFAULT_EMBEDDING_MODEL = "openai/text-embedding-3-small";
 
-/** Null when the user has not set an embeddings endpoint up. */
+/**
+ * The endpoint to embed against, or null when semantic retrieval is off.
+ *
+ * Two ways to be configured, in order:
+ *
+ *   1. An explicit endpoint and key — a local Ollama, LM Studio, OpenAI direct.
+ *      Having entered one is itself the opt-in; no switch needed.
+ *   2. The switch, using the OpenRouter key already on the account.
+ *
+ * Null means "use the lexical scorer", which every caller handles.
+ */
 export async function embeddingConfig(userId?: string): Promise<EmbeddingConfig | null> {
-  const apiKey = (await getSetting("embedding_api_key", userId)) || "";
-  if (!apiKey.trim()) return null;
-  return {
-    baseUrl: ((await getSetting("embedding_base_url", userId)) || DEFAULT_BASE_URL).replace(
-      /\/+$/,
-      ""
-    ),
-    apiKey: apiKey.trim(),
-    model: (await getSetting("embedding_model", userId)) || DEFAULT_EMBEDDING_MODEL,
-  };
+  const model = (await getSetting("embedding_model", userId)) || DEFAULT_EMBEDDING_MODEL;
+  const ownKey = ((await getSetting("embedding_api_key", userId)) || "").trim();
+
+  if (ownKey) {
+    const base = (await getSetting("embedding_base_url", userId)) || OPENROUTER_BASE;
+    return { baseUrl: base.replace(/\/+$/, ""), apiKey: ownKey, model };
+  }
+
+  if ((await getSetting("embedding_enabled", userId)) !== "1") return null;
+
+  // No separate key: spend the one the user already gave us.
+  const key = await getApiKey(userId);
+  if (!key) return null;
+  return { baseUrl: OPENROUTER_BASE, apiKey: key, model };
 }
 
 /** Batched so a large upload is a handful of requests rather than one per chunk. */

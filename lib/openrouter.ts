@@ -2,7 +2,8 @@ import { getApiKey, getSetting } from "./db";
 import { PDF_NO_TEXT, type Attachment, type Message, type ModelInfo } from "./types";
 import { retrieveRelevant, retrieveSemantic } from "./rag";
 
-export const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
+export { OPENROUTER_BASE } from "./openrouter-base";
+import { OPENROUTER_BASE } from "./openrouter-base";
 
 // Fallback model for users who haven't picked one (i.e. new signups). The "~"
 // prefix is OpenRouter's floating alias that always tracks the latest GPT Mini.

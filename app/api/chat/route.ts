@@ -62,7 +62,7 @@ import { bodyTooLarge, attachmentsProblem, MAX_CONTENT_CHARS } from "@/lib/limit
 import { resolveChatTarget, targetHeaders, type ChatTarget } from "@/lib/providers";
 import { applyPromptCache, cacheSessionId, readCacheStats } from "@/lib/prompt-cache";
 import { checkBudgets } from "@/lib/workspaces";
-import { assembleTools, callTool } from "@/lib/mcp";
+import { assembleTools, callTool, agentBundleBlock } from "@/lib/mcp";
 import { assembleHttpTools, execHttpTool } from "@/lib/http-tools";
 import {
   BUILTIN_TOOL_DEFS,
@@ -374,8 +374,18 @@ Only reply in plain text for a genuine question that clearly isn't a design requ
   // (which carries the prompt-cache breakpoint); everything that moves — the
   // date, retrieved project knowledge, saved memories — goes in a tail block
   // placed after the conversation, outside the cached prefix.
-  const agentDirective = agent?.instructions.trim()
-    ? "# " + agent.name + "\n\n" + agent.instructions.trim()
+  // An agent contributes its own instructions, then whatever it bundles.
+  // Both belong in the stable head: they are identical on every turn of the
+  // conversation, so putting them there keeps the cached prefix intact.
+  const agentBundles = agent ? await agentBundleBlock(agent, userId) : "";
+  const agentDirective = agent
+    ? [
+        agent.instructions.trim() || agentBundles ? "# " + agent.name : "",
+        agent.instructions.trim(),
+        agentBundles,
+      ]
+        .filter(Boolean)
+        .join("\n\n")
     : "";
   const stableSystemPrompt = [
     agentDirective,

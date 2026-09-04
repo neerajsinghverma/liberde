@@ -442,6 +442,96 @@
 
     <div class="shell timeline" id="timeline">
 
+
+      <section class="release">
+        <div class="release-when">
+          <div class="release-date">4 Sep 2026</div>
+          <div class="release-title">Everything reachable, and a check that keeps it that way</div>
+        </div>
+        <div class="entries">
+
+          <article class="entry" data-kind="new">
+            <div class="entry-head">
+              <h3>Agents</h3>
+              <span class="tag new">New</span>
+            </div>
+            <p>
+              A named configuration you start a chat as: a model, standing instructions, a
+              project's knowledge, the skills it always loads, and the connectors and custom
+              tools it should reach for. Build one in Settings → Agents; start a chat as it
+              from the chips under the greeting on a new chat.
+            </p>
+            <p class="why">
+              A skill describes how to do a task and waits for one to match. An agent's skills
+              are in force from the first message, because picking the agent already said what
+              kind of work this is. Its model and project stay defaults — anything the
+              conversation says outranks them, since switching mid-thread is deliberate.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="new">
+            <div class="entry-head">
+              <h3>Workspaces and the audit log got interfaces</h3>
+              <span class="tag new">New</span>
+            </div>
+            <p>
+              Both features were complete and had no screen at all — no way to create a
+              workspace, set a cap, add a member, read the log or verify the chain. They are
+              now Settings → Workspaces and Settings → Audit log. The documentation had been
+              describing them as though they had a home.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="improved">
+            <div class="entry-head">
+              <h3>Semantic search no longer needs a second API key</h3>
+              <span class="tag">Improved</span>
+            </div>
+            <p>
+              OpenRouter serves an embeddings endpoint with the key you already have. The
+              previous requirement for a separate provider rested on a belief that turned out
+              to be wrong, written into a code comment and repeated in the docs. It is one
+              switch now — a separate endpoint is still there for a local Ollama or LM Studio.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="fix">
+            <div class="entry-head">
+              <h3>Comparing models on a thread with an image</h3>
+              <span class="tag fix">Fixed</span>
+            </div>
+            <p>
+              The picker offered models that cannot read an image, and when they failed the
+              column showed the provider's raw JSON. Text-only models are now unselectable with
+              the reason given, and every upstream error is reported as a sentence.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="fix">
+            <div class="entry-head">
+              <h3>Agents did nothing on a self-hosted install</h3>
+              <span class="tag fix">Fixed</span>
+            </div>
+            <p>
+              The API and the database schema were there, but the self-host chat route never
+              read them — so choosing an agent changed nothing at all.
+            </p>
+          </article>
+
+          <article class="entry" data-kind="fix">
+            <div class="entry-head">
+              <h3>The image model had to be typed by hand</h3>
+              <span class="tag fix">Fixed</span>
+            </div>
+            <p>
+              A typo in the model id became a runtime failure at generation time. It is a list
+              of the models that can actually emit an image.
+            </p>
+          </article>
+
+        </div>
+      </section>
+
       <!-- ------------------------------------------------ 2026-09-04 --- -->
       <section class="release">
         <div class="release-when">

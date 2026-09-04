@@ -460,6 +460,11 @@ const SCHEMA_STATEMENTS: string[] = [
     created_at BIGINT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS agents_user_idx ON agents (user_id)`,
+  // An agent bundles the same three things a skill can, so a person can hand
+  // out one name instead of a checklist of what to switch on first.
+  `ALTER TABLE agents ADD COLUMN IF NOT EXISTS skill_ids TEXT`,
+  `ALTER TABLE agents ADD COLUMN IF NOT EXISTS connector_ids TEXT`,
+  `ALTER TABLE agents ADD COLUMN IF NOT EXISTS http_tool_ids TEXT`,
   `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS agent_id TEXT`,
   // ---- Chunk embeddings (see lib/rag.ts) ----
   // Keyed by model: changing the embedding model invalidates nothing, it just
@@ -3137,9 +3142,25 @@ export interface Agent {
   instructions: string;
   /** Optional project whose knowledge the agent always has. */
   project_id: string | null;
+  /** Skills this agent always loads, rather than waiting for a task to match. */
+  skill_ids: string[];
+  /** MCP connectors and custom HTTP tools it can always call. */
+  connector_ids: string[];
+  http_tool_ids: string[];
   icon: string;
   created_at: number;
 }
+
+/** A JSON id array as stored, tolerant of null and of anything malformed. */
+const idList = (v: unknown): string[] => {
+  if (typeof v !== "string" || !v) return [];
+  try {
+    const parsed = JSON.parse(v);
+    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+};
 
 const rowToAgent = (r: Record<string, unknown>): Agent => ({
   id: r.id as string,
@@ -3149,6 +3170,9 @@ const rowToAgent = (r: Record<string, unknown>): Agent => ({
   model: (r.model as string) ?? "",
   instructions: (r.instructions as string) ?? "",
   project_id: (r.project_id as string) ?? null,
+  skill_ids: idList(r.skill_ids),
+  connector_ids: idList(r.connector_ids),
+  http_tool_ids: idList(r.http_tool_ids),
   icon: (r.icon as string) || "sparkles",
   created_at: Number(r.created_at),
 });
@@ -3178,12 +3202,15 @@ export async function createAgent(
     model: fields.model ?? "",
     instructions: fields.instructions ?? "",
     project_id: fields.project_id ?? null,
+    skill_ids: fields.skill_ids ?? [],
+    connector_ids: fields.connector_ids ?? [],
+    http_tool_ids: fields.http_tool_ids ?? [],
     icon: fields.icon || "sparkles",
     created_at: now(),
   };
   await q(
-    "INSERT INTO agents (id, user_id, name, description, model, instructions, project_id, icon, created_at) " +
-      "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+    "INSERT INTO agents (id, user_id, name, description, model, instructions, project_id, skill_ids, connector_ids, http_tool_ids, icon, created_at) " +
+      "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
     [
       agent.id,
       agent.user_id,
@@ -3192,6 +3219,9 @@ export async function createAgent(
       agent.model,
       agent.instructions,
       agent.project_id,
+      JSON.stringify(agent.skill_ids),
+      JSON.stringify(agent.connector_ids),
+      JSON.stringify(agent.http_tool_ids),
       agent.icon,
       agent.created_at,
     ]
@@ -3202,13 +3232,32 @@ export async function createAgent(
 export async function updateAgent(
   id: string,
   userId: string,
-  fields: Partial<Pick<Agent, "name" | "description" | "model" | "instructions" | "project_id" | "icon">>
+  fields: Partial<
+    Pick<
+      Agent,
+      | "name"
+      | "description"
+      | "model"
+      | "instructions"
+      | "project_id"
+      | "icon"
+      | "skill_ids"
+      | "connector_ids"
+      | "http_tool_ids"
+    >
+  >
 ): Promise<void> {
   const sets: string[] = [];
   const params: unknown[] = [];
   for (const key of ["name", "description", "model", "instructions", "project_id", "icon"] as const) {
     if (fields[key] !== undefined) {
       params.push(fields[key]);
+      sets.push(key + " = $" + params.length);
+    }
+  }
+  for (const key of ["skill_ids", "connector_ids", "http_tool_ids"] as const) {
+    if (fields[key] !== undefined) {
+      params.push(JSON.stringify(fields[key]));
       sets.push(key + " = $" + params.length);
     }
   }
