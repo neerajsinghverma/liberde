@@ -447,6 +447,20 @@ const SCHEMA_STATEMENTS: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id)`,
   `CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_user ON scheduled_tasks(user_id)`,
   // User-defined REST endpoints exposed to the model as callable tools.
+  // ---- Agents: a named, reusable configuration to start a chat as ----
+  `CREATE TABLE IF NOT EXISTS agents (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT '',
+    instructions TEXT NOT NULL DEFAULT '',
+    project_id TEXT,
+    icon TEXT NOT NULL DEFAULT 'sparkles',
+    created_at BIGINT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS agents_user_idx ON agents (user_id)`,
+  `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS agent_id TEXT`,
   // ---- Chunk embeddings (see lib/rag.ts) ----
   // Keyed by model: changing the embedding model invalidates nothing, it just
   // stops matching, so the old rows are ignored and re-indexed rather than
@@ -966,7 +980,8 @@ export async function createConversation(
   projectId: string | null = null,
   isTemp = false,
   userId: string = DEFAULT_USER,
-  mode: string = "chat"
+  mode: string = "chat",
+  agentId: string | null = null
 ): Promise<Conversation> {
   const conv: Conversation = {
     id: newId(),
@@ -976,11 +991,12 @@ export async function createConversation(
     is_temp: isTemp ? 1 : 0,
     user_id: userId,
     mode,
+    agent_id: agentId,
     created_at: now(),
     updated_at: now(),
   };
   await q(
-    "INSERT INTO conversations (id, title, model, project_id, is_temp, user_id, mode, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+    "INSERT INTO conversations (id, title, model, project_id, is_temp, user_id, mode, agent_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
     [
       conv.id,
       conv.title,
@@ -989,6 +1005,7 @@ export async function createConversation(
       conv.is_temp,
       conv.user_id,
       conv.mode,
+      conv.agent_id ?? null,
       conv.created_at,
       conv.updated_at,
     ]
@@ -3105,4 +3122,107 @@ export async function indexedFileIds(projectId: string, model: string): Promise<
     [projectId, model]
   );
   return new Set(rows.map((r) => r.file_id as string));
+}
+
+// ---------------------------------------------------------------------------
+// Agents: a named, reusable configuration you can start a chat as
+
+export interface Agent {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string;
+  /** Empty means the agent does not override the conversation's model. */
+  model: string;
+  instructions: string;
+  /** Optional project whose knowledge the agent always has. */
+  project_id: string | null;
+  icon: string;
+  created_at: number;
+}
+
+const rowToAgent = (r: Record<string, unknown>): Agent => ({
+  id: r.id as string,
+  user_id: r.user_id as string,
+  name: r.name as string,
+  description: (r.description as string) ?? "",
+  model: (r.model as string) ?? "",
+  instructions: (r.instructions as string) ?? "",
+  project_id: (r.project_id as string) ?? null,
+  icon: (r.icon as string) || "sparkles",
+  created_at: Number(r.created_at),
+});
+
+export async function listAgents(userId: string): Promise<Agent[]> {
+  const rows = await q(
+    "SELECT * FROM agents WHERE user_id = $1 ORDER BY name ASC",
+    [userId]
+  );
+  return rows.map(rowToAgent);
+}
+
+export async function getAgent(id: string, userId: string): Promise<Agent | null> {
+  const rows = await q("SELECT * FROM agents WHERE id = $1 AND user_id = $2", [id, userId]);
+  return rows[0] ? rowToAgent(rows[0]) : null;
+}
+
+export async function createAgent(
+  fields: Partial<Omit<Agent, "id" | "user_id" | "created_at">> & { name: string },
+  userId: string
+): Promise<Agent> {
+  const agent: Agent = {
+    id: newId(),
+    user_id: userId,
+    name: fields.name,
+    description: fields.description ?? "",
+    model: fields.model ?? "",
+    instructions: fields.instructions ?? "",
+    project_id: fields.project_id ?? null,
+    icon: fields.icon || "sparkles",
+    created_at: now(),
+  };
+  await q(
+    "INSERT INTO agents (id, user_id, name, description, model, instructions, project_id, icon, created_at) " +
+      "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+    [
+      agent.id,
+      agent.user_id,
+      agent.name,
+      agent.description,
+      agent.model,
+      agent.instructions,
+      agent.project_id,
+      agent.icon,
+      agent.created_at,
+    ]
+  );
+  return agent;
+}
+
+export async function updateAgent(
+  id: string,
+  userId: string,
+  fields: Partial<Pick<Agent, "name" | "description" | "model" | "instructions" | "project_id" | "icon">>
+): Promise<void> {
+  const sets: string[] = [];
+  const params: unknown[] = [];
+  for (const key of ["name", "description", "model", "instructions", "project_id", "icon"] as const) {
+    if (fields[key] !== undefined) {
+      params.push(fields[key]);
+      sets.push(key + " = $" + params.length);
+    }
+  }
+  if (!sets.length) return;
+  params.push(id, userId);
+  await q(
+    "UPDATE agents SET " + sets.join(", ") + " WHERE id = $" + (params.length - 1) + " AND user_id = $" + params.length,
+    params
+  );
+}
+
+export async function deleteAgent(id: string, userId: string): Promise<void> {
+  // Conversations keep their history; they just stop being bound to an agent
+  // that no longer exists.
+  await q("UPDATE conversations SET agent_id = NULL WHERE agent_id = $1", [id]);
+  await q("DELETE FROM agents WHERE id = $1 AND user_id = $2", [id, userId]);
 }

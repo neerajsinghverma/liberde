@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import {
+import { getAgent,
   createConversation,
   getConversation,
   listArchivedConversations,
@@ -30,13 +30,24 @@ export async function POST(req: NextRequest) {
   if (body.projectId && !(await canAccessProject(body.projectId, userId))) {
     return Response.json({ error: "Project not found" }, { status: 404 });
   }
-  const model = body.model || (await getSettings(userId)).defaultModel;
+  // Starting as an agent: its model seeds the conversation, so the picker
+  // shows what will actually answer rather than a default the agent overrides.
+  const agent =
+    typeof body.agentId === "string" && body.agentId
+      ? await getAgent(body.agentId, userId)
+      : null;
+  if (body.agentId && !agent) {
+    return Response.json({ error: "Agent not found" }, { status: 404 });
+  }
+  const model =
+    body.model || agent?.model || (await getSettings(userId)).defaultModel;
   const conv = await createConversation(
     model,
     body.projectId ?? null,
     Boolean(body.temp),
     userId,
-    body.mode === "design" ? "design" : "chat"
+    body.mode === "design" ? "design" : "chat",
+    agent?.id ?? null
   );
   // Design mode: pin the chosen design system to the conversation (access is
   // validated at generation time, so a stale id degrades gracefully).

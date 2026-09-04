@@ -212,6 +212,8 @@ export interface Conversation {
   mode?: string;
   /** Design mode: the design system applied to artifacts built in this conversation. */
   design_system_id?: string | null;
+  /** The agent this conversation was started as, if any (see /api/agents). */
+  agent_id?: string | null;
   /** Set while a response is generating (lock timestamp); cleared when done. */
   locked_at?: number | null;
   /** Computed by the conversation GET: a response is currently being generated. */
