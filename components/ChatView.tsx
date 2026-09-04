@@ -340,9 +340,30 @@ export default function ChatView({
     prevDefaultRef.current = settings.defaultModel;
   }, [settings, model]);
 
+  // Follow the stream, but never yank the view away from someone who scrolled
+  // up to re-read. `stickToBottom` latches false the moment they leave the
+  // bottom and latches true again when they come back, so the thread pins
+  // itself only while they are actually watching the end of it.
+  const stickToBottom = useRef(true);
+  const onThreadScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  }, []);
+
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages, streamText]);
+    const el = scrollRef.current;
+    if (!el || !stickToBottom.current) return;
+    // Instant while tokens land: smooth scrolling cannot keep up with a stream
+    // and turns into visible lag. Smooth only for the discrete jumps between
+    // turns, which is where it reads as polish.
+    el.scrollTo({ top: el.scrollHeight, behavior: isStreaming ? "auto" : "smooth" });
+  }, [messages, streamText, isStreaming]);
+
+  // A new conversation always starts pinned, whatever the last one was doing.
+  useEffect(() => {
+    stickToBottom.current = true;
+  }, [conversation?.id]);
 
   // While streaming, mirror an in-progress artifact into the side panel live.
   useEffect(() => {
@@ -1078,7 +1099,7 @@ export default function ChatView({
         </div>
       )}
 
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={scrollRef} onScroll={onThreadScroll} className="min-h-0 flex-1 overflow-y-auto">
         {showWelcome && mode === "design" ? (
           <div className="flex min-h-full flex-col items-center justify-center px-6 py-10 text-center">
             <div className="login-logo mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-accent text-white">
@@ -1398,7 +1419,7 @@ export default function ChatView({
               })()}
 
             {isStreaming && (
-              <div className="mb-6">
+              <div className="is-streaming mb-6">
                 {researchStatuses.length > 0 && (
                   <div className="mb-3 rounded-lg border border-line bg-surface-2 px-3 py-2">
                     {researchStatuses.map((s, i) => (

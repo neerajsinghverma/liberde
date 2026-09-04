@@ -217,8 +217,48 @@ body {
 /* Interactive chrome: colour and border shifts should never snap. */
 button, a, .anim-hover {
   transition: background-color 0.14s ease, border-color 0.14s ease,
-    color 0.14s ease, opacity 0.14s ease;
+    color 0.14s ease, opacity 0.14s ease, transform 0.1s ease;
 }
+
+
+/* Streaming ---------------------------------------------------------------
+   The signature of a good streaming UI is that text arrives rather than
+   appears. React updates the last block in place as tokens land and only
+   appends a new element at a real block boundary, so animating the direct
+   children of the prose container fades in each new paragraph, list or heading
+   exactly once — and never re-runs over the blocks already written.
+
+   Scoped to .is-streaming so a finished reply never re-animates when it is
+   re-rendered or scrolled back into view. */
+@keyframes liberde-token-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: none; }
+}
+.is-streaming .prose-chat > * {
+  animation: liberde-token-in 0.32s ease-out both;
+}
+
+/* A caret keeping pace with the text, so a gap between tokens reads as
+   thinking rather than as a stall. */
+@keyframes liberde-caret {
+  0%, 45% { opacity: 1; }
+  55%, 100% { opacity: 0; }
+}
+.is-streaming .prose-chat > *:last-child::after {
+  content: "";
+  display: inline-block;
+  width: 0.42em;
+  height: 1.05em;
+  margin-left: 0.08em;
+  vertical-align: text-bottom;
+  border-radius: 1px;
+  background: var(--color-accent);
+  animation: liberde-caret 1.05s ease-in-out infinite;
+}
+
+/* Press feedback. A button that visibly gives under the pointer is most of
+   what makes an interface feel responsive rather than merely fast. */
+button:active:not(:disabled) { transform: scale(0.985); }
 
 @media (prefers-reduced-motion: reduce) {
   .shimmer-text { animation: none; -webkit-text-fill-color: var(--color-ink); }
@@ -228,4 +268,7 @@ button, a, .anim-hover {
   .anim-panel,
   .anim-stagger > * { animation: none; }
   button, a, .anim-hover { transition: none; }
+  .is-streaming .prose-chat > * { animation: none; }
+  .is-streaming .prose-chat > *:last-child::after { animation: none; opacity: 1; }
+  button:active:not(:disabled) { transform: none; }
 }
