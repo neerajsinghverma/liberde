@@ -36,6 +36,18 @@ A browsable version of this page lives at **[liberde.ai/changelog.html](https://
 
 ### Fixed
 
+- **A model could announce a code run and then not make one.** After an error came back it
+  would reply "I need to recompute the dataset, then insert it into the artifact" — and stop,
+  leaving the turn finished and the user waiting for work that never started. The artifacts
+  prompt has forbidden exactly this shape for a while; the analysis prompt now does too.
+- **The artifact panel could stay stuck on a half-written preview.** Swapping it for the saved
+  record happened only in the stream's completion callback, so a reply that finished while
+  the tab was backgrounded left the preview frozen. The artifacts themselves were never at
+  risk — they are written server-side when the message is saved — but the panel had no way to
+  find out. It now settles on reload and on returning to the tab.
+- **"Ran Python" no longer claims a run that did not happen.** The label was asserted from the
+  presence of a closing tag, which only means the model finished writing the code. It now
+  reports what it knows: writing, ran, or written but not run.
 - **A code run could stall the turn with no output and no continuation.** The analysis loop
   — run the code, hand the output back, let the model carry on — lived only inside the
   stream's completion callback. A reply can finish without this tab ever watching that

@@ -34,6 +34,8 @@ console.log([1,2,3].reduce((a,b) => a+b))
 
 **Limits.** No shell and no arbitrary network — this runs in the browser, so \`fetch\` is subject to CORS and most APIs will refuse. Python runs for up to two minutes per block.
 
+**Never announce a run you do not make.** If you say you will compute, recompute, re-run, or fix something with code, the <liberdeRun> block must be in that same message. "I need to…", "Let me recalculate…", or "I'll now embed…" with no block ends the turn and leaves the user waiting for something that never happens. Either run it now or say plainly that you cannot.
+
 **There is no function to call for this.** Do not invoke a tool named \`liberdeRun\`, \`run_code\`, \`python\` or anything similar — no such function exists, and calling one wastes a turn. Writing the block above IS how you run code.
 
 The output is sent back to you automatically as an execution result, then you continue — interpret it for the user or run more code. Don't use this for code the user asked you to WRITE (use artifacts for that), and never emit anything after the closing tag.`;

@@ -182,6 +182,27 @@ export default function ChatView({
     | null
   >(null);
 
+  /**
+   * Swap a live artifact preview for the saved record.
+   *
+   * This used to happen only in the stream's completion callback, so a reply
+   * that finished while this tab was backgrounded left the panel showing a
+   * half-written artifact for ever. The artifacts themselves were never at
+   * risk — they are written server-side when the message is saved — but the
+   * panel had no way to learn that.
+   */
+  const settlePanel = useCallback((artifacts: ArtifactWithVersions[]) => {
+    setPanel((cur) => {
+      if (cur?.kind !== "streaming") return cur;
+      const wanted = streamingIdentifierRef.current;
+      const found = wanted
+        ? artifacts.find((a) => a.identifier === wanted)
+        : artifacts[artifacts.length - 1];
+      streamingIdentifierRef.current = null;
+      return found ? { kind: "artifact", artifact: found } : null;
+    });
+  }, []);
+
   const loadArtifacts = useCallback(async (id: string) => {
     try {
       const list = await api<ArtifactWithVersions[]>(
@@ -223,7 +244,7 @@ export default function ChatView({
             setMessages(d.messages);
             setConversation(d);
             base = d.messages.length;
-            loadArtifacts(id);
+            settlePanel(await loadArtifacts(id));
             // The saved message now carries this text; keeping the mirror
             // would render it twice.
             setBgPartial("");
@@ -252,7 +273,11 @@ export default function ChatView({
       setMessages(data.messages);
       setModel(data.model);
       setDesignSystemId(data.design_system_id ?? null);
-      loadArtifacts(id);
+      // Settle the panel here too: a reload or a return to the tab is how a
+      // finished reply reaches this client when it never watched the stream.
+      void loadArtifacts(id).then((list) => {
+        if (!data.generating) settlePanel(list);
+      });
       // If a response is being generated but we're not the streaming client,
       // surface a working indicator and poll for the result.
       if (data.generating && !isStreamingRef.current) {
@@ -721,17 +746,9 @@ export default function ChatView({
           streamReasoningRef.current = "";
           if (convIdRef.current === body.conversationId) {
             const fresh = await loadConversation(body.conversationId);
-            const list = await loadArtifacts(body.conversationId);
-            // If we were live-streaming an artifact, hand the panel the saved record.
-            const streamedId = streamingIdentifierRef.current;
-            streamingIdentifierRef.current = null;
-            setPanel((p) => {
-              if (p?.kind !== "streaming") return p;
-              const artifact = streamedId
-                ? list.find((a) => a.identifier === streamedId)
-                : list[list.length - 1];
-              return artifact ? { kind: "artifact", artifact } : null;
-            });
+            // One implementation, so the streamed path and the reload path cannot
+            // settle the panel differently.
+            settlePanel(await loadArtifacts(body.conversationId));
 
             // Analysis tool loop. Never relaunch after a user abort — Stop
             // must mean stop.
@@ -1427,6 +1444,11 @@ export default function ChatView({
                 ) : null;
               const runOutput =
                 msg.role === "user" ? parseRunResult(msg.content) : null;
+              // Did this assistant message's code actually run? The result is
+              // the next message, stored as a user turn carrying the output.
+              const hasRunResult =
+                msg.role === "assistant" &&
+                parseRunResult(messages[i + 1]?.content ?? "") !== null;
               let toolName: string | undefined;
               if (msg.role === "tool") {
                 for (let j = i - 1; j >= 0; j--) {
@@ -1559,6 +1581,7 @@ export default function ChatView({
                     ) : null;
                   })()}
                   <AssistantContent
+                    ran={hasRunResult}
                     content={msg.content}
                     messageId={msg.id}
                     artifacts={artifacts}
@@ -1917,6 +1940,7 @@ function linkifyCitations(
 function AssistantContent({
   content,
   messageId,
+  ran,
   artifacts,
   onOpenArtifact,
   onShowCodePreview,
@@ -1925,6 +1949,8 @@ function AssistantContent({
   annotations,
 }: {
   content: string;
+  /** True when the message after this one is this run's result. */
+  ran?: boolean;
   messageId: string | null;
   artifacts: ArtifactWithVersions[];
   onOpenArtifact: (identifier: string, version?: number) => void;
@@ -1933,6 +1959,7 @@ function AssistantContent({
   interactive?: boolean;
   annotations?: Message["annotations"] | null;
 }) {
+  const ranHere = Boolean(ran);
   const segments = splitContentSegments(content);
 
   const handleCard = (block: ParsedBlock) => {
@@ -1983,6 +2010,7 @@ function AssistantContent({
                         lang={sub.lang}
                         code={sub.code}
                         complete={sub.complete}
+                        ran={ranHere}
                       />
                     ) : sub.text.trim() ? (
                       <Markdown
@@ -2524,10 +2552,14 @@ function RunCodeBlock({
   lang,
   code,
   complete,
+  ran,
 }: {
   lang: "js" | "python";
   code: string;
   complete: boolean;
+  /** Whether an execution result for this block exists. A closing tag only
+   *  means the model finished writing; it says nothing about running. */
+  ran?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const label = lang === "python" ? "Python" : "JavaScript";
@@ -2545,7 +2577,7 @@ function RunCodeBlock({
           className={complete ? "shrink-0 text-accent" : "shrink-0 animate-spin text-accent"}
         />
         <span className="min-w-0 flex-1 truncate font-medium">
-          {complete ? `Ran ${label}` : `Writing ${label}…`}
+          {!complete ? `Writing ${label}…` : ran ? `Ran ${label}` : `${label} — not run`}
         </span>
         <Icon
           name="chevronDown"
