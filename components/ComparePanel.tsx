@@ -69,6 +69,11 @@ export default function ComparePanel({
   const [synth, setSynth] = useState<Synthesis | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [committing, setCommitting] = useState(false);
+  // The verdict can run long — a careful comparison of three detailed answers
+  // is not short — and it sits above the columns, so an unbounded one squeezed
+  // them into a strip. It is capped, and collapsible for when the reader wants
+  // the raw answers back.
+  const [verdictOpen, setVerdictOpen] = useState(true);
   const [picker, setPicker] = useState(false);
   const [query, setQuery] = useState("");
   const abortRef = useRef<(() => void) | null>(null);
@@ -363,7 +368,13 @@ export default function ComparePanel({
               should not cost a scroll past three columns of source material. */}
           {synth && (
             <div className="anim-rise mb-3 shrink-0 overflow-hidden rounded-xl border border-accent/40 bg-surface-2">
-              <div className="flex items-center justify-between gap-2 border-b border-accent/30 px-3 py-2">
+              <button
+                type="button"
+                onClick={() => setVerdictOpen((v) => !v)}
+                aria-expanded={verdictOpen}
+                title={verdictOpen ? "Collapse the verdict" : "Expand the verdict"}
+                className="flex w-full items-center justify-between gap-2 border-b border-accent/30 px-3 py-2 text-left hover:bg-accent/5"
+              >
                 <span className="flex min-w-0 items-center gap-2">
                   <Icon name="layers" size={14} className="shrink-0 text-accent" />
                   <span className="min-w-0">
@@ -384,11 +395,19 @@ export default function ComparePanel({
                     ) : null}
                   </span>
                 </span>
-                {!synth.done && !synth.error && (
-                  <Icon name="refresh" size={13} className="shrink-0 animate-spin text-ink-muted" />
-                )}
-              </div>
-              <div className="px-3 py-2 text-sm">
+                <span className="flex shrink-0 items-center gap-2">
+                  {!synth.done && !synth.error && (
+                    <Icon name="refresh" size={13} className="animate-spin text-ink-muted" />
+                  )}
+                  <Icon
+                    name="chevronDown"
+                    size={14}
+                    className={`text-ink-muted transition-transform ${verdictOpen ? "" : "-rotate-90"}`}
+                  />
+                </span>
+              </button>
+              {verdictOpen && (
+              <div className="max-h-[45vh] overflow-y-auto px-3 py-2 text-sm">
                 {synth.error ? (
                   <p className="text-xs text-red-600 dark:text-red-400">
                     {synth.error} — the individual answers above are unaffected.
@@ -399,7 +418,8 @@ export default function ComparePanel({
                   <p className="text-xs text-ink-muted">…</p>
                 )}
               </div>
-              {synth.done && !synth.error && synth.text.trim() && (
+              )}
+              {verdictOpen && synth.done && !synth.error && synth.text.trim() && (
                 <div className="border-t border-accent/30 p-2">
                   <button
                     onClick={() => pickText(synth.model, synth.text, synth.cost)}
@@ -413,7 +433,7 @@ export default function ComparePanel({
             </div>
           )}
 
-            <div className="flex gap-3 max-md:flex-col md:min-h-0 md:flex-1">
+            <div className="flex shrink-0 gap-3 max-md:flex-col md:min-h-[16rem] md:flex-1">
               {columns.map((col, i) => (
                 <div
                   key={i}

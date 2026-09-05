@@ -36,6 +36,11 @@ A browsable version of this page lives at **[liberde.ai/changelog.html](https://
 
 ### Fixed
 
+- **A long council verdict squashed the answers below it.** The verdict sits above the
+  columns and had no height limit, so a careful comparison of three detailed answers left
+  the columns as a 40px strip. It is now collapsible — click the header — and capped at 45%
+  of the viewport even when open, with a floor under the columns. Collapsing it returns
+  about 290px to the answers.
 - **The Regenerate model menu ran off the top of the window.** It was hardcoded to open
   upward, so a reply near the top of the viewport had its model list clipped by the top of
   the screen with no way to reach it. It now opens downward by default and flips up only
