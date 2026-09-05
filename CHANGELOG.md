@@ -36,6 +36,16 @@ A browsable version of this page lives at **[liberde.ai/changelog.html](https://
 
 ### Fixed
 
+- **Second opinion showed no answers on a phone.** The comparison columns carried `flex-1
+  basis-0`, and the mobile layout switches the container to `flex-col` — so the basis applied
+  to *height*, with no definite parent height to grow into, and every answer collapsed to a
+  bare border. The verdict then appeared directly under the controls, which read as the
+  council running before the models had answered. Columns now stack at their natural height
+  and scroll.
+- **The verdict could invent a count.** The synthesiser is handed only the answers that
+  arrived, and was never told how many that was — so with a failed model it could still write
+  "all three agree". It is now given the number explicitly, and the panel says *Only 2 of 3
+  models answered* when a comparison comes up short.
 - **Choosing an agent from the new-chat chips did nothing.** The click set the state and the
   conversation was still created without it, because `send` was a `useCallback` that never
   listed the agent in its dependencies and so captured `null` from mount. The API path was

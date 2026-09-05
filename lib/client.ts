@@ -118,7 +118,16 @@ export interface CompareCallbacks {
   ) => void;
   onColumnError: (col: number, message: string) => void;
   /** The council verdict: a separate model comparing the finished answers. */
-  onSynth: (evt: { model?: string; delta?: string; done?: boolean; cost?: number; error?: string }) => void;
+  onSynth: (evt: {
+    model?: string;
+    delta?: string;
+    done?: boolean;
+    cost?: number;
+    error?: string;
+    /** How many models answered, and how many were asked. */
+    answered?: number;
+    requested?: number;
+  }) => void;
   onDone: () => void;
   onError: (message: string) => void;
 }

@@ -58,6 +58,11 @@ function councilPrompt(answers: { model: string; text: string }[]): string {
     .join("\n\n");
   return [
     "Several AI models independently answered the same question. Compare them and write a verdict.",
+    "You have been given exactly " +
+      answers.length +
+      " answer" +
+      (answers.length === 1 ? "" : "s") +
+      ". Never refer to a number of answers other than that one: some models may have been asked and failed, and you cannot see those.",
     "",
     "Use exactly this structure, in Markdown:",
     "",
@@ -312,7 +317,14 @@ export async function POST(req: NextRequest) {
           settings.defaultModel && settings.defaultModel !== "auto"
             ? settings.defaultModel
             : models[0];
-        emit({ synth: true, model: synthModel });
+        // A verdict built from fewer models than were asked is still worth
+        // having, but the reader has to know that is what they are reading.
+        emit({
+          synth: true,
+          model: synthModel,
+          answered: answers.length,
+          requested: models.length,
+        });
         try {
           const target = await resolveChatTarget(synthModel, userId);
           const reqBody = JSON.stringify({

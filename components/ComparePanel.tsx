@@ -56,6 +56,9 @@ function suggestDefaults(models: ModelInfo[], current: string): string[] {
 
 /** The council verdict: one model comparing the finished answers. */
 interface Synthesis {
+  /** How many models actually answered, and how many were asked. */
+  answered?: number;
+  requested?: number;
   model: string;
   text: string;
   cost: number;
@@ -193,6 +196,10 @@ export default function ComparePanel({
             cost: (s?.cost ?? 0) + (Number(evt.cost) || 0),
             done: Boolean(evt.done) || Boolean(s?.done),
             error: evt.error ?? s?.error ?? null,
+            // Sent once, on the opening synth frame, so hold on to it rather than
+            // letting the streaming deltas overwrite it with undefined.
+            answered: evt.answered ?? s?.answered,
+            requested: evt.requested ?? s?.requested,
           })),
         onColumnError: (col, message) =>
           setColumns((cols) =>
@@ -392,7 +399,7 @@ export default function ComparePanel({
               {columns.map((col, i) => (
                 <div
                   key={i}
-                  className="flex flex-1 basis-0 min-w-[320px] flex-col overflow-hidden rounded-xl border border-line bg-bg max-md:w-full md:h-full"
+                  className="flex flex-col overflow-hidden rounded-xl border border-line bg-bg max-md:w-full md:h-full md:min-w-[320px] md:flex-1 md:basis-0"
                 >
                   <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
                     <span className="min-w-0">
@@ -415,7 +422,7 @@ export default function ComparePanel({
                       />
                     )}
                   </div>
-                  <div className="min-h-0 flex-1 px-3 py-2 text-sm md:overflow-y-auto">
+                  <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2 text-sm max-md:max-h-[45vh]">
                     {col.error ? (
                       <p className="text-xs text-red-600 dark:text-red-400">{col.error}</p>
                     ) : col.text ? (
@@ -451,6 +458,13 @@ export default function ComparePanel({
                           ? `${nameOf(synth.model)} · ${fmtCost(synth.cost)}`
                           : `${nameOf(synth.model)} is comparing the answers…`}
                     </span>
+                    {synth.answered != null &&
+                    synth.requested != null &&
+                    synth.answered < synth.requested ? (
+                      <span className="block truncate text-[11px] text-amber-600 dark:text-amber-400">
+                        Only {synth.answered} of {synth.requested} models answered
+                      </span>
+                    ) : null}
                   </span>
                 </span>
                 {!synth.done && !synth.error && (
