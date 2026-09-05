@@ -54,13 +54,18 @@ export interface RunBlock {
  * the safe direction: JS starts instantly and fails visibly, whereas guessing
  * Python would download a runtime to run something that was never Python.
  */
+/** Read the language off a run tag's attributes. Anything not recognisably
+ *  Python is JavaScript: JS starts instantly and fails visibly, whereas
+ *  guessing Python downloads a runtime to run something that never was. */
+export function langOf(attrs: string): RunLang {
+  const declared = attrs.match(/lang\s*=\s*["']?([a-z0-9]+)/i)?.[1]?.toLowerCase();
+  return declared === "python" || declared === "py" ? "python" : "js";
+}
+
 export function extractRunBlocks(text: string): RunBlock[] {
   const blocks: RunBlock[] = [];
   for (const m of text.matchAll(RUN_TAG)) {
-    const attrs = m[1] ?? "";
-    const declared = attrs.match(/lang\s*=\s*["']?([a-z0-9]+)/i)?.[1]?.toLowerCase();
-    const lang: RunLang = declared === "python" || declared === "py" ? "python" : "js";
-    blocks.push({ lang, code: (m[2] ?? "").trim() });
+    blocks.push({ lang: langOf(m[1] ?? ""), code: (m[2] ?? "").trim() });
   }
   return blocks;
 }
@@ -75,4 +80,58 @@ export function parseRunResult(content: string): string | null {
     .replace(RUN_RESULT_OPEN, "")
     .replace("</liberdeRunResult>", "")
     .trim();
+}
+
+/** One piece of an assistant reply: prose, or a block of code it ran. */
+export type ReplyPart =
+  | { kind: "text"; text: string }
+  | { kind: "run"; lang: RunLang; code: string; complete: boolean };
+
+/**
+ * Split a reply into prose and run blocks.
+ *
+ * The raw tag must never reach the screen. It used to: nothing stripped
+ * <liberdeRun> from the rendered bubble, so a Python block was displayed as its
+ * own source — opening tag, imports and all — while also executing. And the one
+ * place that did strip it (the PDF/HTML export) matched `<liberdeRun>` with no
+ * attributes, so `lang="python"` sailed straight through that too.
+ *
+ * An unterminated block is reported with complete: false rather than held back,
+ * so the interface can say "writing code" while it streams instead of leaking
+ * half a tag.
+ */
+export function splitReply(text: string): ReplyPart[] {
+  const parts: ReplyPart[] = [];
+  const re = new RegExp(RUN_TAG.source, "g");
+  let last = 0;
+  let m: RegExpExecArray | null;
+
+  while ((m = re.exec(text))) {
+    if (m.index > last) parts.push({ kind: "text", text: text.slice(last, m.index) });
+    parts.push({ kind: "run", lang: langOf(m[1] ?? ""), code: (m[2] ?? "").trim(), complete: true });
+    last = re.lastIndex;
+  }
+
+  let rest = text.slice(last);
+  // A block still arriving: everything from the opening tag onwards is code.
+  const open = rest.match(/<liberdeRun(\s[^>]*)?>/);
+  if (open && open.index !== undefined) {
+    const before = rest.slice(0, open.index);
+    if (before) parts.push({ kind: "text", text: before });
+    parts.push({
+      kind: "run",
+      lang: langOf(open[1] ?? ""),
+      code: rest.slice(open.index + open[0].length),
+      complete: false,
+    });
+    rest = "";
+  }
+  if (rest) parts.push({ kind: "text", text: rest });
+
+  return parts;
+}
+
+/** Strip run blocks entirely — for exports, speech, and search indexing. */
+export function stripRunBlocks(text: string, replacement = ""): string {
+  return text.replace(/<liberdeRun(\s[^>]*)?>[\s\S]*?(<\/liberdeRun>|$)/g, replacement);
 }

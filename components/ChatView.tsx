@@ -41,7 +41,13 @@ import {
   type ArtifactType,
   type ParsedBlock,
 } from "@/lib/artifact-shared";
-import { extractRunBlocks, formatRunResult, parseRunResult } from "@/lib/analysis";
+import {
+  extractRunBlocks,
+  formatRunResult,
+  parseRunResult,
+  splitReply,
+  stripRunBlocks,
+} from "@/lib/analysis";
 import { runJs, runPython, type SandboxFile } from "@/lib/sandbox";
 
 interface Props {
@@ -1842,11 +1848,25 @@ function AssistantContent({
                     onSubmit={(answer) => onAnswer?.(answer)}
                   />
                 ) : part.value.trim() ? (
-                  <Markdown
-                    key={j}
-                    content={linkifyCitations(part.value, annotations)}
-                    onShowArtifact={onShowCodePreview}
-                  />
+                  // Prose and run blocks interleave, so the run blocks are split
+                  // out here rather than left for the markdown renderer to show
+                  // as their own source.
+                  splitReply(part.value).map((sub, k) =>
+                    sub.kind === "run" ? (
+                      <RunCodeBlock
+                        key={`${j}-${k}`}
+                        lang={sub.lang}
+                        code={sub.code}
+                        complete={sub.complete}
+                      />
+                    ) : sub.text.trim() ? (
+                      <Markdown
+                        key={`${j}-${k}`}
+                        content={linkifyCitations(sub.text, annotations)}
+                        onShowArtifact={onShowCodePreview}
+                      />
+                    ) : null
+                  )
                 ) : null
               )}
             </div>
@@ -1946,7 +1966,7 @@ function getRecognitionCtor(): (new () => MinimalRecognition) | null {
 }
 
 function stripForSpeech(text: string): string {
-  return text
+  return stripRunBlocks(text, " (analysis) ")
     .replace(/<liberdeArtifact[\s\S]*?(<\/liberdeArtifact>|$)/g, " (artifact) ")
     .replace(/<liberdeRun[\s\S]*?(<\/liberdeRun>|$)/g, " (analysis) ")
     .replace(/```[\s\S]*?```/g, " (code block) ")
@@ -2046,13 +2066,15 @@ function exportChatPDF(title: string, messages: Message[]) {
       const who =
         m.role === "user" ? "You" : `Liberde${m.model ? ` · ${escapeHtml(m.model)}` : ""}`;
       // Replace machine tags with readable placeholders before rendering.
-      const cleaned = m.content
+      const cleaned = stripRunBlocks(m.content)
         .replace(
           /<liberdeArtifact\b[^>]*?title="([^"]*)"[\s\S]*?(<\/liberdeArtifact>|$)/g,
           (_s, t) => `\n> 🖼 **Artifact:** ${t || "untitled"}\n`
         )
         .replace(/<liberdeArtifact[\s\S]*?(<\/liberdeArtifact>|$)/g, "\n> 🖼 **Artifact**\n")
-        .replace(/<liberde(Run|Ask|Memory)>[\s\S]*?(<\/liberde\1>|$)/g, "")
+        .replace(/<liberde(Ask|Memory)>[\s\S]*?(<\/liberde\1>|$)/g, "")
+        // Attributes allowed: lang="python" used to defeat this entirely.
+        .replace(/<liberdeRun(\s[^>]*)?>[\s\S]*?(<\/liberdeRun>|$)/g, "")
         .trim();
       const imgs = (m.images ?? [])
         .map((src) => `<img class="genimg" src="${escapeHtml(src)}" alt="Generated image">`)
@@ -2359,6 +2381,56 @@ function ToolResultBlock({ output, name }: { output: string; name?: string }) {
       {open && (
         <pre className="max-h-64 overflow-auto whitespace-pre-wrap bg-surface px-3 py-2 text-xs leading-relaxed text-ink-muted">
           {output}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The code the model ran, shown as a foldable block rather than as raw tag
+ * source in the middle of the reply.
+ *
+ * Collapsed by default: the interesting thing is almost always the result, and
+ * the result already has its own block underneath. Anyone checking the working
+ * can open it.
+ */
+function RunCodeBlock({
+  lang,
+  code,
+  complete,
+}: {
+  lang: "js" | "python";
+  code: string;
+  complete: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const label = lang === "python" ? "Python" : "JavaScript";
+  return (
+    <div className="anim-rise mb-3 overflow-hidden rounded-xl border border-line bg-surface-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-ink-muted hover:bg-surface"
+      >
+        <Icon
+          name={complete ? "code" : "refresh"}
+          size={13}
+          className={complete ? "shrink-0 text-accent" : "shrink-0 animate-spin text-accent"}
+        />
+        <span className="min-w-0 flex-1 truncate font-medium">
+          {complete ? `Ran ${label}` : `Writing ${label}…`}
+        </span>
+        <Icon
+          name="chevronDown"
+          size={13}
+          className={`shrink-0 transition-transform ${open ? "" : "-rotate-90"}`}
+        />
+      </button>
+      {open && (
+        <pre className="max-h-72 overflow-auto border-t border-line px-3 py-2 text-[11px] leading-relaxed">
+          <code>{code.trim() || "…"}</code>
         </pre>
       )}
     </div>

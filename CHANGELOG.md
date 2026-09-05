@@ -36,6 +36,15 @@ A browsable version of this page lives at **[liberde.ai/changelog.html](https://
 
 ### Fixed
 
+- **A Python analysis block was printed as its own source.** Nothing stripped `<liberdeRun>`
+  from the rendered reply, so the opening tag, the imports and the whole script appeared as
+  chat text — while also executing correctly, which made it look like a formatting failure
+  rather than the missing renderer it was. The code now appears as a foldable *Ran Python*
+  block, collapsed by default, and a block still streaming reads *Writing Python…* instead
+  of leaking half a tag.
+- **The same tag survived into PDF and HTML exports.** The one place that did strip it
+  matched `<liberdeRun>` with no attributes, so every `lang="python"` block went through
+  untouched. Display, export and speech now share one implementation.
 - **A long council verdict squashed the answers below it.** The verdict sits above the
   columns and had no height limit, so a careful comparison of three detailed answers left
   the columns as a 40px strip. It is now collapsible — click the header — and capped at 45%

@@ -15,7 +15,13 @@ import { toCef, toJsonl } from "../lib/audit";
 import { canAssignRole, checkBudgets, WORKSPACE_ROLES } from "../lib/workspaces";
 import { checkConformance, paletteOf, fontsOf } from "../lib/design-system";
 import { artifactPreview } from "../lib/artifact-preview";
-import { extractRunBlocks, formatRunResult, parseRunResult } from "../lib/analysis";
+import {
+  extractRunBlocks,
+  formatRunResult,
+  parseRunResult,
+  splitReply,
+  stripRunBlocks,
+} from "../lib/analysis";
 import { retrieveRelevant } from "../lib/rag";
 import { cosine } from "../lib/embeddings";
 import { rawUrlFor, declaredTools, notices } from "../lib/skill-install";
@@ -564,6 +570,86 @@ check("a model with no published price survives the ceiling", () => {
   ] as never[];
   return suggestDefaults(sparse, "auto").includes("someone/unpriced");
 });
+
+
+// ------------------------------------------------- reply splitting --------
+//
+// The reported bug: a python run block was rendered as its own source in the
+// chat — opening tag, imports and all — while also executing.
+
+const NL = String.fromCharCode(10);
+const REPLY = ["Here goes.", '<liberdeRun lang="python">print(1)</liberdeRun>', "Done."].join(NL);
+
+check("a run block never reaches the text parts", () =>
+  splitReply(REPLY)
+    .filter((p) => p.kind === "text")
+    .every((p) => !p.text.includes("liberdeRun"))
+);
+
+check("the prose around a run block survives", () => {
+  const text = splitReply(REPLY)
+    .filter((p) => p.kind === "text")
+    .map((p) => (p.kind === "text" ? p.text : ""))
+    .join("");
+  return text.includes("Here goes.") && text.includes("Done.");
+});
+
+check("the block's language and code are recovered", () => {
+  const run = splitReply(REPLY).find((p) => p.kind === "run");
+  return run?.kind === "run" && run.lang === "python" && run.code === "print(1)";
+});
+
+check("a bare tag is treated as javascript", () => {
+  const run = splitReply("<liberdeRun>1+1</liberdeRun>").find((p) => p.kind === "run");
+  return run?.kind === "run" && run.lang === "js";
+});
+
+// Exactly the screenshot: an opening tag with attributes, code streaming in,
+// no closing tag yet.
+check("a still-streaming block is reported incomplete, not leaked", () => {
+  const partial = ["Working.", '<liberdeRun lang="python">import pandas as pd', "path = Path("].join(NL);
+  const parts = splitReply(partial);
+  const run = parts.find((p) => p.kind === "run");
+  const text = parts
+    .filter((p) => p.kind === "text")
+    .map((p) => (p.kind === "text" ? p.text : ""))
+    .join("");
+  return (
+    run?.kind === "run" &&
+    run.complete === false &&
+    run.code.includes("import pandas") &&
+    !text.includes("liberdeRun")
+  );
+});
+
+check("two run blocks in one reply are both split out", () =>
+  splitReply('<liberdeRun>a</liberdeRun>middle<liberdeRun lang="py">b</liberdeRun>').filter(
+    (p) => p.kind === "run"
+  ).length === 2
+);
+
+check("a reply with no run block is a single text part", () => {
+  const parts = splitReply("Just prose.");
+  return parts.length === 1 && parts[0].kind === "text";
+});
+
+// The export path required a bare <liberdeRun>, so lang="python" survived into
+// every PDF and HTML export.
+check("stripRunBlocks removes a tag that carries attributes", () =>
+  !stripRunBlocks('a<liberdeRun lang="python">code</liberdeRun>b').includes("liberdeRun")
+);
+
+check("stripRunBlocks removes an unterminated block too", () =>
+  !stripRunBlocks('a<liberdeRun lang="python">code that never closed').includes("liberdeRun")
+);
+
+check("stripRunBlocks can leave a placeholder in place", () =>
+  stripRunBlocks('<liberdeRun lang="py">x</liberdeRun>', " (analysis) ").trim() === "(analysis)"
+);
+
+check("stripRunBlocks keeps the surrounding prose", () =>
+  stripRunBlocks('before<liberdeRun lang="py">x</liberdeRun>after') === "beforeafter"
+);
 
 // ------------------------------------------------------------- report ------
 
