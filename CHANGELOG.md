@@ -36,6 +36,11 @@ A browsable version of this page lives at **[liberde.ai/changelog.html](https://
 
 ### Fixed
 
+- **The Regenerate model menu ran off the top of the window.** It was hardcoded to open
+  upward, so a reply near the top of the viewport had its model list clipped by the top of
+  the screen with no way to reach it. It now opens downward by default and flips up only
+  when the space below genuinely cannot hold a usable menu, with its height capped to
+  whatever room there is.
 - **Second opinion defaulted to old models, and offered one that cannot be called.** The
   catalog arrives sorted by *name*, and the picker took the first match per family — so
   "Claude 3 Haiku" beat every newer Claude on alphabetical order alone, and the Auto router

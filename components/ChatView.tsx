@@ -2566,6 +2566,26 @@ function RegenerateControl({
         )
         .slice(0, 30)
     : models.slice(0, 30);
+
+  // Which way to open, decided when it opens. The menu used to always drop
+  // upward, so a reply near the top of the viewport had its model list clipped
+  // by the top of the window with no way to scroll to it.
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [drop, setDrop] = useState<{ up: boolean; maxH: number }>({ up: false, maxH: 320 });
+
+  const toggle = () => {
+    if (!open && triggerRef.current) {
+      const r = triggerRef.current.getBoundingClientRect();
+      const below = window.innerHeight - r.bottom - 16;
+      const above = r.top - 16;
+      // Prefer down. Only flip up when there is not enough room below for a
+      // menu worth showing, and even then only if above is actually roomier.
+      const up = below < 220 && above > below;
+      setDrop({ up, maxH: Math.max(180, Math.min(360, up ? above : below)) });
+    }
+    setOpen((v) => !v);
+  };
+
   return (
     <span className="relative inline-flex items-center">
       <button
@@ -2576,7 +2596,8 @@ function RegenerateControl({
         <Icon name="refresh" size={13} /> Regenerate
       </button>
       <button
-        onClick={() => setOpen((v) => !v)}
+        ref={triggerRef}
+        onClick={toggle}
         title="Regenerate with a different model"
         className="ml-0.5 hover:text-ink"
       >
@@ -2585,7 +2606,11 @@ function RegenerateControl({
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full left-0 z-50 mb-1 w-72 rounded-xl border border-line bg-surface p-1 shadow-xl">
+          <div
+            className={`absolute left-0 z-50 w-72 rounded-xl border border-line bg-surface p-1 shadow-xl ${
+              drop.up ? "bottom-full mb-1" : "top-full mt-1"
+            }`}
+          >
             <input
               autoFocus
               value={q}
@@ -2593,7 +2618,10 @@ function RegenerateControl({
               placeholder="Regenerate with…"
               className="mb-1 w-full rounded-lg border border-line bg-bg px-2 py-1.5 text-xs outline-none focus:border-accent"
             />
-            <div className="max-h-64 overflow-y-auto">
+            <div
+              className="overflow-y-auto"
+              style={{ maxHeight: Math.max(120, drop.maxH - 56) }}
+            >
               {list.map((m) => (
                 <button
                   key={m.id}
