@@ -6,6 +6,7 @@ import { api, streamCompare } from "@/lib/client";
 import Markdown from "./Markdown";
 import Icon from "./Icon";
 import { byNewest, comparable, suggestDefaults } from "@/lib/compare-picks";
+import { readableAssistantText } from "@/lib/analysis";
 
 function fmtCost(cost: number): string {
   if (!cost) return "$0";
@@ -108,6 +109,15 @@ export default function ComparePanel({
     return list.slice(0, 60);
   }, [models, query]);
 
+  // Escape closes the comparison. Its overlay spans the window, so without
+  // this the panel stays over the app and every click lands on the backdrop.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
   const toggle = (id: string) =>
     setSelected((s) => {
       if (s.includes(id)) return s.filter((x) => x !== id);
@@ -413,7 +423,10 @@ export default function ComparePanel({
                     {synth.error} — the individual answers above are unaffected.
                   </p>
                 ) : synth.text ? (
-                  <Markdown content={synth.text} onShowArtifact={() => {}} />
+                  <Markdown
+                    content={readableAssistantText(synth.text)}
+                    onShowArtifact={() => {}}
+                  />
                 ) : (
                   <p className="text-xs text-ink-muted">…</p>
                 )}
@@ -464,7 +477,10 @@ export default function ComparePanel({
                     {col.error ? (
                       <p className="text-xs text-red-600 dark:text-red-400">{col.error}</p>
                     ) : col.text ? (
-                      <Markdown content={col.text} onShowArtifact={() => {}} />
+                      <Markdown
+                        content={readableAssistantText(col.text)}
+                        onShowArtifact={() => {}}
+                      />
                     ) : (
                       <p className="text-xs text-ink-muted">…</p>
                     )}

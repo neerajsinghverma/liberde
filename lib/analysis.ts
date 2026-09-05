@@ -176,3 +176,26 @@ export function splitReply(text: string): ReplyPart[] {
 export function stripRunBlocks(text: string, replacement = ""): string {
   return text.replace(/<liberdeRun(\s[^>]*)?>[\s\S]*?(<\/liberdeRun>|$)/g, replacement);
 }
+
+/**
+ * Assistant text as a person should read it, for surfaces that cannot host the
+ * real renderer.
+ *
+ * A comparison column shows a candidate answer, not a committed one: nothing in
+ * it is saved, so an artifact block there has no artifact to open and a run
+ * block has nothing to execute. Rendering the raw markup was the third instance
+ * of this bug — after the chat bubble and the mirrored partial — so the tags are
+ * replaced with a short readable note instead.
+ */
+export function readableAssistantText(text: string): string {
+  return text
+    .replace(
+      /<liberdeArtifact\b[^>]*?title="([^"]*)"[\s\S]*?(<\/liberdeArtifact>|$)/g,
+      (_m, title) => `\n_[artifact: ${title || "untitled"}]_\n`
+    )
+    .replace(/<liberdeArtifact\b[\s\S]*?(<\/liberdeArtifact>|$)/g, "\n_[artifact]_\n")
+    .replace(/<liberdeRun(\s[^>]*)?>[\s\S]*?(<\/liberdeRun>|$)/g, "\n_[code]_\n")
+    .replace(/<liberdeAsk>[\s\S]*?(<\/liberdeAsk>|$)/g, "")
+    .replace(/<liberdeMemory>[\s\S]*?(<\/liberdeMemory>|$)/g, "")
+    .trim();
+}

@@ -161,6 +161,60 @@ for (const [p] of cloudSrc) {
   }
 }
 
+// Any full-screen overlay must be dismissible from the keyboard.
+//
+// Four separate findings came from this one shape: Settings, the Regenerate
+// menu, the artifact Share menu and the Second opinion panel each drew a
+// backdrop across the window and closed only on a click. Escape did nothing,
+// so the app looked alive and behaved as though it had hung — and in the two
+// menu cases the backdrop was invisible, so it silently ate the next click.
+{
+  for (const [f, text] of cloudSrc) {
+    if (!/^components\/.*\.tsx$/.test(f)) continue;
+    if (!text.includes("fixed inset-0")) continue;
+    record(
+      "reach",
+      `${f} closes on Escape rather than trapping the keyboard`,
+      text.includes('"Escape"'),
+      f
+    );
+  }
+}
+
+// React hooks must sit in a component's own body. Nesting one inside another
+// effect or a callback is a runtime crash — the whole app renders nothing —
+// and it is invisible to TypeScript, which sees a perfectly ordinary function
+// call. There is no ESLint config here to run react-hooks/rules-of-hooks, so
+// this stands in for it: track brace depth and flag any hook deeper than the
+// component body.
+{
+  const HOOK_CALL = /^\s*(useEffect|useLayoutEffect|useMemo|useCallback)\(/;
+  for (const [f, text] of cloudSrc) {
+    if (!/^(components|app)\/.*\.tsx$/.test(f)) continue;
+    const lines = text.split("\n");
+    let depth = 0;
+    let bad = 0;
+    let firstBad = "";
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      // Depth 1 is a component's own body. Anything deeper is inside another
+      // function — a callback, or another effect — where a hook is a crash.
+      if (depth > 1 && HOOK_CALL.test(line)) {
+        bad++;
+        if (!firstBad) firstBad = `line ${i + 1}: ${line.trim().slice(0, 50)}`;
+      }
+      depth += (line.match(/\{/g) || []).length - (line.match(/\}/g) || []).length;
+      if (depth < 0) depth = 0;
+    }
+    record(
+      "reach",
+      `${f} calls every hook at the top level of its component`,
+      bad === 0,
+      firstBad
+    );
+  }
+}
+
 // ============================================================= 2. PARITY ====
 //
 // The two editions are the same product. A file present in one and absent in

@@ -36,6 +36,17 @@ A browsable version of this page lives at **[liberde.ai/changelog.html](https://
 
 ### Fixed
 
+- **Seven dialogs trapped the keyboard.** Settings, the Regenerate model menu, the artifact
+  Share menu, Second opinion, Help-me-pick, Scheduled tasks and the confirm dialog each drew
+  an overlay across the window and closed only on a click. Escape did nothing. In the two
+  menu cases the overlay was invisible, so the app looked entirely normal and silently ate
+  the next click wherever you aimed it. All seven close on Escape now — and the confirm
+  dialog resolves *false*, because a stray keypress must never become consent.
+- **Second opinion columns showed raw artifact markup** instead of the answer. A comparison
+  column renders a candidate reply without the segmented renderer, so a model reaching for an
+  artifact filled the column with `<liberdeArtifact …>` and its whole HTML body. Third
+  instance of one root cause, so it is now one shared function with tests rather than a third
+  regex.
 - **A model could announce a code run and then not make one.** After an error came back it
   would reply "I need to recompute the dataset, then insert it into the artifact" — and stop,
   leaving the turn finished and the user waiting for work that never started. The artifacts

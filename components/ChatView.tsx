@@ -1555,7 +1555,9 @@ export default function ChatView({
                   </div>
                 </div>
               ) : (
-                <div className="anim-rise group mb-6">
+                // data-role makes a turn identifiable without matching on visible text,
+                // which changes with wording and made the soak count zero replies.
+                <div className="anim-rise group mb-6" data-role="assistant">
                   {msg.reasoning && (
                     <ThinkingBlock text={msg.reasoning} durationMs={msg.reasoning_ms} />
                   )}
@@ -2835,6 +2837,18 @@ function RegenerateControl({
   // by the top of the window with no way to scroll to it.
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [drop, setDrop] = useState<{ up: boolean; maxH: number }>({ up: false, maxH: 320 });
+
+  // Escape closes the model menu. Its click-away backdrop covers the entire
+  // window, so leaving it open after Escape makes the whole app swallow a
+  // click — invisibly, which is the worst way for it to fail.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
 
   const toggle = () => {
     if (!open && triggerRef.current) {

@@ -46,6 +46,19 @@ export default function UiHost() {
     setConfirmState(null);
   };
 
+  // Escape declines the confirmation. It must resolve false, never true: this
+  // dialog exists so destructive actions are opt-in, and a stray keypress must
+  // not become consent.
+  useEffect(() => {
+    if (!confirmState) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") resolveConfirm(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [confirmState]);
+
   return (
     <>
       <div className="pointer-events-none fixed bottom-4 left-1/2 z-[80] flex -translate-x-1/2 flex-col items-center gap-2">

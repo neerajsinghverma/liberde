@@ -1312,6 +1312,17 @@ function ShareMenu({
     }
   };
 
+  // Escape closes the share menu, for the same reason as the model menu: its
+  // backdrop spans the window, and an overlay that ignores Escape leaves the
+  // app looking alive and behaving as though it is not.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   return (
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />

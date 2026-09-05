@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import type { ModelInfo } from "@/lib/types";
 import { api } from "@/lib/client";
 import Icon from "./Icon";
@@ -213,6 +213,14 @@ export default function ModelAdvisor({
     }
   };
 
+  // Escape closes the advisor, like every other overlay.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"

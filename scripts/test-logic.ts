@@ -20,6 +20,7 @@ import {
   formatRunResult,
   parseRunResult,
   isPhantomRunTool,
+  readableAssistantText,
   MATH_PROMPT,
   ANALYSIS_SYSTEM_PROMPT,
   splitReply,
@@ -808,6 +809,49 @@ check("the prompt warns that a lone dollar is currency", () =>
 check("the prompt tells models which delimiters to use", () =>
   /dollar delimiters/i.test(MATH_PROMPT) && /do NOT use/i.test(MATH_PROMPT)
 );
+
+// ------------------------------------- reader-facing assistant text -------
+//
+// Third instance of one bug: a surface rendering assistant text without the
+// segmented renderer, so machine tags reached the reader. Chat bubbles, then
+// the mirrored partial, then the comparison columns.
+
+check("an artifact block becomes a readable note, with its title", () => {
+  const src = 'Here it is.<liberdeArtifact identifier="x" title="Sales Deck">BODY</liberdeArtifact>Done.';
+  const out = readableAssistantText(src);
+  return !out.includes("liberdeArtifact") && out.includes("Sales Deck") && !out.includes("BODY");
+});
+
+check("an untitled artifact still loses its markup", () => {
+  const out = readableAssistantText('<liberdeArtifact identifier="x">BODY</liberdeArtifact>');
+  return !out.includes("liberdeArtifact") && !out.includes("BODY");
+});
+
+check("an unterminated artifact is stripped too", () => {
+  const out = readableAssistantText('text<liberdeArtifact identifier="x">half a body');
+  return !out.includes("liberdeArtifact") && !out.includes("half a body");
+});
+
+check("a run block with attributes becomes a note", () => {
+  const out = readableAssistantText('a<liberdeRun lang="python">print(1)</liberdeRun>b');
+  return !out.includes("liberdeRun") && !out.includes("print(1)");
+});
+
+check("ask and memory blocks vanish entirely", () => {
+  const out = readableAssistantText('x<liberdeAsk>[{"q":"?"}]</liberdeAsk><liberdeMemory>m</liberdeMemory>y');
+  return !out.includes("liberdeAsk") && !out.includes("liberdeMemory") && out.includes("x");
+});
+
+// The other direction: ordinary prose and markdown must come through whole.
+check("prose is returned untouched", () => {
+  const src = "Just an answer with **bold** and a [link](https://example.com).";
+  return readableAssistantText(src) === src;
+});
+
+check("a fenced code block is not mistaken for a machine tag", () => {
+  const src = ["Here:", "```python", "print(1)", "```"].join(String.fromCharCode(10));
+  return readableAssistantText(src) === src;
+});
 
 // ------------------------------------------------------------- report ------
 

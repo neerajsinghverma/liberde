@@ -161,6 +161,18 @@ export default function SettingsDialog({
   onSaved: (s: AppSettings) => void;
   initialTab?: string;
 }) {
+  // Escape closes Settings. The command palette, the welcome tour and the
+  // sidebar's inline editors all honour it; this dialog did not, so the only
+  // way out was finding the ✕ — and anything modal that ignores Escape reads
+  // as the app having hung.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   const [tab, setTab] = useState<SettingsTabId>(
     SETTINGS_TABS.some((t) => t.id === initialTab)
       ? (initialTab as SettingsTabId)
@@ -773,7 +785,13 @@ export default function SettingsDialog({
                           onChange={(e) => setEditingMemText(e.target.value)}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") saveMemoryEdit(m.id);
-                            if (e.key === "Escape") setEditingMemId(null);
+                            if (e.key === "Escape") {
+                              // Cancel this edit only — the dialog closes on
+                              // Escape now, and losing the whole panel because
+                              // you abandoned one rename would be worse.
+                              e.stopPropagation();
+                              setEditingMemId(null);
+                            }
                           }}
                           className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-2 py-1 text-sm outline-none focus:border-accent"
                         />
