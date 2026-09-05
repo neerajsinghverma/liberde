@@ -1,5 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Analytics } from "@vercel/analytics/next";
+// KaTeX's stylesheet. Without it the math plugin still runs but every formula
+// renders as unstyled spans, which looks worse than the raw LaTeX did.
+import "katex/dist/katex.min.css";
 import "./globals.css";
 
 export const metadata: Metadata = {

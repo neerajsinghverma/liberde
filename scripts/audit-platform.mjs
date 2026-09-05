@@ -20,6 +20,7 @@
 
 import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
+import { builtinModules } from "node:module";
 
 const CLOUD = process.cwd();
 const SELF = "C:/src/Liberde";
@@ -101,6 +102,62 @@ for (const [p] of cloudSrc) {
     const [, kind, path] = m;
     const file = path === "/" ? "app/page.tsx" : `app${path}/page.tsx`;
     record("reach", `the "${kind}" view resolves at ${path} on a reload`, cloudSrc.has(file), file);
+  }
+}
+
+// Copying a file between editions can drag a dependency the other edition does
+// not have. It happened: app/layout.tsx went across with @vercel/analytics and
+// broke the self-host build — a failure that a piped `npm run build | tail` hid,
+// because tail exits 0 whatever the build did.
+//
+// Derived from the self-host manifest rather than a hand-kept list of
+// cloud-only packages, so it stays right without being maintained, and catches
+// the next one instead of only the one I already know about.
+{
+  let selfDeps = new Set();
+  try {
+    const pkg = JSON.parse(readIf(join(SELF, "package.json")) || "{}");
+    selfDeps = new Set([
+      ...Object.keys(pkg.dependencies ?? {}),
+      ...Object.keys(pkg.devDependencies ?? {}),
+    ]);
+  } catch {
+    /* no manifest — skip rather than fail loudly on a missing checkout */
+  }
+
+  /** The package a specifier belongs to, or null for relative/alias/builtin. */
+  const packageOf = (spec) => {
+    if (spec.startsWith(".") || spec.startsWith("@/") || spec.startsWith("node:")) return null;
+    const parts = spec.split("/");
+    return spec.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
+  };
+
+  if (selfDeps.size > 0) {
+    for (const [p2, text] of selfSrc) {
+      if (!/^(app|components|lib)\//.test(p2)) continue;
+      // Only real import/export statements at the start of a line. A loose
+      // `from "…"` also matches inside string concatenation, which produced
+      // findings like `imports " + a.model + "`.
+      const specs = new Set(
+        [...text.matchAll(/^\s*(?:import|export)[\s\S]{0,200}?from\s+"([^"]+)";/gm)].map(
+          (m) => m[1]
+        )
+      );
+      for (const spec of specs) {
+        const pkgName = packageOf(spec);
+        if (!pkgName) continue;
+        // Node builtins, with or without the node: prefix, and the framework
+        // packages, which are present without always being listed.
+        if (builtinModules.includes(pkgName)) continue;
+        if (["react", "react-dom", "next"].includes(pkgName)) continue;
+        record(
+          "parity",
+          `${p2} imports ${pkgName}, which self-host depends on`,
+          selfDeps.has(pkgName),
+          `${p2} :: ${spec}`
+        );
+      }
+    }
   }
 }
 

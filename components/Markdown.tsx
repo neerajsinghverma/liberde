@@ -4,6 +4,9 @@ import { memo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import { normaliseMath } from "@/lib/math";
 
 export interface CodePreview {
   code: string;
@@ -32,8 +35,14 @@ const Markdown = memo(function Markdown({
   return (
     <div className="prose-chat text-[15px]">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeHighlight]}
+        // singleDollarTextMath: false — in this app a lone $ is a currency sign
+        // far more often than a maths delimiter. With it on, '$16.67 million ... to
+        // safely draw $500,000' had everything between the two dollars swallowed
+        // as a formula. Maths needs $…$; money is left alone.
+        remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
+        // strict: false so one malformed formula renders as its own source
+        // instead of throwing away the whole reply around it.
+        rehypePlugins={[rehypeHighlight, [rehypeKatex, { strict: false, throwOnError: false }]]}
         components={{
           pre({ children }) {
             const codeEl = Array.isArray(children) ? children[0] : children;
@@ -49,7 +58,7 @@ const Markdown = memo(function Markdown({
           },
         }}
       >
-        {content}
+        {normaliseMath(content)}
       </ReactMarkdown>
     </div>
   );

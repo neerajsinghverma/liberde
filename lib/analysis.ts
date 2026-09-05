@@ -58,6 +58,26 @@ export function isPhantomRunTool(name: string | undefined | null): boolean {
   return !!name && PHANTOM_RUN_TOOL.test(name);
 }
 
+/**
+ * Maths delimiters.
+ *
+ * The renderer reads dollar delimiters. Models left to themselves reach for
+ * LaTeX's own \\[…\\], and markdown strips the backslash on the way, so the
+ * formula arrives as a bare bracketed line and is displayed as source. The
+ * normaliser in lib/math.ts repairs that after the fact; this stops it
+ * happening in the first place, which is cheaper and more reliable than
+ * repairing every variant a model can invent.
+ */
+export const MATH_PROMPT = [
+  "# Maths",
+  "Wrap mathematics in DOUBLE dollar delimiters: $$x^2$$. Do NOT use single" +
+    " dollars, \\[ … \\], \\( … \\), or bare square brackets — none of those render" +
+    " as maths.",
+  "A single dollar is a currency sign here, so write money as plain text —" +
+    " $500,000 — and never as a formula. Plain prose and simple numbers need no" +
+    " delimiters at all.",
+].join("\n");
+
 /** Matches a run block with or without a language attribute. */
 export const RUN_TAG = /<liberdeRun(\s[^>]*)?>([\s\S]*?)<\/liberdeRun>/g;
 export const RUN_RESULT_OPEN = "<liberdeRunResult>";
@@ -70,15 +90,12 @@ export interface RunBlock {
 }
 
 /**
- * Pull the runnable blocks out of a reply.
+ * Read the language off a run tag's attributes.
  *
- * Anything that is not recognisably Python falls back to JavaScript, which is
- * the safe direction: JS starts instantly and fails visibly, whereas guessing
- * Python would download a runtime to run something that was never Python.
+ * Anything not recognisably Python is JavaScript, which is the safe direction:
+ * JS starts instantly and fails visibly, whereas guessing Python downloads a
+ * runtime to run something that never was.
  */
-/** Read the language off a run tag's attributes. Anything not recognisably
- *  Python is JavaScript: JS starts instantly and fails visibly, whereas
- *  guessing Python downloads a runtime to run something that never was. */
 export function langOf(attrs: string): RunLang {
   const declared = attrs.match(/lang\s*=\s*["']?([a-z0-9]+)/i)?.[1]?.toLowerCase();
   return declared === "python" || declared === "py" ? "python" : "js";

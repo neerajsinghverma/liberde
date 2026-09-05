@@ -27,6 +27,7 @@ import { estimateWh, co2Grams, fmtWh, fmtCo2, ecoEquivalence } from "@/lib/eco";
 import Markdown, { type CodePreview } from "./Markdown";
 import Icon from "./Icon";
 import ModelPicker from "./ModelPicker";
+import { comparable } from "@/lib/compare-picks";
 import ModelAdvisor from "./ModelAdvisor";
 import ComparePanel from "./ComparePanel";
 import DesignSystemChip from "./DesignSystemChip";
@@ -2686,15 +2687,18 @@ function RegenerateControl({
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
+  // The Auto router is an instruction, not an endpoint: picking it here could
+  // only fail. Order is otherwise left as the catalog gives it.
+  const regenerable = models.filter((m) => comparable(m, ""));
   const list = q.trim()
-    ? models
+    ? regenerable
         .filter(
           (m) =>
             m.id.toLowerCase().includes(q.toLowerCase()) ||
             m.name.toLowerCase().includes(q.toLowerCase())
         )
         .slice(0, 30)
-    : models.slice(0, 30);
+    : regenerable.slice(0, 30);
 
   // Which way to open, decided when it opens. The menu used to always drop
   // upward, so a reply near the top of the viewport had its model list clipped

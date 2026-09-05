@@ -36,6 +36,16 @@ A browsable version of this page lives at **[liberde.ai/changelog.html](https://
 
 ### Fixed
 
+- **Maths renders as maths.** Formulas arrived as raw LaTeX — `[ \frac{...} ]` printed as
+  source — because nothing rendered them. KaTeX now does, models are told which delimiters
+  the renderer reads, and a normaliser repairs the variants they use anyway (`\[ … \]`,
+  `\( … \)`, and the bare bracketed line markdown leaves behind after eating the
+  backslash).
+  **Single-dollar maths is deliberately off.** With it on, "$16.67 million … to safely draw
+  $500,000" had everything between the two dollars swallowed as a formula. A lone dollar here
+  is currency far more often than a delimiter, so maths needs `$…$` and money is left alone.
+- **The Regenerate list no longer offers `auto`** — a routing instruction with no endpoint,
+  which could only fail if picked.
 - **A phantom tool call left two junk chips in every analysis run.** Tool-capable models try
   to *call* the analysis tool, which is a tag rather than a function. The server already
   corrected them — that is why runs succeeded — but the bogus call and its correction were

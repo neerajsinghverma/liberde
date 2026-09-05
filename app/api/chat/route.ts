@@ -55,7 +55,7 @@ import {
   MEMORY_SYSTEM_PROMPT,
   MEMORY_TOOL_DEFS,
 } from "@/lib/memory";
-import { ANALYSIS_SYSTEM_PROMPT, isPhantomRunTool } from "@/lib/analysis";
+import { ANALYSIS_SYSTEM_PROMPT, isPhantomRunTool, MATH_PROMPT } from "@/lib/analysis";
 import { getRequestUserId, unauthorized } from "@/lib/auth";
 import { designSystemBlock as buildDesignSystemBlock } from "@/lib/design-system";
 import { bodyTooLarge, attachmentsProblem, MAX_CONTENT_CHARS } from "@/lib/limits";
@@ -395,6 +395,7 @@ Only reply in plain text for a genuine question that clearly isn't a design requ
     systemParts.stable,
     ARTIFACTS_SYSTEM_PROMPT,
     ANALYSIS_SYSTEM_PROMPT,
+    MATH_PROMPT,
     WEB_TOOLS_PROMPT,
     PLATFORM_TOOLS_PROMPT,
     recallActive ? RECALL_SYSTEM_PROMPT : "",

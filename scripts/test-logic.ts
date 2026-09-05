@@ -20,6 +20,7 @@ import {
   formatRunResult,
   parseRunResult,
   isPhantomRunTool,
+  MATH_PROMPT,
   ANALYSIS_SYSTEM_PROMPT,
   splitReply,
   stripRunBlocks,
@@ -31,6 +32,7 @@ import { applyPromptCache, needsExplicitCacheControl, readCacheStats } from "../
 import { parseSkillMd, toSkillImport } from "../lib/skill-md";
 import { isPrivateIp } from "../lib/ssrf";
 import { isTransportDrop } from "../lib/client";
+import { normaliseMath } from "../lib/math";
 import {
   byNewest,
   comparable,
@@ -730,6 +732,81 @@ check("empty and missing names are not phantoms", () =>
 
 check("the prompt tells models not to call a function for this", () =>
   /no function to call for this/i.test(ANALYSIS_SYSTEM_PROMPT)
+);
+
+// --------------------------------------------------- maths delimiters -----
+//
+// The reported symptom: a financial answer showed its arithmetic as raw
+// LaTeX. Models write LaTeX's own delimiters, markdown eats the backslash,
+// and a bare bracketed line reaches the renderer as prose.
+
+const BS = String.fromCharCode(92);
+
+check("LaTeX display delimiters become dollar form", () => {
+  const out = normaliseMath(BS + "[ x^2 " + BS + "]");
+  return out === "$$x^2$$";
+});
+
+// that currency survives.
+check("LaTeX inline delimiters also become the double form", () => {
+  const out = normaliseMath(BS + "( x^2 " + BS + ")");
+  return out === "$$x^2$$";
+});
+
+// Exactly the line from the screenshot, backslash already stripped.
+check("a bare bracketed line containing TeX becomes a formula", () => {
+  const line = "[ " + BS + "frac{" + BS + "$500}{0.03} = 16666667 ]";
+  const out = normaliseMath(line);
+  return out.startsWith("$$") && out.endsWith("$$") && out.includes("frac");
+});
+
+check("the boxed answer from the screenshot converts", () => {
+  const out = normaliseMath("[ " + BS + "boxed{11.9" + BS + "text{ years}} ]");
+  return out.startsWith("$$") && out.includes("boxed");
+});
+
+// The half that keeps this safe: ordinary prose and markdown must survive.
+check("a markdown link is left alone", () => {
+  const src = "See [the docs](https://example.com) for more.";
+  return normaliseMath(src) === src;
+});
+
+check("a plain bracketed aside is left alone", () => {
+  const src = "[ this is just prose ]";
+  return normaliseMath(src) === src;
+});
+
+check("a markdown checkbox list is left alone", () => {
+  const src = "- [ ] todo";
+  return normaliseMath(src) === src;
+});
+
+check("a python list on its own line is left alone", () => {
+  const src = "[ 1, 2, 3 ]";
+  return normaliseMath(src) === src;
+});
+
+check("dollar delimiters already correct are untouched", () => {
+  const src = "The area is $" + BS + "pi r^2$ exactly.";
+  return normaliseMath(src) === src;
+});
+
+check("prose with no maths is returned unchanged", () => {
+  const src = "Nothing mathematical here at all.";
+  return normaliseMath(src) === src;
+});
+
+check("a sentence with two currency amounts is left alone", () => {
+  const src = "You need $16.67 million to safely draw $500,000 a year.";
+  return normaliseMath(src) === src;
+});
+
+check("the prompt warns that a lone dollar is currency", () =>
+  /currency sign/i.test(MATH_PROMPT)
+);
+
+check("the prompt tells models which delimiters to use", () =>
+  /dollar delimiters/i.test(MATH_PROMPT) && /do NOT use/i.test(MATH_PROMPT)
 );
 
 // ------------------------------------------------------------- report ------
