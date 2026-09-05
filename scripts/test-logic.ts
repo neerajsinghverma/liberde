@@ -26,6 +26,7 @@ import {
   byNewest,
   comparable,
   suggestDefaults,
+  suggestPriceCeiling,
   vendorOf,
 } from "../lib/compare-picks";
 
@@ -499,6 +500,69 @@ check("comparable() rejects the sentinel and batch, accepts a real model", () =>
 check("byNewest sorts newest first", () => {
   const sorted = [{ created: 1 }, { created: 9 }, { created: 5 }].sort(byNewest);
   return sorted[0].created === 9 && sorted[2].created === 1;
+});
+
+
+// A catalog with a clear top band, so the ceiling has something to exclude.
+// Ids match the real ones on purpose: the family patterns are anchored on real
+// vendor paths, so "anthropic/opus" would match nothing and the test would
+// exercise the fallback instead of the thing it names.
+const PRICED = [
+  { id: "anthropic/claude-fable-5.1", name: "Fable", created: 1_790_000_000, pricing: { prompt: "0.00001", completion: "0.00005" } },
+  { id: "anthropic/claude-opus-5", name: "Opus 5", created: 1_785_000_000, pricing: { prompt: "0.000005", completion: "0.000025" } },
+  { id: "openai/gpt-5.6-luna-pro", name: "Luna Pro", created: 1_784_000_000, pricing: { prompt: "0.0000003", completion: "0.0000012" } },
+  { id: "google/gemini-3.8-flash", name: "Flash", created: 1_783_000_000, pricing: { prompt: "0.0000008", completion: "0.00000375" } },
+  { id: "deepseek/v4", name: "DeepSeek", created: 1_780_000_000, pricing: { prompt: "0.0000001", completion: "0.0000004" } },
+  { id: "meta-llama/llama-5", name: "Llama", created: 1_779_000_000, pricing: { prompt: "0.0000001", completion: "0.0000005" } },
+  { id: "mistralai/large-3", name: "Mistral", created: 1_778_000_000, pricing: { prompt: "0.0000001", completion: "0.0000006" } },
+  { id: "x-ai/grok-5", name: "Grok", created: 1_777_000_000, pricing: { prompt: "0.0000001", completion: "0.0000007" } },
+  { id: "openai/gpt-4.1", name: "GPT-4.1", created: 1_776_000_000, pricing: { prompt: "0.0000001", completion: "0.0000008" } },
+  { id: "google/gemini-3.5-flash", name: "Flash 3.5", created: 1_775_000_000, pricing: { prompt: "0.0000001", completion: "0.0000009" } },
+] as never[];
+
+check("the dearest model is not suggested by default", () => {
+  const picks = suggestDefaults(PRICED, "auto");
+  return !picks.includes("anthropic/claude-fable-5.1");
+});
+
+check("the newest model under the ceiling is suggested instead", () => {
+  const picks = suggestDefaults(PRICED, "auto");
+  return picks.includes("anthropic/claude-opus-5");
+});
+
+check("an explicitly chosen dear model is still honoured", () => {
+  const picks = suggestDefaults(PRICED, "anthropic/claude-fable-5.1");
+  return picks[0] === "anthropic/claude-fable-5.1";
+});
+
+check("choosing a dear model does not make its companions dear too", () => {
+  const picks = suggestDefaults(PRICED, "anthropic/claude-fable-5.1");
+  const priceOf = (id: string) =>
+    Number(
+      (PRICED as { id: string; pricing: { completion: string } }[]).find((m) => m.id === id)!
+        .pricing.completion
+    );
+  return picks.slice(1).every((p) => priceOf(p) < 0.00002);
+});
+
+check("a catalog too small to have price bands has no ceiling", () =>
+  suggestPriceCeiling(PRICED.slice(0, 4)) === Infinity
+);
+
+check("the ceiling comes from the catalog, not a hardcoded figure", () => {
+  const ceiling = suggestPriceCeiling(PRICED);
+  return Number.isFinite(ceiling) && ceiling > 0 && ceiling < 0.00005;
+});
+
+check("a model with no published price survives the ceiling", () => {
+  // It has to stay eligible, or a sparse catalog loses whole labs. Only two
+  // family matches here, so the fallback is reached and it can be picked.
+  const sparse = [
+    { id: "someone/unpriced", name: "Unpriced", created: 1_799_000_000, pricing: { prompt: "0", completion: "0" } },
+    PRICED[4],
+    PRICED[5],
+  ] as never[];
+  return suggestDefaults(sparse, "auto").includes("someone/unpriced");
 });
 
 // ------------------------------------------------------------- report ------

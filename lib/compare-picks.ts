@@ -61,17 +61,73 @@ export function byNewest(a: Pick<ModelInfo, "created">, b: Pick<ModelInfo, "crea
 }
 
 /**
+ * The price percentile above which a model is too dear to *suggest*.
+ *
+ * A comparison runs three models on one question, so the default set costs
+ * roughly three turns. Picking purely by recency reached the top of the
+ * catalog — Claude Fable 5.1 and GPT-6 Astra at $50 per million output tokens —
+ * which is a lot to spend on a second opinion nobody asked to be expensive.
+ * At the 95th percentile the ceiling lands just above Opus-tier and just below
+ * the flagships, which is the right default: current, capable, not extravagant.
+ *
+ * It only constrains what is *suggested*. Anything in the catalog can still be
+ * chosen deliberately from the picker.
+ */
+export const SUGGEST_PRICE_PERCENTILE = 0.95;
+
+/** Completion price per token, or NaN when the model reports none. */
+function completionPrice(m: Pick<ModelInfo, "pricing">): number {
+  const n = Number(m.pricing?.completion);
+  return Number.isFinite(n) && n > 0 ? n : NaN;
+}
+
+/**
+ * The dearest price a suggested model may have, from the live catalog rather
+ * than a hardcoded figure — model prices move, and a fixed dollar amount would
+ * be wrong within a month.
+ *
+ * Returns Infinity for a catalog too small to have meaningful bands, because
+ * excluding the top of a five-model list would leave nothing to compare.
+ */
+export function suggestPriceCeiling(
+  models: Pick<ModelInfo, "pricing">[],
+  percentile = SUGGEST_PRICE_PERCENTILE
+): number {
+  const priced = models
+    .map(completionPrice)
+    .filter((n) => Number.isFinite(n))
+    .sort((a, b) => a - b);
+  if (priced.length < 8) return Infinity;
+  // Nearest-rank over indices 0..n-1. Multiplying the *length* instead puts
+  // the 95th percentile of a ten-model list on the tenth model — the ceiling
+  // becomes the maximum and excludes nothing, which is the opposite of the
+  // intent on exactly the small catalogs where it matters most.
+  return priced[Math.floor((priced.length - 1) * percentile)];
+}
+
+/**
  * The default comparison set: the current model, plus the newest model from
  * each of two other labs.
  *
  * Spanning labs is the whole point of the feature. Within a lab, the newest
- * release is almost always what the person meant.
+ * release the ceiling allows is almost always what the person meant — the very
+ * top of the catalog is a deliberate choice, not a default.
  */
 export function suggestDefaults(models: ModelInfo[], current: string): string[] {
   const seed = current && current !== AUTO_SENTINEL ? [current] : [];
   const picks = [...seed];
   const usedVendors = new Set(picks.map(vendorOf));
-  const ranked = models.filter((m) => comparable(m, current)).sort(byNewest);
+  // Newest first, but not at any price: see suggestPriceCeiling.
+  const ceiling = suggestPriceCeiling(models);
+  const ranked = models
+    .filter((m) => comparable(m, current))
+    .filter((m) => {
+      const price = Number(m.pricing?.completion);
+      // A model with no published price is not evidence of a cheap one, but
+      // excluding it would drop whole labs on a sparse catalog. Keep it.
+      return !Number.isFinite(price) || price <= 0 || price <= ceiling;
+    })
+    .sort(byNewest);
 
   for (const [re] of FAMILIES) {
     if (picks.length >= 3) break;

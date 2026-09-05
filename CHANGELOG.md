@@ -45,9 +45,13 @@ A browsable version of this page lives at **[liberde.ai/changelog.html](https://
   catalog arrives sorted by *name*, and the picker took the first match per family — so
   "Claude 3 Haiku" beat every newer Claude on alphabetical order alone, and the Auto router
   appeared as a selectable model despite being a routing instruction with no endpoint. The
-  default set is now the newest model per lab, excludes batch variants (cheaper because they
-  are *not* answered promptly), and spans three different labs rather than three families
-  from two. The picker is sorted newest-first too.
+  default set is now the newest model per lab *under a price ceiling* — a comparison runs
+  three models on one question, so reaching for the top of the catalog by default spends
+  three flagship turns on a second opinion nobody asked to be expensive. The ceiling is the
+  catalog's own 95th percentile rather than a hardcoded figure, which currently lands on
+  Opus-tier and excludes the $50-per-million flagships. Batch variants are excluded too
+  (cheaper because they are *not* answered promptly), and the set spans three labs rather
+  than three families from two. Anything dearer stays one click away in the picker.
 - **The council verdict now leads the panel** instead of sitting under three columns of the
   material it summarises.
 - **Second opinion showed no answers on a phone.** The comparison columns carried `flex-1
