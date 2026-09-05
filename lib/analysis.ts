@@ -34,7 +34,29 @@ console.log([1,2,3].reduce((a,b) => a+b))
 
 **Limits.** No shell and no arbitrary network — this runs in the browser, so \`fetch\` is subject to CORS and most APIs will refuse. Python runs for up to two minutes per block.
 
+**There is no function to call for this.** Do not invoke a tool named \`liberdeRun\`, \`run_code\`, \`python\` or anything similar — no such function exists, and calling one wastes a turn. Writing the block above IS how you run code.
+
 The output is sent back to you automatically as an execution result, then you continue — interpret it for the user or run more code. Don't use this for code the user asked you to WRITE (use artifacts for that), and never emit anything after the closing tag.`;
+
+/**
+ * Names models invent when they try to *call* the analysis tool.
+ *
+ * There is no such function: the analysis tool is a tag written into the reply.
+ * Tool-capable models see it described alongside real tools and reach for a
+ * function anyway. The server answers with a correction and they get it right
+ * on the next turn, so the run still happens — but the phantom call and its
+ * correction were both rendered as ordinary tool chips, leaving two pieces of
+ * junk in the transcript for something that was never a real tool use.
+ *
+ * Shared so the server's guard and the client's renderer cannot disagree about
+ * which names are phantoms.
+ */
+export const PHANTOM_RUN_TOOL =
+  /^(liberde_?run|run_?(js|javascript|code|python)|code_?(execution|interpreter)|execute_?(code|javascript|python))$/i;
+
+export function isPhantomRunTool(name: string | undefined | null): boolean {
+  return !!name && PHANTOM_RUN_TOOL.test(name);
+}
 
 /** Matches a run block with or without a language attribute. */
 export const RUN_TAG = /<liberdeRun(\s[^>]*)?>([\s\S]*?)<\/liberdeRun>/g;

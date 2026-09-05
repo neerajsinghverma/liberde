@@ -19,6 +19,8 @@ import {
   extractRunBlocks,
   formatRunResult,
   parseRunResult,
+  isPhantomRunTool,
+  ANALYSIS_SYSTEM_PROMPT,
   splitReply,
   stripRunBlocks,
 } from "../lib/analysis";
@@ -692,6 +694,42 @@ check("a rate-limit message is NOT swallowed", () =>
 
 check("a non-error value does not throw", () =>
   isTransportDrop(undefined) === false && isTransportDrop("nope") === false
+);
+
+// ------------------------------------------------ phantom run tools -------
+//
+// Models try to *call* the analysis tool, which is a tag, not a function.
+// The server corrects them and the run succeeds on the next turn, but the
+// phantom call and its correction were both drawn as ordinary tool chips.
+
+check("the camelCase name a model actually emitted is caught", () =>
+  isPhantomRunTool("liberdeRun")
+);
+
+check("snake_case and other guesses are caught", () =>
+  ["liberde_run", "run_code", "run_python", "run_js", "code_interpreter",
+   "code_execution", "execute_code", "execute_python"].every(isPhantomRunTool)
+);
+
+check("case does not matter", () => isPhantomRunTool("LIBERDE_RUN"));
+
+// The other direction is what keeps this safe: hiding a real tool chip would
+// make genuine tool use invisible, which is worse than the noise it removes.
+check("real tools are not treated as phantoms", () =>
+  ["web_search", "fetch_page", "artifact_read", "memory_save", "create_http_tool",
+   "skill__abc123", "search_past_chats"].every((n) => !isPhantomRunTool(n))
+);
+
+check("a connector tool that merely contains 'run' is not a phantom", () =>
+  !isPhantomRunTool("github__run_workflow") && !isPhantomRunTool("runner_status")
+);
+
+check("empty and missing names are not phantoms", () =>
+  !isPhantomRunTool("") && !isPhantomRunTool(undefined) && !isPhantomRunTool(null)
+);
+
+check("the prompt tells models not to call a function for this", () =>
+  /no function to call for this/i.test(ANALYSIS_SYSTEM_PROMPT)
 );
 
 // ------------------------------------------------------------- report ------

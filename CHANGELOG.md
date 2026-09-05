@@ -36,6 +36,16 @@ A browsable version of this page lives at **[liberde.ai/changelog.html](https://
 
 ### Fixed
 
+- **A phantom tool call left two junk chips in every analysis run.** Tool-capable models try
+  to *call* the analysis tool, which is a tag rather than a function. The server already
+  corrected them — that is why runs succeeded — but the bogus call and its correction were
+  both drawn as ordinary tool chips. They are recognised and hidden now, and the prompt says
+  outright that no such function exists, which should save the wasted round trip as well.
+- **You could not see what the code printed.** The output block existed but was collapsed and
+  labelled "Execution result", so a run that worked showed nothing but two folded strips. It
+  is now labelled **Output**, open by default, and scrolls internally when long — and its
+  toggle uses the icon set rather than the ▸ ▴ ▾ characters left over from before the icon
+  work.
 - **"TypeError: Load failed" after switching tabs away and back.** Backgrounding a tab kills
   in-flight fetches; WebKit reports that as `TypeError: Load failed` and Chrome as `Failed to
   fetch`, and neither is an `AbortError` — so only an explicit cancel was being filtered and a

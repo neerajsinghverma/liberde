@@ -45,6 +45,7 @@ import {
   extractRunBlocks,
   formatRunResult,
   parseRunResult,
+  isPhantomRunTool,
   splitReply,
   stripRunBlocks,
 } from "@/lib/analysis";
@@ -1353,6 +1354,10 @@ export default function ChatView({
               }
               const inner = runOutput !== null ? (
                 <RunResultBlock output={runOutput} />
+              ) : msg.role === "tool" && isPhantomRunTool(toolName) ? (
+                // The correction the server sent back. Useful to the model,
+                // meaningless to the reader.
+                null
               ) : msg.role === "tool" ? (
                 <ToolResultBlock output={msg.content} name={toolName} />
               ) : msg.role === "user" ? (
@@ -1444,21 +1449,27 @@ export default function ChatView({
                   {msg.reasoning && (
                     <ThinkingBlock text={msg.reasoning} durationMs={msg.reasoning_ms} />
                   )}
-                  {Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0 && (
-                    <div className="mb-1.5 flex flex-wrap gap-1.5">
-                      {(msg.tool_calls as { function?: { name?: string } }[]).map(
-                        (tc, i) => (
+                  {(() => {
+                    // A call to a function that does not exist is not a tool
+                    // use, so it does not get a tool chip. The model is
+                    // corrected server-side and gets it right next turn.
+                    const shown = (
+                      (msg.tool_calls ?? []) as { function?: { name?: string } }[]
+                    ).filter((tc) => !isPhantomRunTool(tc.function?.name));
+                    return shown.length > 0 ? (
+                      <div className="mb-1.5 flex flex-wrap gap-1.5">
+                        {shown.map((tc, i) => (
                           <span
                             key={i}
                             className="rounded-full border border-line bg-surface-2 px-2.5 py-0.5 text-xs text-ink-muted"
                           >
                             <Icon name="wrench" size={12} className="mr-1 inline-block align-[-2px]" />
-                          {(tc.function?.name ?? "tool").replace(/__/g, ": ")}
+                            {(tc.function?.name ?? "tool").replace(/__/g, ": ")}
                           </span>
-                        )
-                      )}
-                    </div>
-                  )}
+                        ))}
+                      </div>
+                    ) : null;
+                  })()}
                   <AssistantContent
                     content={msg.content}
                     messageId={msg.id}
@@ -2464,21 +2475,40 @@ function RunCodeBlock({
   );
 }
 
+/**
+ * What the code printed.
+ *
+ * Open by default, unlike the code above it: the output is the reason the code
+ * ran, and hiding it meant a run that worked perfectly showed the reader
+ * nothing but two folded strips. Long output scrolls inside the block rather
+ * than pushing the reply off the screen.
+ */
 function RunResultBlock({ output }: { output: string }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
+  const lines = output.trim() ? output.trim().split("\n").length : 0;
   return (
     <div className="mb-6 overflow-hidden rounded-lg border border-line">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 bg-surface-2 px-3 py-1.5 text-left text-xs text-ink-muted"
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 bg-surface-2 px-3 py-1.5 text-left text-xs text-ink-muted hover:bg-surface"
       >
-        <span>▸</span>
-        <span className="flex-1">Execution result</span>
-        <span>{open ? "▴" : "▾"}</span>
+        <Icon name="play" size={12} className="shrink-0 text-accent" />
+        <span className="flex-1">Output</span>
+        {!open && lines > 0 && (
+          <span className="text-[11px]">
+            {lines} line{lines === 1 ? "" : "s"}
+          </span>
+        )}
+        <Icon
+          name="chevronDown"
+          size={13}
+          className={`shrink-0 transition-transform ${open ? "" : "-rotate-90"}`}
+        />
       </button>
       {open && (
-        <pre className="max-h-64 overflow-auto whitespace-pre-wrap bg-surface px-3 py-2 text-xs leading-relaxed text-ink-muted">
-          {output}
+        <pre className="max-h-64 overflow-auto whitespace-pre-wrap bg-surface px-3 py-2 text-xs leading-relaxed text-ink">
+          {output.trim() || "(no output)"}
         </pre>
       )}
     </div>

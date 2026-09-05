@@ -55,7 +55,7 @@ import {
   MEMORY_SYSTEM_PROMPT,
   MEMORY_TOOL_DEFS,
 } from "@/lib/memory";
-import { ANALYSIS_SYSTEM_PROMPT } from "@/lib/analysis";
+import { ANALYSIS_SYSTEM_PROMPT, isPhantomRunTool } from "@/lib/analysis";
 import { getRequestUserId, unauthorized } from "@/lib/auth";
 import { designSystemBlock as buildDesignSystemBlock } from "@/lib/design-system";
 import { bodyTooLarge, attachmentsProblem, MAX_CONTENT_CHARS } from "@/lib/limits";
@@ -1107,7 +1107,7 @@ Only reply in plain text for a genuine question that clearly isn't a design requ
               }
             } else if (call.function.name === "artifact_read") {
               output = await execArtifactRead(conversation.id, call.function.arguments);
-            } else if (/^(liberde_?run|run_?(js|javascript|code|python)|code_?(execution|interpreter)|execute_?(code|javascript))$/i.test(call.function.name)) {
+            } else if (isPhantomRunTool(call.function.name)) {
               // The analysis tool is a <liberdeRun>…</liberdeRun> TAG the client
               // runs in a browser sandbox — NOT a callable function. Weaker
               // models sometimes invoke it as a tool; steer them to the tag
