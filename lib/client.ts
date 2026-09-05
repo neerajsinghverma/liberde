@@ -99,7 +99,7 @@ export function streamChat(
       // a clean finish (a clean finish always carries `done`).
       if (!sawDone && !sawError) callbacks.onDone(null, null, 0, true);
     } catch (e) {
-      if ((e as Error).name === "AbortError") {
+      if (isTransportDrop(e)) {
         callbacks.onDone(null, null, 0, true);
       } else if (!sawError) {
         callbacks.onError(String(e));
@@ -130,6 +130,23 @@ export interface CompareCallbacks {
   }) => void;
   onDone: () => void;
   onError: (message: string) => void;
+}
+
+/**
+ * A dropped connection, as distinct from a refused request.
+ *
+ * Backgrounding a tab kills in-flight fetches. WebKit reports that as
+ * `TypeError: Load failed`, Chrome as `TypeError: Failed to fetch` — neither is
+ * an AbortError, because nothing called abort(). Showing either as a red banner
+ * tells the reader their answer failed when in fact the server is still writing
+ * it and the mirror has it. So transport failures are treated as "the stream
+ * went away", never as an error the model produced.
+ */
+export function isTransportDrop(e: unknown): boolean {
+  const err = e as { name?: string; message?: string };
+  if (err?.name === "AbortError") return true;
+  if (err?.name !== "TypeError") return false;
+  return /load failed|failed to fetch|network|connection/i.test(err.message ?? "");
 }
 
 /**
@@ -205,7 +222,7 @@ export function streamCompare(
       }
       if (!sawDone && !sawError) callbacks.onDone();
     } catch (e) {
-      if ((e as Error).name === "AbortError") callbacks.onDone();
+      if (isTransportDrop(e)) callbacks.onDone();
       else if (!sawError) callbacks.onError(String(e));
     }
   })();
@@ -295,7 +312,10 @@ function streamPipeline(
       }
       if (!sawDone && !sawError) callbacks.onDone(null, null, 0, true);
     } catch (e) {
-      if ((e as Error).name === "AbortError") callbacks.onDone(null, null, 0, true);
+      // A connection that went away is not a failed answer. The server mirrors
+      // the reply as it writes, so the honest move is to stop quietly and let
+      // the reload path pick it up — not to paint the turn red.
+      if (isTransportDrop(e)) callbacks.onDone(null, null, 0, true);
       else if (!sawError) callbacks.onError(String(e));
     }
   })();

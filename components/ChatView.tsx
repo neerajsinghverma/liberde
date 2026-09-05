@@ -965,6 +965,21 @@ export default function ChatView({
     agents.find((a) => a.id === conversation?.agent_id) ??
     (convId ? null : pendingAgent);
 
+  // Returning to a backgrounded tab: the browser killed the stream, but the
+  // server kept writing and mirrors the reply. Re-read the conversation so
+  // the answer is there rather than truncated at whatever arrived before the
+  // tab was hidden.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      const id = convIdRef.current;
+      if (id) void loadConversation(id);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const showWelcome = messages.length === 0 && !isStreaming;
 
   return (
@@ -2429,9 +2444,21 @@ function RunCodeBlock({
         />
       </button>
       {open && (
-        <pre className="max-h-72 overflow-auto border-t border-line px-3 py-2 text-[11px] leading-relaxed">
-          <code>{code.trim() || "…"}</code>
-        </pre>
+        // Through Markdown rather than a bare <pre>: it already runs
+        // rehype-highlight, so this gets the same colouring, and the same copy
+        // control, as any other code block in a reply.
+        <div className="max-h-72 overflow-auto border-t border-line px-3 py-1">
+          <Markdown
+            content={
+              "\u0060\u0060\u0060" +
+              (lang === "python" ? "python" : "javascript") +
+              "\n" +
+              (code.trim() || "") +
+              "\n\u0060\u0060\u0060"
+            }
+            onShowArtifact={() => {}}
+          />
+        </div>
       )}
     </div>
   );

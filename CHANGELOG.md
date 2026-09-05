@@ -36,6 +36,15 @@ A browsable version of this page lives at **[liberde.ai/changelog.html](https://
 
 ### Fixed
 
+- **"TypeError: Load failed" after switching tabs away and back.** Backgrounding a tab kills
+  in-flight fetches; WebKit reports that as `TypeError: Load failed` and Chrome as `Failed to
+  fetch`, and neither is an `AbortError` — so only an explicit cancel was being filtered and a
+  dropped connection was painted as a failed answer. It is now recognised as the stream going
+  away rather than a fault, and returning to the tab re-reads the conversation so the reply
+  the server kept writing is there in full instead of truncated at whatever arrived first.
+- **The code the analysis tool ran was not syntax-highlighted.** The fold used a bare `<pre>`;
+  it now renders through the same markdown path as every other code block, so it gets
+  highlighting and a Copy control.
 - **A Python analysis block was printed as its own source.** Nothing stripped `<liberdeRun>`
   from the rendered reply, so the opening tag, the imports and the whole script appeared as
   chat text — while also executing correctly, which made it look like a formatting failure

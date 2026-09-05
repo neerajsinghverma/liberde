@@ -28,6 +28,7 @@ import { rawUrlFor, declaredTools, notices } from "../lib/skill-install";
 import { applyPromptCache, needsExplicitCacheControl, readCacheStats } from "../lib/prompt-cache";
 import { parseSkillMd, toSkillImport } from "../lib/skill-md";
 import { isPrivateIp } from "../lib/ssrf";
+import { isTransportDrop } from "../lib/client";
 import {
   byNewest,
   comparable,
@@ -649,6 +650,48 @@ check("stripRunBlocks can leave a placeholder in place", () =>
 
 check("stripRunBlocks keeps the surrounding prose", () =>
   stripRunBlocks('before<liberdeRun lang="py">x</liberdeRun>after') === "beforeafter"
+);
+
+// ------------------------------------------- dropped connections ----------
+//
+// Backgrounding a tab kills in-flight fetches. WebKit calls that
+// "TypeError: Load failed", Chrome "TypeError: Failed to fetch". Neither is an
+// AbortError, so both were reported to the reader as a failed answer while the
+// server was still writing one.
+
+const asErr = (name, message) => Object.assign(new Error(message), { name });
+
+check("WebKit's dropped fetch is a transport drop", () =>
+  isTransportDrop(asErr("TypeError", "Load failed"))
+);
+
+check("Chrome's dropped fetch is a transport drop", () =>
+  isTransportDrop(asErr("TypeError", "Failed to fetch"))
+);
+
+check("an explicit abort is a transport drop", () =>
+  isTransportDrop(asErr("AbortError", "The operation was aborted"))
+);
+
+check("a network error is a transport drop", () =>
+  isTransportDrop(asErr("TypeError", "NetworkError when attempting to fetch"))
+);
+
+// The other half matters just as much: a real fault must still be reported.
+check("a genuine TypeError in our own code is NOT swallowed", () =>
+  !isTransportDrop(asErr("TypeError", "x.map is not a function"))
+);
+
+check("a server error is NOT swallowed", () =>
+  !isTransportDrop(asErr("Error", "Request failed (500)"))
+);
+
+check("a rate-limit message is NOT swallowed", () =>
+  !isTransportDrop(asErr("Error", "Rate limited upstream"))
+);
+
+check("a non-error value does not throw", () =>
+  isTransportDrop(undefined) === false && isTransportDrop("nope") === false
 );
 
 // ------------------------------------------------------------- report ------
