@@ -36,6 +36,13 @@ A browsable version of this page lives at **[liberde.ai/changelog.html](https://
 
 ### Fixed
 
+- **An artifact still being written could be dumped into the chat as source.** The
+  server-side mirror of an in-flight reply — the thing that lets you reload or switch tabs
+  without losing an answer — was rendered through raw Markdown instead of the segmented
+  renderer, so it carried none of the tag handling a live stream gets. An artifact caught
+  mid-write printed its `<liberdeArtifact>` tag and its entire HTML body as message text.
+  It now goes through the same renderer as everything else: the artifact shows as a card and
+  its content goes to the artifact panel, where it belongs.
 - **Maths renders as maths.** Formulas arrived as raw LaTeX — `[ \frac{...} ]` printed as
   source — because nothing rendered them. KaTeX now does, models are told which delimiters
   the renderer reads, and a normaliser repairs the variants they use anyway (`\[ … \]`,

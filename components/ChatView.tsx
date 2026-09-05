@@ -1652,7 +1652,18 @@ export default function ChatView({
 
             {bgWorking && !isStreaming && bgPartial && (
               <div className="mb-2">
-                <Markdown content={bgPartial} onShowArtifact={openCodePreview} />
+                {/* Through AssistantContent, not raw Markdown. This is the
+                    server-side mirror of a reply still being written, and it
+                    carries exactly the same machine tags a live stream does —
+                    rendering it raw printed an in-flight <liberdeArtifact> and
+                    its whole HTML body into the conversation as text. */}
+                <AssistantContent
+                  content={bgPartial}
+                  messageId={null}
+                  artifacts={artifacts}
+                  onOpenArtifact={() => {}}
+                  onShowCodePreview={openCodePreview}
+                />
               </div>
             )}
 
