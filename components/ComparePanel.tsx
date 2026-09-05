@@ -5,6 +5,7 @@ import type { ModelInfo } from "@/lib/types";
 import { api, streamCompare } from "@/lib/client";
 import Markdown from "./Markdown";
 import Icon from "./Icon";
+import { byNewest, comparable, suggestDefaults } from "@/lib/compare-picks";
 
 function fmtCost(cost: number): string {
   if (!cost) return "$0";
@@ -12,46 +13,6 @@ function fmtCost(cost: number): string {
   if (cost < 0.01) return `$${cost.toFixed(4)}`;
   if (cost < 1) return `$${cost.toFixed(3)}`;
   return `$${cost.toFixed(2)}`;
-}
-
-// Families we like to contrast against, in priority order. We pick at most one
-// model per family so the default trio spans different labs.
-const FAMILIES: [RegExp, string][] = [
-  [/^anthropic\/claude/, "claude"],
-  [/^openai\/gpt-5/, "gpt5"],
-  [/^openai\/(gpt-4|o[13])/, "gpt4"],
-  [/^google\/gemini/, "gemini"],
-  [/^x-ai\/grok/, "grok"],
-  [/^deepseek\//, "deepseek"],
-  [/^meta-llama\//, "llama"],
-  [/^mistralai\//, "mistral"],
-];
-
-function familyOf(id: string): string {
-  for (const [re, fam] of FAMILIES) if (re.test(id)) return fam;
-  return id.split("/")[0] || id;
-}
-
-/** Default compare set: the current model + up to two from other families. */
-function suggestDefaults(models: ModelInfo[], current: string): string[] {
-  const picks = current ? [current] : [];
-  const usedFamilies = new Set(picks.map(familyOf));
-  for (const [re] of FAMILIES) {
-    if (picks.length >= 3) break;
-    const m = models.find(
-      (x) => re.test(x.id) && !picks.includes(x.id) && !usedFamilies.has(familyOf(x.id))
-    );
-    if (m) {
-      picks.push(m.id);
-      usedFamilies.add(familyOf(m.id));
-    }
-  }
-  // Fallback: fill from the top of the catalog if families didn't yield enough.
-  for (const m of models) {
-    if (picks.length >= 3) break;
-    if (!picks.includes(m.id)) picks.push(m.id);
-  }
-  return picks.slice(0, 4);
 }
 
 /** The council verdict: one model comparing the finished answers. */
@@ -131,11 +92,14 @@ export default function ComparePanel({
   const nameOf = (id: string) => models.find((m) => m.id === id)?.name ?? id;
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
+    // Same eligibility rules as the defaults, and newest first: a search for
+    // "claude" should surface the current one, not the oldest one still listed.
+    const eligible = models.filter((m) => comparable(m, currentModel) || m.id === currentModel);
     const list = q
-      ? models.filter(
+      ? eligible.filter(
           (m) => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q)
         )
-      : models;
+      : [...eligible].sort(byNewest);
     return list.slice(0, 60);
   }, [models, query]);
 
@@ -384,7 +348,7 @@ export default function ComparePanel({
         </div>
 
         {/* Columns */}
-        <div className="min-h-0 flex-1 overflow-auto p-4">
+        <div className="flex min-h-0 flex-1 flex-col overflow-auto p-4">
           {columns.length === 0 ? (
             <div className="flex h-full items-center justify-center px-6 text-center text-sm text-ink-muted">
               {question
@@ -395,57 +359,10 @@ export default function ComparePanel({
             </div>
           ) : (
             <>
-            <div className="flex gap-3 max-md:flex-col md:h-full">
-              {columns.map((col, i) => (
-                <div
-                  key={i}
-                  className="flex flex-col overflow-hidden rounded-xl border border-line bg-bg max-md:w-full md:h-full md:min-w-[320px] md:flex-1 md:basis-0"
-                >
-                  <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium">
-                        {nameOf(col.model)}
-                      </span>
-                      <span className="block truncate text-[11px] text-ink-muted">
-                        {col.done
-                          ? col.error
-                            ? "failed"
-                            : `${fmtCost(col.cost)} · ${col.tokens_out || 0} tokens`
-                          : "thinking…"}
-                      </span>
-                    </span>
-                    {!col.done && (
-                      <Icon
-                        name="refresh"
-                        size={13}
-                        className="shrink-0 animate-spin text-ink-muted"
-                      />
-                    )}
-                  </div>
-                  <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2 text-sm max-md:max-h-[45vh]">
-                    {col.error ? (
-                      <p className="text-xs text-red-600 dark:text-red-400">{col.error}</p>
-                    ) : col.text ? (
-                      <Markdown content={col.text} onShowArtifact={() => {}} />
-                    ) : (
-                      <p className="text-xs text-ink-muted">…</p>
-                    )}
-                  </div>
-                  <div className="border-t border-line p-2">
-                    <button
-                      onClick={() => pickText(col.model, col.text, col.cost, col.tokens_in, col.tokens_out)}
-                      disabled={!col.done || !!col.error || !col.text.trim() || committing}
-                      className="w-full rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-40"
-                    >
-                      {committing ? "Saving…" : "Use this reply"}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
+          {/* The verdict leads: it is the consolidated answer, and reading it
+              should not cost a scroll past three columns of source material. */}
           {synth && (
-            <div className="anim-rise mt-3 overflow-hidden rounded-xl border border-accent/40 bg-surface-2">
+            <div className="anim-rise mb-3 shrink-0 overflow-hidden rounded-xl border border-accent/40 bg-surface-2">
               <div className="flex items-center justify-between gap-2 border-b border-accent/30 px-3 py-2">
                 <span className="flex min-w-0 items-center gap-2">
                   <Icon name="layers" size={14} className="shrink-0 text-accent" />
@@ -495,6 +412,55 @@ export default function ComparePanel({
               )}
             </div>
           )}
+
+            <div className="flex gap-3 max-md:flex-col md:min-h-0 md:flex-1">
+              {columns.map((col, i) => (
+                <div
+                  key={i}
+                  className="flex flex-col overflow-hidden rounded-xl border border-line bg-bg max-md:w-full md:h-full md:min-w-[320px] md:flex-1 md:basis-0"
+                >
+                  <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium">
+                        {nameOf(col.model)}
+                      </span>
+                      <span className="block truncate text-[11px] text-ink-muted">
+                        {col.done
+                          ? col.error
+                            ? "failed"
+                            : `${fmtCost(col.cost)} · ${col.tokens_out || 0} tokens`
+                          : "thinking…"}
+                      </span>
+                    </span>
+                    {!col.done && (
+                      <Icon
+                        name="refresh"
+                        size={13}
+                        className="shrink-0 animate-spin text-ink-muted"
+                      />
+                    )}
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2 text-sm max-md:max-h-[45vh]">
+                    {col.error ? (
+                      <p className="text-xs text-red-600 dark:text-red-400">{col.error}</p>
+                    ) : col.text ? (
+                      <Markdown content={col.text} onShowArtifact={() => {}} />
+                    ) : (
+                      <p className="text-xs text-ink-muted">…</p>
+                    )}
+                  </div>
+                  <div className="border-t border-line p-2">
+                    <button
+                      onClick={() => pickText(col.model, col.text, col.cost, col.tokens_in, col.tokens_out)}
+                      disabled={!col.done || !!col.error || !col.text.trim() || committing}
+                      className="w-full rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-40"
+                    >
+                      {committing ? "Saving…" : "Use this reply"}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
             </>
           )}
         </div>

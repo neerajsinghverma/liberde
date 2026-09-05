@@ -22,6 +22,12 @@ import { rawUrlFor, declaredTools, notices } from "../lib/skill-install";
 import { applyPromptCache, needsExplicitCacheControl, readCacheStats } from "../lib/prompt-cache";
 import { parseSkillMd, toSkillImport } from "../lib/skill-md";
 import { isPrivateIp } from "../lib/ssrf";
+import {
+  byNewest,
+  comparable,
+  suggestDefaults,
+  vendorOf,
+} from "../lib/compare-picks";
 
 let passed = 0;
 const failures: string[] = [];
@@ -416,6 +422,84 @@ check("10/8 is private", () => isPrivateIp("10.1.2.3") === true);
 check("169.254 link-local is private", () => isPrivateIp("169.254.169.254") === true);
 check("192.168/16 is private", () => isPrivateIp("192.168.0.1") === true);
 check("a public address is not private", () => isPrivateIp("93.184.216.34") === false);
+
+
+// ------------------------------------------------- compare model picks ----
+//
+// A catalog shaped like the real one: sorted by NAME, which is how it arrives
+// from /api/models, and containing an old model whose name sorts before every
+// newer sibling. That single detail is what put "Claude 3 Haiku" in a default
+// comparison while five newer Claudes sat further down the list.
+
+const CATALOG = [
+  { id: "anthropic/claude-3-haiku", name: "Anthropic: Claude 3 Haiku", created: 1_700_000_000 },
+  { id: "anthropic/claude-fable-5.1", name: "Anthropic: Claude Fable 5.1", created: 1_780_000_000 },
+  { id: "anthropic/claude-fable-5.1:batch", name: "Anthropic: Claude Fable 5.1 (batch)", created: 1_780_000_100 },
+  { id: "google/gemini-3.8-flash", name: "Google: Gemini 3.8 Flash", created: 1_775_000_000 },
+  { id: "openai/gpt-4", name: "OpenAI: GPT-4", created: 1_690_000_000 },
+  { id: "openai/gpt-5.6-luna-pro", name: "OpenAI: GPT-5.6 Luna Pro", created: 1_785_000_000 },
+  { id: "openai/o3-pro", name: "OpenAI: o3 Pro", created: 1_770_000_000 },
+].sort((a, b) => a.name.localeCompare(b.name)) as never[];
+
+check("the Auto sentinel is never offered as a model to compare", () => {
+  const picks = suggestDefaults(CATALOG, "auto");
+  return !picks.includes("auto");
+});
+
+check("a stale model is not preferred over a newer sibling", () => {
+  const picks = suggestDefaults(CATALOG, "auto");
+  return !picks.includes("anthropic/claude-3-haiku");
+});
+
+check("the newest model in a family is the one picked", () => {
+  const picks = suggestDefaults(CATALOG, "auto");
+  return picks.includes("anthropic/claude-fable-5.1");
+});
+
+check("batch variants are excluded — they are not answered promptly", () => {
+  const picks = suggestDefaults(CATALOG, "auto");
+  return !picks.some((p) => p.includes(":batch"));
+});
+
+check("the default set spans three different labs", () => {
+  const picks = suggestDefaults(CATALOG, "auto");
+  const vendors = new Set(picks.map(vendorOf));
+  return picks.length === 3 && vendors.size === 3;
+});
+
+check("an explicitly chosen model is kept and leads the set", () => {
+  const picks = suggestDefaults(CATALOG, "openai/gpt-4");
+  return picks[0] === "openai/gpt-4";
+});
+
+check("the chosen model is never duplicated by a later pick", () => {
+  const picks = suggestDefaults(CATALOG, "openai/gpt-4");
+  return new Set(picks).size === picks.length;
+});
+
+check("choosing an OpenAI model pushes the rest to other labs", () => {
+  const picks = suggestDefaults(CATALOG, "openai/gpt-4");
+  return picks.slice(1).every((p) => vendorOf(p) !== "openai");
+});
+
+check("a one-lab catalog yields one pick rather than three from it", () => {
+  const only = CATALOG.filter((m: { id: string }) => m.id.startsWith("openai/"));
+  const picks = suggestDefaults(only, "auto");
+  return picks.length === 1;
+});
+
+check("an empty catalog does not throw", () => Array.isArray(suggestDefaults([], "auto")));
+
+check("comparable() rejects the sentinel and batch, accepts a real model", () =>
+  !comparable({ id: "auto" }, "") &&
+  !comparable({ id: "x/y:batch" }, "") &&
+  comparable({ id: "anthropic/claude-fable-5.1" }, "")
+);
+
+check("byNewest sorts newest first", () => {
+  const sorted = [{ created: 1 }, { created: 9 }, { created: 5 }].sort(byNewest);
+  return sorted[0].created === 9 && sorted[2].created === 1;
+});
 
 // ------------------------------------------------------------- report ------
 

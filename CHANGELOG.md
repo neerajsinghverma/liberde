@@ -36,6 +36,15 @@ A browsable version of this page lives at **[liberde.ai/changelog.html](https://
 
 ### Fixed
 
+- **Second opinion defaulted to old models, and offered one that cannot be called.** The
+  catalog arrives sorted by *name*, and the picker took the first match per family — so
+  "Claude 3 Haiku" beat every newer Claude on alphabetical order alone, and the Auto router
+  appeared as a selectable model despite being a routing instruction with no endpoint. The
+  default set is now the newest model per lab, excludes batch variants (cheaper because they
+  are *not* answered promptly), and spans three different labs rather than three families
+  from two. The picker is sorted newest-first too.
+- **The council verdict now leads the panel** instead of sitting under three columns of the
+  material it summarises.
 - **Second opinion showed no answers on a phone.** The comparison columns carried `flex-1
   basis-0`, and the mobile layout switches the container to `flex-col` — so the basis applied
   to *height*, with no definite parent height to grow into, and every answer collapsed to a

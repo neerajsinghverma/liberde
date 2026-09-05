@@ -220,6 +220,64 @@ async function main() {
     );
   }
 
+  // 6. Second opinion. This panel has now shipped two layout bugs that only a
+  //    real run could expose — columns collapsing to zero height on a phone,
+  //    and the verdict buried under three columns of source material. Both are
+  //    geometry, so both are asserted as geometry.
+  {
+    await page.goto(BASE, { waitUntil: "networkidle" });
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(1000);
+    await say("In one short sentence: what is the capital of France?");
+
+    const second = page.getByRole("button", { name: /second opinion/i }).first();
+    if ((await second.count()) === 0) {
+      check("Second opinion is offered on a reply", false, "control not found");
+    } else {
+      await second.click();
+      await page.waitForTimeout(1500);
+      const go = page.getByRole("button", { name: /^Compare$/ }).first();
+      if (await go.count()) await go.click();
+      await page
+        .waitForFunction(() => document.body.innerText.includes("Council verdict"), null, {
+          timeout: 180_000,
+        })
+        .catch(() => {});
+      await page.waitForTimeout(4000);
+
+      const geo = await page.evaluate(() => {
+        const byText = (t: string) =>
+          [...document.querySelectorAll("button, span")].find((e) =>
+            (e.textContent ?? "").trim().startsWith(t)
+          );
+        const verdict = byText("Use the verdict");
+        const firstCol = byText("Use this reply");
+        return {
+          verdictTop: verdict ? Math.round(verdict.getBoundingClientRect().top) : null,
+          colTop: firstCol ? Math.round(firstCol.getBoundingClientRect().top) : null,
+          colHeight: firstCol
+            ? Math.round(firstCol.closest("div")?.parentElement?.getBoundingClientRect().height ?? 0)
+            : 0,
+        };
+      });
+
+      check(
+        "a verdict is produced",
+        geo.verdictTop !== null,
+        JSON.stringify(geo)
+      );
+      check(
+        "the verdict is above the columns",
+        geo.verdictTop !== null && geo.colTop !== null && geo.verdictTop < geo.colTop,
+        JSON.stringify(geo)
+      );
+      check(
+        "the answer columns have real height",
+        geo.colHeight > 80,
+        `${geo.colHeight}px`
+      );
+    }
+  }
   check("no uncaught page errors during live chat", pageErrors.length === 0, pageErrors.join(" | "));
 
   // What this run cost, so the number is on the record rather than guessed at.
