@@ -156,7 +156,19 @@ export default function ChatView({
   const convIdRef = useRef(convId);
   convIdRef.current = convId;
   const streamingIdentifierRef = useRef<string | null>(null);
+  /** Runs the analysis tool may chain in one turn before it stops and says so. */
+  const MAX_AUTO_RUNS = 4;
   const autoRunsRef = useRef(0);
+  /** The assistant message whose code we last executed, so a re-read of the
+   *  conversation cannot run the same block twice. */
+  const ranMessageRef = useRef<string | null>(null);
+  const continueAnalysisRef = useRef<
+    | ((
+        msgs: Message[],
+        opts: { conversationId: string; model?: string; webSearch?: boolean; think?: boolean }
+      ) => Promise<boolean>)
+    | null
+  >(null);
   const startStreamRef = useRef<
     | ((body: {
         conversationId: string;
@@ -354,7 +366,16 @@ export default function ChatView({
   }, [conversationId, loadConversation, stopBgPoll]);
 
   useEffect(() => {
-    if (convId) loadConversation(convId);
+    if (!convId) return;
+    // On first load too: a conversation whose last message is unexecuted code
+    // has a turn stalled mid-loop, whether the tab was closed, reloaded, or the
+    // reply finished somewhere this tab never watched.
+    void (async () => {
+      const fresh = await loadConversation(convId);
+      if (!isStreamingRef.current && fresh.length) {
+        void continueAnalysisRef.current?.(fresh, { conversationId: convId });
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -539,6 +560,96 @@ export default function ChatView({
     );
   }, []);
 
+  /**
+   * Run the code the model just wrote, and hand the output back so it can carry
+   * on.
+   *
+   * Lives here rather than inside the stream's onDone because a reply can also
+   * arrive without this tab ever seeing the stream: finish it on another tab, or
+   * reload, and the client picks the answer up by re-reading the conversation.
+   * The loop used to be reachable only from onDone, so in that case the code was
+   * never executed at all — the block simply sat there, and the turn ended with
+   * no output and no continuation.
+   *
+   * Returns true when it started a follow-up turn.
+   */
+  const continueAnalysis = useCallback(
+    async (
+      msgs: Message[],
+      opts: {
+        conversationId: string;
+        model?: string;
+        webSearch?: boolean;
+        think?: boolean;
+      }
+    ): Promise<boolean> => {
+      const last = msgs[msgs.length - 1];
+      if (last?.role !== "assistant") return false;
+
+      // Already handled: a result for this message is in the conversation, or
+      // this very message was the one we last ran.
+      if (ranMessageRef.current === last.id) return false;
+
+      const runBlocks = extractRunBlocks(last.content);
+      if (runBlocks.length === 0) {
+        autoRunsRef.current = 0;
+        return false;
+      }
+
+      if (autoRunsRef.current >= MAX_AUTO_RUNS) {
+        // Say so rather than stopping in silence, which reads as the app losing
+        // the thread — the exact complaint that found this.
+        setError(
+          "Stopped after " +
+            MAX_AUTO_RUNS +
+            " automatic code runs in one turn. Ask again to continue."
+        );
+        autoRunsRef.current = 0;
+        return false;
+      }
+
+      autoRunsRef.current++;
+      ranMessageRef.current = last.id;
+
+      const outputs: string[] = [];
+      const produced: SandboxFile[] = [];
+      // Python gets the conversation's attachments as real files in /data,
+      // which is the whole point of it — a model should read the spreadsheet
+      // rather than ask the user to paste it.
+      const attached = conversationFiles(msgs);
+      for (const block of runBlocks) {
+        if (block.lang === "python") {
+          const r = await runPython(block.code, {
+            files: attached,
+            kernelKey: opts.conversationId,
+          });
+          outputs.push(r.output);
+          produced.push(...r.files);
+        } else {
+          outputs.push(await runJs(block.code));
+        }
+      }
+      if (produced.length) {
+        setRunFiles((prev) => [...prev, ...produced]);
+        outputs.push(
+          "Files written to /out and offered to the user: " +
+            produced.map((fl) => fl.name).join(", ")
+        );
+      }
+
+      startStreamRef.current?.({
+        conversationId: opts.conversationId,
+        content: formatRunResult(outputs.join("\n---\n")),
+        model: opts.model,
+        webSearch: opts.webSearch,
+        think: opts.think,
+      });
+      return true;
+    },
+    []
+  );
+  continueAnalysisRef.current = continueAnalysis;
+
   const startStream = useCallback(
     (body: {
       conversationId: string;
@@ -622,48 +733,16 @@ export default function ChatView({
               return artifact ? { kind: "artifact", artifact } : null;
             });
 
-            // Analysis tool loop: execute emitted JS, feed the output back, continue.
-            // Never relaunch after a user abort — Stop must mean stop.
-            const last = fresh[fresh.length - 1];
-            if (!aborted && last?.role === "assistant") {
-              const runBlocks = extractRunBlocks(last.content);
-              if (runBlocks.length > 0 && autoRunsRef.current < 4) {
-                autoRunsRef.current++;
-                const outputs: string[] = [];
-                const produced: SandboxFile[] = [];
-                // Python gets the conversation's attachments as real files in
-                // /data, which is the whole point of it — a model should read
-                // the spreadsheet rather than ask the user to paste it.
-                const attached = conversationFiles(fresh);
-                for (const block of runBlocks) {
-                  if (block.lang === "python") {
-                    const r = await runPython(block.code, {
-                      files: attached,
-                      kernelKey: body.conversationId,
-                    });
-                    outputs.push(r.output);
-                    produced.push(...r.files);
-                  } else {
-                    outputs.push(await runJs(block.code));
-                  }
-                }
-                if (produced.length) {
-                  setRunFiles((prev) => [...prev, ...produced]);
-                  outputs.push(
-                    "Files written to /out and offered to the user: " +
-                      produced.map((fl) => fl.name).join(", ")
-                  );
-                }
-                startStreamRef.current?.({
-                  conversationId: body.conversationId,
-                  content: formatRunResult(outputs.join("\n---\n")),
-                  model: body.model,
-                  webSearch: body.webSearch,
-                  think: body.think,
-                });
-                return;
-              }
-              autoRunsRef.current = 0;
+            // Analysis tool loop. Never relaunch after a user abort — Stop
+            // must mean stop.
+            if (!aborted) {
+              const continued = await continueAnalysisRef.current?.(fresh, {
+                conversationId: body.conversationId,
+                model: body.model,
+                webSearch: body.webSearch,
+                think: body.think,
+              });
+              if (continued) return;
             }
           }
           if (title) onConversationsChanged();
@@ -972,10 +1051,18 @@ export default function ChatView({
   // the answer is there rather than truncated at whatever arrived before the
   // tab was hidden.
   useEffect(() => {
-    const onVisible = () => {
+    const onVisible = async () => {
       if (document.visibilityState !== "visible") return;
       const id = convIdRef.current;
-      if (id) void loadConversation(id);
+      if (!id) return;
+      const fresh = await loadConversation(id);
+      // A reply that finished while this tab was hidden never went through the
+      // stream's onDone, so if it ends in code the analysis loop has not run.
+      // Pick it up here, or the turn stops at the code block with no output and
+      // no continuation.
+      if (!isStreamingRef.current && fresh.length) {
+        void continueAnalysisRef.current?.(fresh, { conversationId: id });
+      }
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);

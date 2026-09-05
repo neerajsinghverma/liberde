@@ -36,6 +36,16 @@ A browsable version of this page lives at **[liberde.ai/changelog.html](https://
 
 ### Fixed
 
+- **A code run could stall the turn with no output and no continuation.** The analysis loop
+  — run the code, hand the output back, let the model carry on — lived only inside the
+  stream's completion callback. A reply can finish without this tab ever watching that
+  stream: switch tabs and the connection is dropped while the server keeps writing. The
+  client then picks the answer up by re-reading the conversation, and the code was never
+  executed at all. The turn ended at the block, labelled as though it had run.
+  The loop is now independent of how the turn arrived — it resumes on returning to the tab
+  and on opening a conversation — and it will not run the same block twice. Exhausting the
+  four-run limit now says so instead of stopping in silence, which read as the app losing
+  the thread.
 - **An artifact still being written could be dumped into the chat as source.** The
   server-side mirror of an in-flight reply — the thing that lets you reload or switch tabs
   without losing an answer — was rendered through raw Markdown instead of the segmented
