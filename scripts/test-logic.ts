@@ -10,7 +10,7 @@
  *   npx tsx scripts/test-logic.ts
  */
 
-import { localTier, tierOfModel } from "../lib/openrouter";
+import { localTier, repairToolPairs, tierOfModel } from "../lib/openrouter";
 import { toCef, toJsonl } from "../lib/audit";
 import { canAssignRole, checkBudgets, WORKSPACE_ROLES } from "../lib/workspaces";
 import { checkConformance, paletteOf, fontsOf } from "../lib/design-system";
@@ -853,6 +853,96 @@ check("a fenced code block is not mistaken for a machine tag", () => {
   return readableAssistantText(src) === src;
 });
 
+// ------------------------------------------ interrupted tool turns --------
+// Saving a turn takes two writes: the assistant message carrying the calls,
+// then a row per result. A turn that dies between them leaves a call with no
+// result, and providers reject that prompt outright ("No tool output found
+// for function call ..."), so the conversation 400s on every later send and
+// nothing in the UI can clear it. Seen in production against Azure.
+
+type TestMsg = {
+  role: string;
+  content: string | null;
+  tool_calls?: { id: string }[];
+  tool_call_id?: string;
+};
+
+const asst = (...ids: string[]): TestMsg => ({
+  role: "assistant",
+  content: null,
+  tool_calls: ids.map((id) => ({ id })),
+});
+const result = (id: string): TestMsg => ({
+  role: "tool",
+  tool_call_id: id,
+  content: "result " + id,
+});
+const user = (t: string): TestMsg => ({ role: "user", content: t });
+// A compact readout of the message sequence, so a failure names the shape.
+const shape = (ms: TestMsg[]) =>
+  ms.map((m) =>
+    m.role === "tool"
+      ? "T:" + m.tool_call_id
+      : m.tool_calls
+        ? "A:" + m.tool_calls.map((c) => c.id).join("+")
+        : m.role.slice(0, 1).toUpperCase()
+  );
+const repair = (ms: TestMsg[]) => repairToolPairs(ms as never[]).repaired;
+
+// The production failure: two calls persisted, only the first result landed.
+check("an unanswered tool call is given a placeholder result", () => {
+  const ms = [user("q"), asst("a1", "a2"), result("a1"), result("a2"), asst("b1", "b2"), result("b1")];
+  const n = repair(ms);
+  return (
+    n === 1 &&
+    eq(shape(ms), ["U", "A:a1+a2", "T:a1", "T:a2", "A:b1+b2", "T:b1", "T:b2"]) &&
+    /result was lost/.test(String(ms[6].content))
+  );
+});
+
+check("a healthy history is left exactly as it was", () => {
+  const ms = [user("q"), asst("a", "b"), result("a"), result("b"), { role: "assistant", content: "hi" }];
+  return repair(ms) === 0 && eq(shape(ms), ["U", "A:a+b", "T:a", "T:b", "A"]);
+});
+
+check("a round where no result landed at all is filled in", () => {
+  const ms = [user("q"), asst("a", "b")];
+  repair(ms);
+  return eq(shape(ms), ["U", "A:a+b", "T:a", "T:b"]);
+});
+
+check("a result for a call nobody made is dropped", () => {
+  const ms = [user("q"), asst("a"), result("a"), result("ghost")];
+  return repair(ms) === 1 && eq(shape(ms), ["U", "A:a", "T:a"]);
+});
+
+check("a result with no call before it anywhere is dropped", () => {
+  const ms = [result("orphan"), user("q")];
+  return repair(ms) === 1 && eq(shape(ms), ["U"]);
+});
+
+// An empty array is not the same as an absent one; some providers reject it.
+check("an empty tool_calls array is stripped", () => {
+  const ms = [user("q"), { role: "assistant", content: "hi", tool_calls: [] }];
+  return repair(ms) === 1 && !("tool_calls" in ms[1]);
+});
+
+check("results that came back out of order still count as answered", () => {
+  const ms = [user("q"), asst("a", "b"), result("b"), result("a")];
+  return repair(ms) === 0;
+});
+
+check("two broken rounds in a row are both repaired", () => {
+  const ms = [user("q"), asst("a"), asst("b"), user("q2")];
+  repair(ms);
+  return eq(shape(ms), ["U", "A:a", "T:a", "A:b", "T:b", "U"]);
+});
+
+check("repairing an already-repaired history changes nothing", () => {
+  const ms = [user("q"), asst("a", "b"), result("a")];
+  repair(ms);
+  return repair(ms) === 0;
+});
 // ------------------------------------------------------------- report ------
 
 console.log(`\n${passed}/${passed + failures.length} logic tests passing`);

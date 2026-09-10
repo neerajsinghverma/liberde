@@ -17,6 +17,7 @@ import {
   historyHasMime,
   historyHasPdf,
   toApiMessage,
+  repairToolPairs,
   type ChatCompletionMessage,
 } from "@/lib/openrouter";
 import { getRequestUserId, unauthorized } from "@/lib/auth";
@@ -229,6 +230,9 @@ export async function POST(req: NextRequest) {
                 })
               )
             );
+            // The compared history can carry an interrupted turn's orphaned
+            // tool call, which every provider rejects outright.
+            repairToolPairs(apiMessages);
             const reqBody = JSON.stringify({
               model: target.bodyModel,
               messages: apiMessages,

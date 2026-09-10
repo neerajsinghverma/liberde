@@ -38,6 +38,7 @@ import {
   resolveAutoModel,
   STYLE_PRESETS,
   toApiMessage,
+  repairToolPairs,
   type ChatCompletionMessage,
 } from "@/lib/openrouter";
 import { DOC_MIME, DOCX_MIME, type Attachment, type ToolCall } from "@/lib/types";
@@ -524,7 +525,7 @@ Only reply in plain text for a genuine question that clearly isn't a design requ
   // (known-good) so an Auto pick never hard-fails on a 404.
   let autoFellBack = false;
       // Don't start the (extra, full) forced-synthesis turn if the request is
-      // already close to the function's maxDuration (300s) — being hard-killed
+      // already close to the function's maxDuration (800s) — being hard-killed
       // mid-synthesis loses the artifact and wedges the conversation lock.
       const turnStart = Date.now();
       const FORCE_SYNTH_DEADLINE_MS = 600_000;
@@ -535,7 +536,7 @@ Only reply in plain text for a genuine question that clearly isn't a design requ
       // upstream ourselves with time to spare so partials persist and the
       // lock releases.
       const turnAbort = new AbortController();
-      const hardStop = setTimeout(() => turnAbort.abort(), 270_000);
+      const hardStop = setTimeout(() => turnAbort.abort(), 770_000);
       const turnSignal =
         typeof AbortSignal.any === "function"
           ? AbortSignal.any([req.signal, turnAbort.signal])
@@ -699,6 +700,18 @@ Only reply in plain text for a genuine question that clearly isn't a design requ
         if (trimmed) {
           emit({ toolEvent: { status: `Trimmed ${trimmed} older message(s) to fit the context window` } });
         }
+        // After trimming, never before: what actually goes upstream is what has
+        // to balance. An earlier turn that died between saving its tool calls
+        // and saving their results would otherwise 400 this conversation for
+        // good ("No tool output found for function call …").
+        const { repaired } = repairToolPairs(apiMessages);
+        if (repaired) {
+          emit({
+            toolEvent: {
+              status: `Repaired ${repaired} incomplete tool step(s) from an earlier interrupted turn`,
+            },
+          });
+        }
       }
       // Anthropic and Qwen bill the whole prompt again every round unless a
       // breakpoint says otherwise. Marked once, after trimming has settled
@@ -708,7 +721,7 @@ Only reply in plain text for a genuine question that clearly isn't a design requ
       try {
         for (let round = 0; round < MAX_TOOL_ROUNDS + 1; round++) {
           // Wall-clock budget: starting another upstream round too close to the
-          // function's maxDuration (300s) risks a hard kill that persists
+          // function's maxDuration (800s) risks a hard kill that persists
           // NOTHING — the turn silently vanishes on reload (seen with slow free
           // models + PDFs + multiple tool rounds). Wrap up instead.
           if (round > 0 && Date.now() - turnStart > 700_000) {
@@ -806,6 +819,7 @@ Only reply in plain text for a genuine question that clearly isn't a design requ
             if (/context|maximum.*token|token.*(exceed|limit)|reduce the length|too long/i.test(detail)) {
               const { trimmed } = fitContextInPlace(apiMessages, contextLimit, 8000);
               if (trimmed) {
+                repairToolPairs(apiMessages);
                 emit({ toolEvent: { status: `Context overflow — trimmed ${trimmed} message(s) and retrying` } });
                 round--;
                 continue;

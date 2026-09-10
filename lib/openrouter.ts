@@ -721,6 +721,74 @@ export function fitContextInPlace(
   return { trimmed };
 }
 
+/**
+ * Balance the tool bookkeeping in a prompt, in place.
+ *
+ * Providers hard-reject a prompt whose tool records don't pair up: an assistant
+ * `tool_calls` entry with no matching `tool` result ("No tool output found for
+ * function call ..."), or a `tool` result for a call that was never made.
+ * Persisting a turn takes two writes — the assistant message carrying the calls,
+ * then a row per result — so a turn that dies between them leaves exactly that,
+ * permanently. Every later turn replays the orphan, so the conversation 400s
+ * forever and no amount of retrying from the UI can clear it.
+ *
+ * An unanswered call gets a placeholder result rather than being deleted: the
+ * model should still see what it tried, and dropping the call would silently
+ * rewrite history. Returns how many repairs were made.
+ */
+export function repairToolPairs(messages: ChatCompletionMessage[]): { repaired: number } {
+  let repaired = 0;
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    // A result only belongs directly behind the assistant message that asked
+    // for it. The assistant branch below skips past its own results, so any
+    // `tool` message reached here answers nothing.
+    if (m.role === "tool") {
+      messages.splice(i, 1);
+      i--;
+      repaired++;
+      continue;
+    }
+    if (m.role !== "assistant" || !Array.isArray(m.tool_calls)) continue;
+    // An empty array is not the same as an absent one; some providers reject it.
+    if (m.tool_calls.length === 0) {
+      delete m.tool_calls;
+      repaired++;
+      continue;
+    }
+    const ids = (m.tool_calls as { id?: string }[])
+      .map((c) => c?.id)
+      .filter((id): id is string => Boolean(id));
+    // The results for these calls are the run of `tool` messages that follows.
+    let end = i + 1;
+    while (end < messages.length && messages[end].role === "tool") end++;
+    // Drop any result in the run that answers a call this message never made.
+    for (let j = end - 1; j > i; j--) {
+      const id = messages[j].tool_call_id;
+      if (!id || !ids.includes(id)) {
+        messages.splice(j, 1);
+        end--;
+        repaired++;
+      }
+    }
+    const answered = new Set(messages.slice(i + 1, end).map((t) => t.tool_call_id));
+    // Fill in the calls whose results never landed.
+    for (const id of ids) {
+      if (answered.has(id)) continue;
+      messages.splice(end, 0, {
+        role: "tool",
+        tool_call_id: id,
+        content:
+          "Error: this tool's result was lost because the turn was interrupted. Call it again if you still need it.",
+      });
+      end++;
+      repaired++;
+    }
+    i = end - 1;
+  }
+  return { repaired };
+}
+
 export function attachmentsFromUpload(
   files: { name: string; mime: string; base64: string }[]
 ): Attachment[] {
