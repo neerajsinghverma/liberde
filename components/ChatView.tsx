@@ -787,20 +787,31 @@ export default function ChatView({
       ensureNotifyPermission();
       let id = convId;
       if (!id) {
-        const conv = await api<Conversation>("/api/conversations", {
-          method: "POST",
-          body: JSON.stringify({
-            model,
-            temp: tempMode,
-            mode,
-            ...(mode === "design" && designSystemId ? { designSystemId } : {}),
-            ...(pendingAgent ? { agentId: pendingAgent.id } : {}),
-          }),
-        });
-        id = conv.id;
-        setConvId(id);
-        setConversation(conv);
-        onConversationCreated(conv);
+        try {
+          const conv = await api<Conversation>("/api/conversations", {
+            method: "POST",
+            body: JSON.stringify({
+              model,
+              temp: tempMode,
+              mode,
+              ...(mode === "design" && designSystemId ? { designSystemId } : {}),
+              ...(pendingAgent ? { agentId: pendingAgent.id } : {}),
+            }),
+          });
+          id = conv.id;
+          setConvId(id);
+          setConversation(conv);
+          onConversationCreated(conv);
+        } catch (e) {
+          // Nothing has been rendered yet at this point and the composer has
+          // already cleared itself, so letting this reject would look exactly
+          // like the Enter key doing nothing at all — no bubble, no error, no
+          // hint that anything was attempted. Say what happened and hand the
+          // typed message back rather than making them write it again.
+          setError(`Couldn't start the chat: ${String((e as Error).message ?? e)}`);
+          window.dispatchEvent(new CustomEvent("liberde-prefill", { detail: text }));
+          return;
+        }
       }
 
       if (research || agentMode) {
