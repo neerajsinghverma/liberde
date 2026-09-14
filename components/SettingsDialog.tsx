@@ -3265,7 +3265,11 @@ function AuditTab() {
     setError(null);
     try {
       const qs = filter ? `?action=${encodeURIComponent(filter)}` : "";
-      setRows(await api<AuditRow[]>(`/api/admin/audit${qs}`));
+      // The route answers with an envelope, not a bare array, unlike every other
+      // list endpoint. Reading it as an array put an object in state and the
+      // first rows.map() of the render threw.
+      const page = await api<{ entries: AuditRow[] }>(`/api/admin/audit${qs}`);
+      setRows(Array.isArray(page?.entries) ? page.entries : []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load the audit log.");
     } finally {

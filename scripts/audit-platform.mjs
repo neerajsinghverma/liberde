@@ -479,6 +479,18 @@ const WIRING = [
       settings.includes("format=cef"),
   ],
   [
+    "audit log: the tab reads the shape the route returns",
+    () => {
+      const route = cloudSrc.get("app/api/admin/audit/route.ts") ?? "";
+      // Envelope on the wire has to be an envelope in the client. Typing the
+      // response as a bare array compiles fine and throws at render.
+      const envelope = route.includes("Response.json({ entries");
+      return envelope
+        ? settings.includes("api<{ entries: AuditRow[] }>")
+        : settings.includes("api<AuditRow[]>");
+    },
+  ],
+  [
     "workspaces: members can be added and re-roled",
     () => settings.includes("/members") && settings.includes("canAssignRole") === false,
   ],
