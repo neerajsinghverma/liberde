@@ -1099,96 +1099,117 @@ Only reply in plain text for a genuine question that clearly isn't a design requ
           for (const call of calls) {
             emit({ toolEvent: { status: `${toolLabel(call)}…` } });
             let output: string;
-            if (call.function.name === "generate_image") {
-              // Handle by NAME (not gated on designImages) so a stray call when
-              // the tool isn't offered returns a helpful message instead of
-              // falling through to the MCP path ("no connected server…").
-              if (!designImages) {
-                output =
-                  "Image generation is not enabled for this chat, so there is no generate_image tool. Do NOT call it again — instead reference stock photos directly in the artifact via https://images.unsplash.com or https://picsum.photos URLs.";
-              } else {
-                let p = "";
-                try {
-                  p = String(JSON.parse(call.function.arguments || "{}").prompt ?? "");
-                } catch {
-                  /* bad args */
+            // A tool that throws is one failed step, not a failed turn: hand
+            // the model the error and let it decide what to do next.
+            try {
+              if (call.function.name === "generate_image") {
+                // Handle by NAME (not gated on designImages) so a stray call when
+                // the tool isn't offered returns a helpful message instead of
+                // falling through to the MCP path ("no connected server…").
+                if (!designImages) {
+                  output =
+                    "Image generation is not enabled for this chat, so there is no generate_image tool. Do NOT call it again — instead reference stock photos directly in the artifact via https://images.unsplash.com or https://picsum.photos URLs.";
+                } else {
+                  let p = "";
+                  try {
+                    p = String(JSON.parse(call.function.arguments || "{}").prompt ?? "");
+                  } catch {
+                    /* bad args */
+                  }
+                  output = await generateDesignImage(
+                    p,
+                    userId,
+                    imageModel,
+                    req.nextUrl.origin
+                  );
                 }
-                output = await generateDesignImage(
-                  p,
+              } else if (call.function.name === "artifact_read") {
+                output = await execArtifactRead(conversation.id, call.function.arguments);
+              } else if (isPhantomRunTool(call.function.name)) {
+                // The analysis tool is a <liberdeRun>…</liberdeRun> TAG the client
+                // runs in a browser sandbox — NOT a callable function. Weaker
+                // models sometimes invoke it as a tool; steer them to the tag
+                // instead of dead-ending on "no connected server provides…".
+                output =
+                  "There is no runnable function for code — the analysis tool works by writing a <liberdeRun>…</liberdeRun> block directly in your reply (JavaScript, runs in the browser sandbox, result comes back automatically). Do NOT call a tool for this. Put your code inside <liberdeRun></liberdeRun> in your next message instead.";
+              } else if (isMemoryTool(call.function.name)) {
+                output = await execMemoryTool(call.function.name, call.function.arguments, userId);
+              } else if (isRecallTool(call.function.name)) {
+                output = await execRecallTool(call.function.name, call.function.arguments, userId);
+              } else if (isPlatformTool(call.function.name)) {
+                const result = await execPlatformTool(
+                  call.function.name,
+                  call.function.arguments,
                   userId,
-                  imageModel,
+                  req.nextUrl.origin
+                );
+                output = result.output;
+                // A connector/skill was added: rebuild the tool list in place so
+                // the model can call the new tools in this same conversation turn.
+                if (result.toolsChanged) {
+                  const { tools: refreshedMcp } = await assembleTools(userId);
+                  const refreshedHttp = await assembleHttpTools(userId);
+                  httpDefs = refreshedHttp.defs;
+                  httpToolNames = refreshedHttp.names;
+                  tools.length = 0;
+                  tools.push(
+                    ...BUILTIN_TOOL_DEFS,
+                    ...PLATFORM_TOOL_DEFS,
+                    ARTIFACT_READ_TOOL,
+                    ...(designImages ? [DESIGN_IMAGE_TOOL] : []),
+                    ...(memoryActive ? MEMORY_TOOL_DEFS : []),
+                    ...(recallActive ? RECALL_TOOL_DEFS : []),
+                    ...httpDefs,
+                    ...refreshedMcp
+                  );
+                }
+              } else if (isBuiltinTool(call.function.name)) {
+                const result = await execBuiltinTool(
+                  call.function.name,
+                  call.function.arguments,
+                  userId
+                );
+                output = result.output;
+                totalCost += result.cost ?? 0;
+                // Builtin tools that bill are the web tools — attribute to search.
+                searchCost += result.cost ?? 0;
+                if (result.annotations.length) {
+                  finalAnnotations.push(...result.annotations);
+                  emit({ annotations: result.annotations });
+                }
+              } else if (httpToolNames.has(call.function.name)) {
+                output = await execHttpTool(call.function.name, call.function.arguments, userId);
+              } else {
+                // Origin lets an image returned by an MCP tool be banked and
+                // handed back as a URL the reply can actually render.
+                output = await callTool(
+                  call.function.name,
+                  call.function.arguments,
+                  userId,
                   req.nextUrl.origin
                 );
               }
-            } else if (call.function.name === "artifact_read") {
-              output = await execArtifactRead(conversation.id, call.function.arguments);
-            } else if (isPhantomRunTool(call.function.name)) {
-              // The analysis tool is a <liberdeRun>…</liberdeRun> TAG the client
-              // runs in a browser sandbox — NOT a callable function. Weaker
-              // models sometimes invoke it as a tool; steer them to the tag
-              // instead of dead-ending on "no connected server provides…".
-              output =
-                "There is no runnable function for code — the analysis tool works by writing a <liberdeRun>…</liberdeRun> block directly in your reply (JavaScript, runs in the browser sandbox, result comes back automatically). Do NOT call a tool for this. Put your code inside <liberdeRun></liberdeRun> in your next message instead.";
-            } else if (isMemoryTool(call.function.name)) {
-              output = await execMemoryTool(call.function.name, call.function.arguments, userId);
-            } else if (isRecallTool(call.function.name)) {
-              output = await execRecallTool(call.function.name, call.function.arguments, userId);
-            } else if (isPlatformTool(call.function.name)) {
-              const result = await execPlatformTool(
-                call.function.name,
-                call.function.arguments,
-                userId,
-                req.nextUrl.origin
-              );
-              output = result.output;
-              // A connector/skill was added: rebuild the tool list in place so
-              // the model can call the new tools in this same conversation turn.
-              if (result.toolsChanged) {
-                const { tools: refreshedMcp } = await assembleTools(userId);
-                const refreshedHttp = await assembleHttpTools(userId);
-                httpDefs = refreshedHttp.defs;
-                httpToolNames = refreshedHttp.names;
-                tools.length = 0;
-                tools.push(
-                  ...BUILTIN_TOOL_DEFS,
-                  ...PLATFORM_TOOL_DEFS,
-                  ARTIFACT_READ_TOOL,
-                  ...(designImages ? [DESIGN_IMAGE_TOOL] : []),
-                  ...(memoryActive ? MEMORY_TOOL_DEFS : []),
-                  ...(recallActive ? RECALL_TOOL_DEFS : []),
-                  ...httpDefs,
-                  ...refreshedMcp
-                );
-              }
-            } else if (isBuiltinTool(call.function.name)) {
-              const result = await execBuiltinTool(
-                call.function.name,
-                call.function.arguments,
-                userId
-              );
-              output = result.output;
-              totalCost += result.cost ?? 0;
-              // Builtin tools that bill are the web tools — attribute to search.
-              searchCost += result.cost ?? 0;
-              if (result.annotations.length) {
-                finalAnnotations.push(...result.annotations);
-                emit({ annotations: result.annotations });
-              }
-            } else if (httpToolNames.has(call.function.name)) {
-              output = await execHttpTool(call.function.name, call.function.arguments, userId);
-            } else {
-              // Origin lets an image returned by an MCP tool be banked and
-              // handed back as a URL the reply can actually render.
-              output = await callTool(
-                call.function.name,
-                call.function.arguments,
-                userId,
-                req.nextUrl.origin
-              );
+            } catch (e) {
+              if (turnSignal.aborted) throw e;
+              console.error(`[tool ${call.function.name}] threw:`, e);
+              output = `Error: ${call.function.name} failed — ${String(e).slice(0, 300)}`;
             }
-            await addMessage(conversation.id, "tool", output, null, null, {
-              tool_call_id: call.id,
-            });
+            // Saving the result must not end the turn either. The model gets
+            // the output regardless, and repairToolPairs backfills the missing
+            // row on the next turn so the conversation is not wedged.
+            try {
+              await addMessage(conversation.id, "tool", output, null, null, {
+                tool_call_id: call.id,
+              });
+            } catch (e) {
+              if (turnSignal.aborted) throw e;
+              console.error(`[tool ${call.function.name}] result not saved:`, e);
+              emit({
+                toolEvent: {
+                  status: `${toolLabel(call)} ran, but its result could not be saved`,
+                },
+              });
+            }
             apiMessages.push({ role: "tool", tool_call_id: call.id, content: output });
             emit({
               toolEvent: {
