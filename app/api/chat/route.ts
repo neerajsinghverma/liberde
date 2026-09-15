@@ -7,6 +7,7 @@ import {
   getConversation,
   getLastAssistantModel,
   getDesignSystem,
+  getDeckTemplate,
   getAgent,
   getProject,
   listMessages,
@@ -44,6 +45,7 @@ import {
 import { DOC_MIME, DOCX_MIME, type Attachment, type ToolCall } from "@/lib/types";
 import { ARTIFACTS_SYSTEM_PROMPT } from "@/lib/artifact-shared";
 import { presentDirective } from "@/lib/present-prompt";
+import { templatePromptBlock } from "@/lib/deck-template";
 import {
   ARTIFACT_READ_TOOL,
   execArtifactRead,
@@ -380,6 +382,24 @@ Only reply in plain text for a genuine question that clearly isn't a design requ
   const presentDirectiveText = presentMode
     ? presentDirective({ images: designImages, studio: body.deckStudio === true })
     : "";
+  // A Present conversation can be pinned to the user's own template. The block
+  // tells the model to use the "custom" theme id and, when the user asked for
+  // it, the template's own layouts. A revoked or deleted template degrades to
+  // the built-in themes rather than failing the turn.
+  let deckTemplateBlock = "";
+  if (presentMode && conversation.deck_template_id) {
+    try {
+      const t = await getDeckTemplate(conversation.deck_template_id, userId);
+      if (t) {
+        deckTemplateBlock = templatePromptBlock(
+          t,
+          conversation.deck_template_mode === "layouts" ? "layouts" : "skin"
+        );
+      }
+    } catch (e) {
+      console.error("deck template load failed (continuing without):", e);
+    }
+  }
   const styleDirective = STYLE_PRESETS[settings.responseStyle]?.directive ?? "";
   // Split by cacheability: everything identical on every turn goes in the head
   // (which carries the prompt-cache breakpoint); everything that moves — the
@@ -402,6 +422,7 @@ Only reply in plain text for a genuine question that clearly isn't a design requ
     agentDirective,
     designDirective,
     presentDirectiveText,
+    deckTemplateBlock,
     designSystemBlock,
     styleDirective,
     systemParts.stable,

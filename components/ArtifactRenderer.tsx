@@ -5,6 +5,7 @@ import hljs from "highlight.js/lib/common";
 import Markdown from "./Markdown";
 import type { ArtifactType } from "@/lib/artifact-shared";
 import { buildSrcDoc } from "@/lib/artifact-srcdoc";
+import type { DeckTemplate } from "@/lib/deck-template";
 
 export { buildSrcDoc };
 
@@ -22,11 +23,14 @@ export default function ArtifactRenderer({
   content,
   onRuntimeError,
   reloadKey = 0,
+  deckTemplate,
 }: {
   type: ArtifactType;
   language: string | null;
   content: string;
   onRuntimeError?: (message: string) => void;
+  /** The user's own Present template, when the deck is built on one. */
+  deckTemplate?: DeckTemplate | null;
   /** Bump to force the preview iframe to fully remount and re-run its scripts. */
   reloadKey?: number;
 }) {
@@ -42,9 +46,9 @@ export default function ArtifactRenderer({
       ? "streaming:" + (content.match(/<\/section>/gi) || []).length
       : content;
   const srcDoc = useMemo(
-    () => buildSrcDoc(type, content),
+    () => buildSrcDoc(type, content, deckTemplate ? { template: deckTemplate } : undefined),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [type, deckKey]
+    [type, deckKey, deckTemplate?.id, deckTemplate?.updated_at]
   );
 
   // Capture runtime errors the sandboxed preview reports (Claude's "Fix with AI" path).

@@ -443,6 +443,31 @@ const SCHEMA_STATEMENTS: string[] = [
   // usable password, so admin password-reset must not apply to them).
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider TEXT NOT NULL DEFAULT 'password'`,
   `CREATE INDEX IF NOT EXISTS idx_auth_tokens_user ON auth_tokens(user_id)`,
+  // Present templates: a brand a user supplied, extracted from screenshots of a
+  // real deck, from a brand guidelines document, or saved from a deck they had
+  // already got right. tokens/layouts/layout_css are JSON text, sanitised on
+  // the way in by lib/deck-template.ts before they ever reach a stylesheet.
+  `CREATE TABLE IF NOT EXISTS deck_templates (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    source TEXT NOT NULL,
+    tokens TEXT NOT NULL,
+    fonts_query TEXT,
+    image_style TEXT,
+    logo TEXT,
+    logo_pos TEXT,
+    layout_css TEXT,
+    layouts TEXT NOT NULL,
+    notes TEXT,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_deck_templates_user ON deck_templates(user_id, updated_at)`,
+  // Which template a Present conversation is pinned to, and whether it follows
+  // the template's own layouts or only its brand skin.
+  `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS deck_template_id TEXT`,
+  `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS deck_template_mode TEXT`,
   // Published-deck analytics: one row per card a viewer actually dwelt on, so
   // the owner can see which cards held attention. Anonymous by construction — a
   // published page runs at an opaque origin and has no session, so the only
@@ -1037,7 +1062,14 @@ export async function updateConversation(
   fields: Partial<
     Pick<
       Conversation,
-      "title" | "model" | "project_id" | "starred" | "archived" | "design_system_id"
+      | "title"
+      | "model"
+      | "project_id"
+      | "starred"
+      | "archived"
+      | "design_system_id"
+      | "deck_template_id"
+      | "deck_template_mode"
     >
   >
 ) {
@@ -1047,12 +1079,14 @@ export async function updateConversation(
     starred: 0,
     archived: 0,
     design_system_id: null as string | null,
+    deck_template_id: null as string | null,
+    deck_template_mode: null as string | null,
     ...conv,
     ...fields,
     updated_at: now(),
   };
   await q(
-    "UPDATE conversations SET title = $1, model = $2, project_id = $3, starred = $4, archived = $5, design_system_id = $6, updated_at = $7 WHERE id = $8",
+    "UPDATE conversations SET title = $1, model = $2, project_id = $3, starred = $4, archived = $5, design_system_id = $6, deck_template_id = $7, deck_template_mode = $8, updated_at = $9 WHERE id = $10",
     [
       merged.title,
       merged.model,
@@ -1060,6 +1094,8 @@ export async function updateConversation(
       merged.starred,
       merged.archived,
       merged.design_system_id,
+      merged.deck_template_id,
+      merged.deck_template_mode,
       merged.updated_at,
       id,
     ]
@@ -2018,6 +2054,149 @@ export async function deleteArtifactsForConversation(conversationId: string) {
     await q("DELETE FROM deck_views WHERE artifact_id = $1", [id]);
     await q("DELETE FROM artifacts WHERE id = $1", [id]);
   }
+}
+
+/* ---------------------------------------------------- Present templates ---- */
+
+type DeckTemplateRow = {
+  id: string;
+  user_id: string;
+  name: string;
+  source: string;
+  tokens: string;
+  fonts_query: string | null;
+  image_style: string | null;
+  logo: string | null;
+  logo_pos: string | null;
+  layout_css: string | null;
+  layouts: string;
+  notes: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+/** Rows carry JSON; callers want objects. A corrupt blob degrades to empty. */
+function hydrateTemplate(row: DeckTemplateRow) {
+  const parse = <T>(raw: string, fallback: T): T => {
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      return fallback;
+    }
+  };
+  return {
+    ...row,
+    created_at: Number(row.created_at),
+    updated_at: Number(row.updated_at),
+    tokens: parse<Record<string, string>>(row.tokens, {}),
+    layouts: parse<{ id: string; label: string; hint: string }[]>(row.layouts, []),
+  };
+}
+
+export async function listDeckTemplates(userId: string = DEFAULT_USER) {
+  const rows = (await q(
+    "SELECT * FROM deck_templates WHERE user_id = $1 ORDER BY updated_at DESC",
+    [userId]
+  )) as unknown as DeckTemplateRow[];
+  return rows.map(hydrateTemplate);
+}
+
+export async function getDeckTemplate(id: string, userId?: string) {
+  const rows = (await q("SELECT * FROM deck_templates WHERE id = $1", [
+    id,
+  ])) as unknown as DeckTemplateRow[];
+  const row = rows[0];
+  if (!row) return undefined;
+  if (userId && row.user_id !== userId) return undefined;
+  return hydrateTemplate(row);
+}
+
+export async function createDeckTemplate(
+  t: {
+    name: string;
+    source: string;
+    tokens: Record<string, string>;
+    fonts_query?: string | null;
+    image_style?: string | null;
+    logo?: string | null;
+    logo_pos?: string | null;
+    layout_css?: string | null;
+    layouts: { id: string; label: string; hint: string }[];
+    notes?: string | null;
+  },
+  userId: string = DEFAULT_USER
+) {
+  const nowMs = Date.now();
+  const id = newId();
+  await q(
+    `INSERT INTO deck_templates
+     (id,user_id,name,source,tokens,fonts_query,image_style,logo,logo_pos,layout_css,layouts,notes,created_at,updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [
+      id,
+      userId,
+      t.name,
+      t.source,
+      JSON.stringify(t.tokens),
+      t.fonts_query ?? null,
+      t.image_style ?? null,
+      t.logo ?? null,
+      t.logo_pos ?? null,
+      t.layout_css ?? null,
+      JSON.stringify(t.layouts),
+      t.notes ?? null,
+      nowMs,
+      nowMs,
+    ]
+  );
+  return (await getDeckTemplate(id))!;
+}
+
+export async function updateDeckTemplate(
+  id: string,
+  patch: Partial<{
+    name: string;
+    tokens: Record<string, string>;
+    fonts_query: string | null;
+    image_style: string | null;
+    logo: string | null;
+    logo_pos: string | null;
+    layout_css: string | null;
+    layouts: { id: string; label: string; hint: string }[];
+    notes: string | null;
+  }>,
+  userId?: string
+) {
+  const existing = await getDeckTemplate(id, userId);
+  if (!existing) return undefined;
+  await q(
+    `UPDATE deck_templates SET name=$1,tokens=$2,fonts_query=$3,image_style=$4,logo=$5,logo_pos=$6,layout_css=$7,layouts=$8,notes=$9,updated_at=$10
+     WHERE id=$11`,
+    [
+      patch.name ?? existing.name,
+      JSON.stringify(patch.tokens ?? existing.tokens),
+      patch.fonts_query !== undefined ? patch.fonts_query : existing.fonts_query,
+      patch.image_style !== undefined ? patch.image_style : existing.image_style,
+      patch.logo !== undefined ? patch.logo : existing.logo,
+      patch.logo_pos !== undefined ? patch.logo_pos : existing.logo_pos,
+      patch.layout_css !== undefined ? patch.layout_css : existing.layout_css,
+      JSON.stringify(patch.layouts ?? existing.layouts),
+      patch.notes !== undefined ? patch.notes : existing.notes,
+      Date.now(),
+      id,
+    ]
+  );
+  return (await getDeckTemplate(id))!;
+}
+
+export async function deleteDeckTemplate(id: string, userId?: string) {
+  const existing = await getDeckTemplate(id, userId);
+  if (!existing) return false;
+  await q("DELETE FROM deck_templates WHERE id = $1", [id]);
+  // A conversation pinned to a deleted template degrades to the built-in themes
+  // rather than failing to render.
+  await q("UPDATE conversations SET deck_template_id = NULL WHERE deck_template_id = $1", [id]);
+  return true;
 }
 
 /** One card's dwell time from a published deck. Anonymous; never linked to a user. */

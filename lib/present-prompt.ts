@@ -88,7 +88,7 @@ When the outline is confirmed, emit ONE artifact and nothing else of substance:
 
 ### Deck wrapper
 data-theme (a theme id above) · data-format (presentation|document|webpage|social) · data-size (presentation: fluid|16x9|4x3 · document: fluid|pageless|letter|a4 · webpage: fluid · social: 1x1|4x5|9x16) · data-density (compact|medium|airy).
-Optional running header/footer: data-hf-tl, -tr, -tc, -bl, -br, -bc, each set to "cardNumber", "text:Some text" or "logo:https://…", plus data-hf-hide-first and data-hf-hide-last.
+Optional data-template (set only when a template is active, see below). Optional running header/footer: data-hf-tl, -tr, -tc, -bl, -br, -bc, each set to "cardNumber", "text:Some text" or "logo:https://…", plus data-hf-hide-first and data-hf-hide-last.
 
 ### Card
 <section class="card" data-layout="…"> with optional data-align (top|center|bottom), data-fullbleed, data-overlay (frosted|faded|clear, image-bg only), data-x / data-y (quadrant axis labels), data-nested (a sub-card the reader expands) with data-label.

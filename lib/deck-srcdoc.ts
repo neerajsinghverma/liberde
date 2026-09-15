@@ -6,6 +6,7 @@
 import { DECK_CSS } from "./deck-styles";
 import { DECK_JS } from "./deck-script";
 import { deckFontMap, deckThemeCss } from "./deck-runtime";
+import { templateCss, type DeckTemplate } from "./deck-template";
 
 // Deliberately NO error overlay here, unlike every other artifact type.
 //
@@ -22,6 +23,15 @@ export interface DeckDocOptions {
   view?: "scroll" | "present" | "presenter";
   /** Endpoint for per-card dwell beacons; only set for published /live pages. */
   beacon?: string;
+  /**
+   * The user's own template, when the deck is built on one. Baked into the
+   * document rather than fetched, so a published page and a downloaded file
+   * both carry the brand with them and still render years later.
+   */
+  template?: Pick<
+    DeckTemplate,
+    "tokens" | "layout_css" | "fonts_query"
+  > | null;
 }
 
 const CHROME = `
@@ -54,13 +64,21 @@ const CHROME = `
 
 export function buildDeckSrcDoc(content: string, opts: DeckDocOptions = {}): string {
   const view = opts.view || "scroll";
+  // The template registers itself under the "custom" theme id, so the runtime's
+  // existing theme machinery drives it with no special cases: switching to and
+  // from a brand is the same one-attribute edit as switching between built-ins.
+  const fonts = deckFontMap();
+  if (opts.template?.fonts_query) fonts.custom = opts.template.fonts_query;
   const globals =
     "var LD_FONTS=" +
-    JSON.stringify(deckFontMap()).replace(/</g, "\\u003c") +
+    JSON.stringify(fonts).replace(/</g, "\\u003c") +
     ";var LD_VIEW=" +
     JSON.stringify(view) +
     ";" +
     (opts.beacon ? "var LD_BEACON=" + JSON.stringify(opts.beacon) + ";" : "");
+  // After the built-ins, so a template wins on the tokens it sets and inherits
+  // the rest. Already sanitised on the way into the database.
+  const brand = opts.template ? templateCss(opts.template) : "";
 
   return (
     `<!doctype html><html lang="en"><head>
@@ -68,6 +86,7 @@ export function buildDeckSrcDoc(content: string, opts: DeckDocOptions = {}): str
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <style>${deckThemeCss()}</style>
 <style>${DECK_CSS}</style>
+${brand ? "<style>" + brand + "</style>" : ""}
 </head><body data-view="${view}">
 <div id="ld-root">${content}</div>` +
     CHROME +

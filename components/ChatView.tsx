@@ -32,6 +32,7 @@ import ModelAdvisor from "./ModelAdvisor";
 import ComparePanel from "./ComparePanel";
 import DesignSystemChip from "./DesignSystemChip";
 import OutlineCard from "./OutlineCard";
+import DeckTemplateChip, { type DeckTemplatePick } from "./DeckTemplateChip";
 import { splitAsk, type AskQuestion } from "@/lib/assistant-parts";
 import { DECK_FORMATS, DECK_SIZES, type DeckFormat } from "@/lib/deck-runtime";
 import ArtifactPanel, {
@@ -137,6 +138,13 @@ export default function ChatView({
   });
   const [pasteOpen, setPasteOpen] = useState(false);
   const presentImportRef = useRef<HTMLInputElement>(null);
+  // The user's own template, pinned to the conversation the way Design mode
+  // pins a design system. Chosen before the first message; after that the deck
+  // already carries the brand and changing it would mean rebuilding.
+  const [deckTemplate, setDeckTemplate] = useState<DeckTemplatePick>({
+    id: null,
+    mode: "skin",
+  });
   const [researchStatuses, setResearchStatuses] = useState<string[]>([]);
   const [voiceMode, setVoiceMode] = useState<"off" | "listening" | "speaking" | "idle">(
     "off"
@@ -824,6 +832,9 @@ export default function ChatView({
               temp: tempMode,
               mode,
               ...(mode === "design" && designSystemId ? { designSystemId } : {}),
+              ...(presentMode && deckTemplate.id
+                ? { deckTemplateId: deckTemplate.id, deckTemplateMode: deckTemplate.mode }
+                : {}),
               ...(pendingAgent ? { agentId: pendingAgent.id } : {}),
             }),
           });
@@ -968,6 +979,7 @@ export default function ChatView({
       designImages,
       presentMode,
       deckOpts,
+      deckTemplate,
       designImageModel,
       designSystemId,
       mode,
@@ -1224,6 +1236,11 @@ export default function ChatView({
             value={designImageModel || settings?.imageModel || ""}
             onChange={setDesignImageModel}
           />
+        )}
+        {presentMode && showWelcome && (
+          // Only before the first message: once a deck exists it already carries
+          // the brand, and swapping the template would mean rebuilding it.
+          <DeckTemplateChip value={deckTemplate} onChange={setDeckTemplate} compact />
         )}
         {presentMode && (
           <DeckSetupChips

@@ -60,6 +60,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     ...(typeof body.starred === "boolean" ? { starred: body.starred ? 1 : 0 } : {}),
     ...(typeof body.archived === "boolean" ? { archived: body.archived ? 1 : 0 } : {}),
     ...("designSystemId" in body ? { design_system_id: body.designSystemId ?? null } : {}),
+    ...("deckTemplateId" in body ? { deck_template_id: body.deckTemplateId ?? null } : {}),
+    ...("deckTemplateMode" in body
+      ? { deck_template_mode: body.deckTemplateMode === "layouts" ? "layouts" : "skin" }
+      : {}),
   });
   return Response.json(await getConversation(id));
 }

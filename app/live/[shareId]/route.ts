@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
-import { getArtifactByShareId } from "@/lib/db";
+import { getArtifactByShareId, getDeckTemplate } from "@/lib/db";
+import { readDeckAttr } from "@/lib/deck-runtime";
 import { buildSrcDoc } from "@/lib/artifact-srcdoc";
 import type { ArtifactType } from "@/lib/artifact-shared";
 
@@ -19,11 +20,20 @@ export async function GET(
   if (!art || !art.resolved) {
     return new Response("Not found or not published.", { status: 404 });
   }
+  // A deck built on someone's own template has to carry that brand here too,
+  // or a published link renders in the default theme and looks like a
+  // different deck. Looked up by the id the markup records; a deleted template
+  // degrades to the built-in themes.
+  const templateId =
+    art.type === "deck" ? readDeckAttr(art.resolved.content, "data-template") : null;
+  const template = templateId ? await getDeckTemplate(templateId) : null;
+
   // A published deck reports per-card dwell back to us so the owner can see
   // which cards held attention. Only on this hosted path: the in-app preview
   // and the downloaded file measure nothing.
   const html = buildSrcDoc(art.type as ArtifactType, art.resolved.content, {
     beacon: art.type === "deck" ? `/api/deck-views/${encodeURIComponent(shareId)}` : undefined,
+    template: template ?? null,
   });
   if (html == null) {
     return new Response("This artifact type can't be served as a live page.", { status: 400 });

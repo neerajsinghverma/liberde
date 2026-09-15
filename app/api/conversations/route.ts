@@ -52,10 +52,19 @@ export async function POST(req: NextRequest) {
     CONVERSATION_MODES.includes(body.mode) ? body.mode : "chat",
     agent?.id ?? null
   );
-  // Design mode: pin the chosen design system to the conversation (access is
-  // validated at generation time, so a stale id degrades gracefully).
+  // Design mode pins a design system; Present mode pins a template. Both ids
+  // are validated at generation time, so a stale one degrades gracefully
+  // rather than blocking the conversation from being created.
+  const pins: Parameters<typeof updateConversation>[1] = {};
   if (body.designSystemId && typeof body.designSystemId === "string") {
-    await updateConversation(conv.id, { design_system_id: body.designSystemId });
+    pins.design_system_id = body.designSystemId;
+  }
+  if (body.deckTemplateId && typeof body.deckTemplateId === "string") {
+    pins.deck_template_id = body.deckTemplateId;
+    pins.deck_template_mode = body.deckTemplateMode === "layouts" ? "layouts" : "skin";
+  }
+  if (Object.keys(pins).length) {
+    await updateConversation(conv.id, pins);
     return Response.json(await getConversation(conv.id), { status: 201 });
   }
   return Response.json(conv, { status: 201 });

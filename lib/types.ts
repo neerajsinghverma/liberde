@@ -212,6 +212,10 @@ export interface Conversation {
   mode?: string;
   /** Design mode: the design system applied to artifacts built in this conversation. */
   design_system_id?: string | null;
+  /** Present mode: the template this deck is pinned to, if any. */
+  deck_template_id?: string | null;
+  /** "skin" follows the template's brand only; "layouts" also uses its own layouts. */
+  deck_template_mode?: string | null;
   /** The agent this conversation was started as, if any (see /api/agents). */
   agent_id?: string | null;
   /** Set while a response is generating (lock timestamp); cleared when done. */

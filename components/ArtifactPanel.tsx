@@ -17,6 +17,7 @@ import {
   swapDeckAttr,
   type DeckFormat,
 } from "@/lib/deck-runtime";
+import { templatePptxPalette, type DeckTemplate } from "@/lib/deck-template";
 import Icon from "./Icon";
 import { checkConformance } from "@/lib/design-system";
 
@@ -272,6 +273,35 @@ export default function ArtifactPanel({
   // different. That is what makes restyling free and immediate, the way it is
   // in Gamma.
   const deckAttr = (attr: string) => (type === "deck" ? readDeckAttr(shownBody, attr) : null);
+  // A deck built on the user's own template records its id in the markup. Load
+  // it so the preview, the full-screen views and every export render in that
+  // brand rather than falling back to a built-in theme.
+  const deckTemplateId = deckAttr("data-template");
+  const [deckTemplate, setDeckTemplate] = useState<DeckTemplate | null>(null);
+  useEffect(() => {
+    if (!deckTemplateId) {
+      setDeckTemplate(null);
+      return;
+    }
+    let cancelled = false;
+    api<DeckTemplate>(`/api/deck-templates/${deckTemplateId}`)
+      .then((t) => {
+        if (!cancelled) setDeckTemplate(t);
+      })
+      // A deleted template degrades to the built-in themes rather than to a
+      // blank panel.
+      .catch(() => {
+        if (!cancelled) setDeckTemplate(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [deckTemplateId]);
+  /** Options every deck render needs, so the brand can never be left off one. */
+  const deckOpts = (view?: "present" | "presenter") => ({
+    ...(view ? { view } : {}),
+    template: deckTemplate,
+  });
   const deckFormat = ((deckAttr("data-format") || "presentation") as DeckFormat);
   const commitDeckAttr = async (attr: string, value: string) => {
     if (!record) return;
@@ -639,7 +669,21 @@ export default function ArtifactPanel({
               icon="palette"
               attr="data-theme"
               value={deckAttr("data-theme") || DEFAULT_DECK_THEME}
-              options={DECK_THEMES.map((t) => ({ id: t.id, label: t.label, hint: t.mood }))}
+              options={[
+                // The user's own brand sits at the top of the list, because on a
+                // deck built from a template it is the answer, and the built-ins
+                // are the alternatives.
+                ...(deckTemplate
+                  ? [
+                      {
+                        id: "custom",
+                        label: deckTemplate.name,
+                        hint: "Your template",
+                      },
+                    ]
+                  : []),
+                ...DECK_THEMES.map((t) => ({ id: t.id, label: t.label, hint: t.mood })),
+              ]}
               onPreview={(v) => postToIframe({ __ld: "setAttr", attr: "data-theme", value: v })}
               onCommit={(v) => commitDeckAttr("data-theme", v)}
             />
@@ -673,7 +717,7 @@ export default function ArtifactPanel({
             <button
               title="Present full screen (arrow keys, S for spotlight, N for notes)"
               onClick={() => {
-                const doc = buildSrcDoc("deck", shownBody, { view: "present" });
+                const doc = buildSrcDoc("deck", shownBody, deckOpts("present"));
                 if (doc) openArtifactSandboxed(doc);
               }}
               className="rounded px-1.5 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink"
@@ -683,7 +727,7 @@ export default function ArtifactPanel({
             <button
               title="Presenter view: notes, timer and the next card, in a second window you keep on your own screen"
               onClick={() => {
-                const doc = buildSrcDoc("deck", shownBody, { view: "presenter" });
+                const doc = buildSrcDoc("deck", shownBody, deckOpts("presenter"));
                 if (doc) openArtifactSandboxed(doc);
               }}
               className="rounded px-1.5 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink"
@@ -693,7 +737,7 @@ export default function ArtifactPanel({
             <button
               title="Export as PDF (opens the deck and prints — choose 'Save as PDF')"
               onClick={() => {
-                const doc = buildSrcDoc("deck", shownBody);
+                const doc = buildSrcDoc("deck", shownBody, deckOpts());
                 if (doc) openArtifactSandboxed(doc, true);
               }}
               className="rounded px-1.5 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink"
@@ -706,7 +750,7 @@ export default function ArtifactPanel({
               onClick={async () => {
                 setExporting(true);
                 try {
-                  await exportDeckToPptx(shownBody, record?.identifier ?? "deck");
+                  await exportDeckToPptx(shownBody, record?.identifier ?? "deck", deckTemplate);
                 } catch (e) {
                   toast(`PPTX export failed: ${e}`, "error");
                 } finally {
@@ -717,6 +761,35 @@ export default function ArtifactPanel({
             >
               {exporting ? "…" : "PPTX"}
             </button>
+            {record && (
+              // The most faithful way to make a template: get one deck right by
+              // hand, then freeze it. Nothing is inferred, because the deck
+              // already states its own theme.
+              <button
+                title="Save this deck's look as a reusable template"
+                disabled={exporting}
+                onClick={async () => {
+                  const name = prompt("Name this template", title || "My template");
+                  if (!name?.trim()) return;
+                  setExporting(true);
+                  try {
+                    const saved = await api<DeckTemplate>("/api/deck-templates/from-deck", {
+                      method: "POST",
+                      body: JSON.stringify({ artifactId: record.id, name: name.trim() }),
+                    });
+                    toast(`Saved "${saved.name}". Pick it on your next deck.`, "success");
+                  } catch (e) {
+                    toast(`Could not save the template: ${e}`, "error");
+                  } finally {
+                    setExporting(false);
+                  }
+                }}
+                className="flex items-center gap-1 rounded px-1.5 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink disabled:opacity-50"
+              >
+                <Icon name="layers" size={13} />
+                <span className="hidden xl:inline">Save template</span>
+              </button>
+            )}
             {record?.share_id && <DeckAnalyticsChip artifactId={record.id} />}
             <button
               title="Export every card as a PNG (a .zip)"
@@ -724,7 +797,7 @@ export default function ArtifactPanel({
               onClick={async () => {
                 setExporting(true);
                 try {
-                  await exportDeckToPngZip(shownBody, record?.identifier ?? "deck");
+                  await exportDeckToPngZip(shownBody, record?.identifier ?? "deck", deckTemplate);
                 } catch (e) {
                   toast(`PNG export failed: ${e}`, "error");
                 } finally {
@@ -783,7 +856,11 @@ export default function ArtifactPanel({
                 : "Open full screen"
             }
             onClick={() => {
-              const doc = buildSrcDoc(type!, shownBody);
+              const doc = buildSrcDoc(
+                type!,
+                shownBody,
+                type === "deck" ? deckOpts("present") : undefined
+              );
               if (doc) openArtifactSandboxed(doc);
             }}
             className="rounded px-1.5 py-1 text-ink-muted hover:bg-surface-2 hover:text-ink"
@@ -814,7 +891,7 @@ export default function ArtifactPanel({
             // presents, prints and switches themes offline.
             const data =
               type === "slides" || type === "deck"
-                ? (buildSrcDoc(type, shownBody) ?? shownBody)
+                ? (buildSrcDoc(type, shownBody, type === "deck" ? deckOpts() : undefined) ?? shownBody)
                 : shownBody;
             const blob = new Blob([data], { type: "text/plain" });
             const a = document.createElement("a");
@@ -967,6 +1044,7 @@ export default function ArtifactPanel({
                 content={shownBody}
                 onRuntimeError={setRuntimeError}
                 reloadKey={reloadKey}
+                deckTemplate={deckTemplate}
               />
 
               {commentMode && (
@@ -1581,12 +1659,33 @@ const PPTX_H = 7.5;
  * runtime does, so a stats card becomes a row of big numbers and a chart card
  * becomes a native PowerPoint chart you can still edit.
  */
-async function exportDeckToPptx(deckHtml: string, filename: string) {
+async function exportDeckToPptx(
+  deckHtml: string,
+  filename: string,
+  template?: DeckTemplate | null
+) {
   const mod = await importExternal("https://esm.sh/pptxgenjs@3.12.0");
   const PptxGenJS = (mod.default ?? mod) as new () => PptxDeck;
   const doc = new DOMParser().parseFromString(deckHtml, "text/html");
   const wrapper = doc.querySelector(".deck");
-  const theme = findDeckTheme(wrapper?.getAttribute("data-theme") ?? DEFAULT_DECK_THEME);
+  const themeId = wrapper?.getAttribute("data-theme") ?? DEFAULT_DECK_THEME;
+  const base = findDeckTheme(themeId);
+  // On a template, PowerPoint gets the user's own brand. Its colours may be
+  // gradients or rgba, neither of which PowerPoint takes, so they collapse to
+  // their first hex; the built-in theme fills any gap.
+  const onTemplate = themeId === "custom" && template;
+  const palette = onTemplate ? templatePptxPalette(template, base.pptx) : base.pptx;
+  const theme = {
+    ...base,
+    pptx: palette,
+    fonts: onTemplate
+      ? {
+          ...base.fonts,
+          heading: template.tokens["heading-font"] || base.fonts.heading,
+          body: template.tokens["body-font"] || base.fonts.body,
+        }
+      : base.fonts,
+  };
   const cards = Array.from(doc.querySelectorAll("section.card, .card")).filter(
     (c) => !c.hasAttribute("data-nested")
   );
@@ -1829,7 +1928,11 @@ async function exportDeckToPptx(deckHtml: string, filename: string) {
  * (the deck markup here is the one we just built, and html-to-image needs to
  * read computed styles), then each card is captured at 2x.
  */
-async function exportDeckToPngZip(deckHtml: string, filename: string) {
+async function exportDeckToPngZip(
+  deckHtml: string,
+  filename: string,
+  template?: DeckTemplate | null
+) {
   const [h2i, fflate] = await Promise.all([
     importExternal("https://esm.sh/html-to-image@1.11.11"),
     importExternal("https://esm.sh/fflate@0.8.2"),
@@ -1846,7 +1949,7 @@ async function exportDeckToPngZip(deckHtml: string, filename: string) {
   try {
     const idoc = host.contentDocument!;
     idoc.open();
-    idoc.write(buildSrcDoc("deck", deckHtml) ?? deckHtml);
+    idoc.write(buildSrcDoc("deck", deckHtml, { template }) ?? deckHtml);
     idoc.close();
     await new Promise((r) => setTimeout(r, 1200)); // fonts + runtime
     const cards = Array.from(idoc.querySelectorAll(".deck > .card")) as HTMLElement[];

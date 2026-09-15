@@ -544,6 +544,29 @@ export function readDeckAttr(html: string, attr: string): string | null {
   return m ? m[1] : null;
 }
 
+/**
+ * What each token means, for the extraction prompt that reads a brand off a
+ * user's own deck. Lives here so the vocabulary offered to a model can never
+ * drift from the vocabulary the stylesheet actually reads.
+ */
+export const TOKEN_REFERENCE = [
+  "- bg: the page behind the cards (a flat colour or a linear-gradient)",
+  "- surface: the card itself",
+  "- card-gradient: an optional gradient painted over the card, or none",
+  "- ink: body and heading text on the card",
+  "- muted: secondary text, labels, the lede",
+  "- accent: the brand colour that draws the eye — rules, numerals, icons, links",
+  "- accent-2: the secondary, used for gradients and a second chart series",
+  "- radius: card corner radius, e.g. 0px, 6px, 22px",
+  "- shadow: a full CSS box-shadow value, or none",
+  "- stroke: a full CSS border value for the card edge, or none",
+  "- heading-weight: a numeric font weight, 400 to 900",
+  "- heading-tracking: heading letter-spacing, e.g. -0.02em",
+  "- kicker-transform: uppercase or none, for the small eyebrow label",
+  "- heading-font: the heading family with fallbacks",
+  "- body-font: the body family with fallbacks",
+].join("\n");
+
 /** Compact theme table inlined into the system prompt so the model can choose. */
 export function deckThemeTable(): string {
   return DECK_THEMES.map(
