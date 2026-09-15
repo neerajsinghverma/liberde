@@ -6,7 +6,14 @@ import type { Conversation, Project } from "@/lib/types";
 import { api } from "@/lib/client";
 import Icon from "./Icon";
 import { ThemeButton } from "./ThemeToggle";
-import type { View } from "./AppShell";
+import type { View, Workspace } from "./AppShell";
+
+/** The sidebar studios. Order is deliberate: chat first, then the two makers. */
+const WORKSPACES: { id: Workspace; label: string; icon: string; hint: string }[] = [
+  { id: "chat", label: "Chat", icon: "message", hint: "Conversations" },
+  { id: "design", label: "Design", icon: "pencil", hint: "Interactive prototypes and designs" },
+  { id: "present", label: "Present", icon: "presentation", hint: "Presentations, docs, sites and social posts" },
+];
 
 interface Props {
   open: boolean;
@@ -14,8 +21,8 @@ interface Props {
   conversations: Conversation[];
   projects: Project[];
   view: View;
-  workspace: "chat" | "design";
-  onWorkspaceChange: (w: "chat" | "design") => void;
+  workspace: Workspace;
+  onWorkspaceChange: (w: Workspace) => void;
   onSelect: (view: View) => void;
   onOpenSettings: () => void;
   onOpenTasks: () => void;
@@ -296,24 +303,25 @@ export default function Sidebar({
         </IconButton>
       </div>
 
-      {/* Workspace switcher: Chat vs the Design studio (separate app). */}
+      {/* Workspace switcher: Chat, the Design studio, and Present (decks).
+          Each is a separate app sharing ChatView; conversations are scoped to
+          one workspace by their mode column, so the three histories stay apart. */}
       <div className="mx-3 mb-2 flex rounded-lg border border-line bg-bg p-0.5 text-sm">
-        <button
-          onClick={() => onWorkspaceChange("chat")}
-          className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 ${
-            workspace === "chat" ? "bg-surface font-medium shadow-sm" : "text-ink-muted hover:text-ink"
-          }`}
-        >
-          <Icon name="message" size={14} /> Chat
-        </button>
-        <button
-          onClick={() => onWorkspaceChange("design")}
-          className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 ${
-            workspace === "design" ? "bg-surface font-medium shadow-sm" : "text-ink-muted hover:text-ink"
-          }`}
-        >
-          <Icon name="pencil" size={14} /> Design
-        </button>
+        {WORKSPACES.map((w) => (
+          <button
+            key={w.id}
+            onClick={() => onWorkspaceChange(w.id)}
+            title={w.hint}
+            aria-pressed={workspace === w.id}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 ${
+              workspace === w.id
+                ? "bg-surface font-medium shadow-sm"
+                : "text-ink-muted hover:text-ink"
+            }`}
+          >
+            <Icon name={w.icon} size={14} /> {w.label}
+          </button>
+        ))}
       </div>
 
       <div className="px-3 pb-2">
@@ -321,7 +329,8 @@ export default function Sidebar({
           onClick={() => onSelect({ kind: "chat", conversationId: null })}
           className="flex w-full items-center gap-2 rounded-lg bg-accent px-3 py-2 text-left text-sm font-medium text-white hover:bg-accent-hover"
         >
-          <Icon name="plus" size={16} /> {workspace === "design" ? "New design" : "New chat"}
+          <Icon name="plus" size={16} />{" "}
+          {workspace === "design" ? "New design" : workspace === "present" ? "New deck" : "New chat"}
         </button>
       </div>
 

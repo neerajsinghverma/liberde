@@ -6,6 +6,17 @@ import { api } from "@/lib/client";
 import { toast } from "@/lib/ui";
 import ArtifactRenderer, { CodeView, CodeEditor } from "./ArtifactRenderer";
 import { buildSrcDoc } from "@/lib/artifact-srcdoc";
+import {
+  DECK_DENSITIES,
+  DECK_FORMATS,
+  DECK_SIZES,
+  DECK_THEMES,
+  DEFAULT_DECK_THEME,
+  findDeckTheme,
+  readDeckAttr,
+  swapDeckAttr,
+  type DeckFormat,
+} from "@/lib/deck-runtime";
 import Icon from "./Icon";
 import { checkConformance } from "@/lib/design-system";
 
@@ -39,6 +50,7 @@ const TYPE_ICONS: Record<string, string> = {
   markdown: "fileText",
   code: "code",
   slides: "presentation",
+  deck: "layers",
 };
 
 export function typeIcon(type: string | null) {
@@ -80,6 +92,13 @@ function openArtifactSandboxed(doc: string, autoPrint = false) {
   ifr.setAttribute("sandbox", "allow-scripts allow-forms allow-popups allow-modals");
   ifr.srcdoc = inner; // property assignment — no escaping needed
   w.document.body.appendChild(ifr);
+  // Hand the keyboard to the artifact. A deck opened to present is useless if
+  // the first arrow key goes to the empty shell document instead of the slides.
+  try {
+    ifr.focus();
+  } catch {
+    /* a browser that refuses is no worse than before */
+  }
 }
 
 export default function ArtifactPanel({
@@ -106,7 +125,8 @@ export default function ArtifactPanel({
     t === "svg" ||
     t === "mermaid" ||
     t === "markdown" ||
-    t === "slides";
+    t === "slides" ||
+    t === "deck";
 
   const [tab, setTab] = useState<"preview" | "code">("preview");
   const [shareOpen, setShareOpen] = useState(false);
@@ -205,7 +225,15 @@ export default function ArtifactPanel({
   // what it found and lets a person judge, rather than pretending to a verdict.
   const conformance = useMemo(() => {
     if (!designSystem || streaming) return null;
-    if (!(type === "html" || type === "react" || type === "svg" || type === "slides")) {
+    if (
+      !(
+        type === "html" ||
+        type === "react" ||
+        type === "svg" ||
+        type === "slides" ||
+        type === "deck"
+      )
+    ) {
       return null;
     }
     try {
@@ -215,10 +243,13 @@ export default function ArtifactPanel({
     }
   }, [designSystem, streaming, type, body]);
 
-  // While streaming, show raw code (a half-written page re-rendering constantly is noise);
-  // flip to preview when the artifact completes or a different artifact opens.
+  // While streaming, show raw code (a half-written page re-rendering constantly
+  // is noise) — except for decks, where watching the cards land one at a time is
+  // the point, the way it is in Gamma. A deck tolerates a truncated tail because
+  // the browser closes the unfinished section for us and the runtime simply sees
+  // one card fewer.
   useEffect(() => {
-    if (streaming) setTab("code");
+    if (streaming) setTab(type === "deck" ? "preview" : "code");
     else if (isRenderable(type)) setTab("preview");
     else setTab("code");
     setEditing(false);
@@ -235,13 +266,59 @@ export default function ArtifactPanel({
       ? versions.find((v) => v.version === shownVersion)?.content ?? body
       : body;
 
-  const canPreview = isRenderable(type) && !streaming;
+  // Deck styling is stored as attributes on the deck wrapper, so changing a
+  // theme is a text edit on the artifact rather than a model round-trip: the
+  // iframe previews it instantly and the committed version is one attribute
+  // different. That is what makes restyling free and immediate, the way it is
+  // in Gamma.
+  const deckAttr = (attr: string) => (type === "deck" ? readDeckAttr(shownBody, attr) : null);
+  const deckFormat = ((deckAttr("data-format") || "presentation") as DeckFormat);
+  const commitDeckAttr = async (attr: string, value: string) => {
+    if (!record) return;
+    const next = swapDeckAttr(shownBody, attr, value);
+    if (next === shownBody) return;
+    try {
+      await api(`/api/artifacts/${record.id}/versions`, {
+        method: "POST",
+        body: JSON.stringify({ content: next }),
+      });
+      onVersionSaved?.(record.id);
+    } catch (e) {
+      toast(`Could not save the deck style: ${e}`, "error");
+    }
+  };
+  // Sizes are format-specific (a webpage has no 4:3), so switching format has
+  // to carry the size with it or the deck ends up in a state its own picker
+  // cannot show.
+  const commitDeckFormat = async (fmt: string) => {
+    if (!record) return;
+    const sizes = DECK_SIZES[fmt as DeckFormat] ?? DECK_SIZES.presentation;
+    const keep = sizes.some((s) => s.id === deckAttr("data-size"));
+    const size = keep ? deckAttr("data-size")! : sizes[0].id;
+    const next = swapDeckAttr(swapDeckAttr(shownBody, "data-format", fmt), "data-size", size);
+    postToIframe({ __ld: "setAttr", attr: "data-size", value: size });
+    try {
+      await api(`/api/artifacts/${record.id}/versions`, {
+        method: "POST",
+        body: JSON.stringify({ content: next }),
+      });
+      onVersionSaved?.(record.id);
+    } catch (e) {
+      toast(`Could not save the deck format: ${e}`, "error");
+    }
+  };
+
+  const canPreview = isRenderable(type) && (!streaming || type === "deck");
   // "Visual" artifacts have a rendered canvas you can point at and restyle
   // (elements to click, CSS tokens to tweak) — so the design tools (Adjust,
   // Comment-to-edit) apply to them in ANY workspace, not just Design mode.
   // Markdown/mermaid/code render but have nothing to design-edit.
   const isVisual =
-    type === "html" || type === "react" || type === "svg" || type === "slides";
+    type === "html" ||
+    type === "react" ||
+    type === "svg" ||
+    type === "slides" ||
+    type === "deck";
   const lc = (language || "").toLowerCase();
   const canXlsx =
     !streaming && (lc === "csv" || lc === "tsv" || /(^|\n)\s*\|[^\n]*\|/.test(shownBody));
@@ -284,7 +361,7 @@ export default function ArtifactPanel({
   // the server holds the latest version and the iframe holds the live state.
   const notesSaveBusy = useRef(false);
   useEffect(() => {
-    if (type !== "slides") return;
+    if (type !== "slides" && type !== "deck") return;
     const onNotes = async (e: MessageEvent) => {
       const d = (e.data || {}) as { __ld?: string; content?: string };
       if (d.__ld !== "notesSaved" || typeof d.content !== "string") return;
@@ -555,6 +632,111 @@ export default function ArtifactPanel({
             </button>
           </>
         )}
+        {type === "deck" && !streaming && (
+          <>
+            <DeckAttrPicker
+              label="Theme"
+              icon="palette"
+              attr="data-theme"
+              value={deckAttr("data-theme") || DEFAULT_DECK_THEME}
+              options={DECK_THEMES.map((t) => ({ id: t.id, label: t.label, hint: t.mood }))}
+              onPreview={(v) => postToIframe({ __ld: "setAttr", attr: "data-theme", value: v })}
+              onCommit={(v) => commitDeckAttr("data-theme", v)}
+            />
+            <DeckAttrPicker
+              label="Format"
+              icon="layout"
+              attr="data-format"
+              value={deckFormat}
+              options={DECK_FORMATS.map((f) => ({ id: f, label: f[0].toUpperCase() + f.slice(1) }))}
+              onPreview={(v) => postToIframe({ __ld: "setAttr", attr: "data-format", value: v })}
+              onCommit={(v) => commitDeckFormat(v)}
+            />
+            <DeckAttrPicker
+              label="Size"
+              icon="maximize"
+              attr="data-size"
+              value={deckAttr("data-size") || "fluid"}
+              options={DECK_SIZES[deckFormat].map((s) => ({ id: s.id, label: s.label }))}
+              onPreview={(v) => postToIframe({ __ld: "setAttr", attr: "data-size", value: v })}
+              onCommit={(v) => commitDeckAttr("data-size", v)}
+            />
+            <DeckAttrPicker
+              label="Density"
+              icon="type"
+              attr="data-density"
+              value={deckAttr("data-density") || "medium"}
+              options={DECK_DENSITIES}
+              onPreview={(v) => postToIframe({ __ld: "setAttr", attr: "data-density", value: v })}
+              onCommit={(v) => commitDeckAttr("data-density", v)}
+            />
+            <button
+              title="Present full screen (arrow keys, S for spotlight, N for notes)"
+              onClick={() => {
+                const doc = buildSrcDoc("deck", shownBody, { view: "present" });
+                if (doc) openArtifactSandboxed(doc);
+              }}
+              className="rounded px-1.5 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink"
+            >
+              Present
+            </button>
+            <button
+              title="Presenter view: notes, timer and the next card, in a second window you keep on your own screen"
+              onClick={() => {
+                const doc = buildSrcDoc("deck", shownBody, { view: "presenter" });
+                if (doc) openArtifactSandboxed(doc);
+              }}
+              className="rounded px-1.5 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink"
+            >
+              Notes view
+            </button>
+            <button
+              title="Export as PDF (opens the deck and prints — choose 'Save as PDF')"
+              onClick={() => {
+                const doc = buildSrcDoc("deck", shownBody);
+                if (doc) openArtifactSandboxed(doc, true);
+              }}
+              className="rounded px-1.5 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink"
+            >
+              PDF
+            </button>
+            <button
+              title="Export as PowerPoint (.pptx) with this deck's theme colours"
+              disabled={exporting}
+              onClick={async () => {
+                setExporting(true);
+                try {
+                  await exportDeckToPptx(shownBody, record?.identifier ?? "deck");
+                } catch (e) {
+                  toast(`PPTX export failed: ${e}`, "error");
+                } finally {
+                  setExporting(false);
+                }
+              }}
+              className="rounded px-1.5 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink disabled:opacity-50"
+            >
+              {exporting ? "…" : "PPTX"}
+            </button>
+            {record?.share_id && <DeckAnalyticsChip artifactId={record.id} />}
+            <button
+              title="Export every card as a PNG (a .zip)"
+              disabled={exporting}
+              onClick={async () => {
+                setExporting(true);
+                try {
+                  await exportDeckToPngZip(shownBody, record?.identifier ?? "deck");
+                } catch (e) {
+                  toast(`PNG export failed: ${e}`, "error");
+                } finally {
+                  setExporting(false);
+                }
+              }}
+              className="rounded px-1.5 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink disabled:opacity-50"
+            >
+              {exporting ? "…" : "PNG"}
+            </button>
+          </>
+        )}
         {canXlsx && (
           <button
             title="Export table to Excel (.xlsx)"
@@ -595,7 +777,11 @@ export default function ArtifactPanel({
         )}
         {canPreview && type !== "markdown" && (
           <button
-            title={type === "slides" ? "Present full screen (print for PDF)" : "Open full screen"}
+            title={
+              type === "slides" || type === "deck"
+                ? "Present full screen (print for PDF)"
+                : "Open full screen"
+            }
             onClick={() => {
               const doc = buildSrcDoc(type!, shownBody);
               if (doc) openArtifactSandboxed(doc);
@@ -622,10 +808,14 @@ export default function ArtifactPanel({
           title="Download"
           onClick={() => {
             const ext =
-              type === "react" ? "tsx" : type === "markdown" ? "md" : type === "mermaid" ? "mmd" : type === "svg" ? "svg" : type === "html" || type === "slides" ? "html" : language || "txt";
-            // Slides download as a self-contained playable deck, not raw sections.
+              type === "react" ? "tsx" : type === "markdown" ? "md" : type === "mermaid" ? "mmd" : type === "svg" ? "svg" : type === "html" || type === "slides" || type === "deck" ? "html" : language || "txt";
+            // Decks and slides download as a self-contained playable document,
+            // not raw sections: the runtime travels with the file so it still
+            // presents, prints and switches themes offline.
             const data =
-              type === "slides" ? (buildSrcDoc("slides", shownBody) ?? shownBody) : shownBody;
+              type === "slides" || type === "deck"
+                ? (buildSrcDoc(type, shownBody) ?? shownBody)
+                : shownBody;
             const blob = new Blob([data], { type: "text/plain" });
             const a = document.createElement("a");
             a.href = URL.createObjectURL(blob);
@@ -664,23 +854,28 @@ export default function ArtifactPanel({
       )}
 
       {/* Per-slide editing: jump straight to a scoped, surgical edit of one slide. */}
-      {type === "slides" && record && !streaming && !editing && (() => {
-        const count = (shownBody.match(/<section/gi) || []).length;
+      {(type === "slides" || type === "deck") && record && !streaming && !editing && (() => {
+        const unit = type === "deck" ? "card" : "slide";
+        const count =
+          type === "deck"
+            ? (shownBody.match(/<section[^>]*\bclass="[^"]*\bcard\b/gi) || []).length ||
+              (shownBody.match(/<section/gi) || []).length
+            : (shownBody.match(/<section/gi) || []).length;
         if (count < 1) return null;
+        const prefill = (detail: string) =>
+          window.dispatchEvent(new CustomEvent("liberde-prefill", { detail }));
         return (
           <div className="flex flex-wrap items-center gap-1.5 border-b border-line bg-surface-2/50 px-3 py-1.5">
             <span className="mr-1 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
-              Edit slide
+              Edit {unit}
             </span>
             {Array.from({ length: count }, (_, i) => (
               <button
                 key={i}
-                title={`Edit slide ${i + 1} (keeps the rest of the deck intact)`}
+                title={`Edit ${unit} ${i + 1} (keeps the rest of the deck intact)`}
                 onClick={() =>
-                  window.dispatchEvent(
-                    new CustomEvent("liberde-prefill", {
-                      detail: `In the "${title}" deck (identifier "${record.identifier}"), change ONLY slide ${i + 1} and leave every other slide exactly as-is: `,
-                    })
+                  prefill(
+                    `In the "${title}" deck (identifier "${record.identifier}"), change ONLY ${unit} ${i + 1} and leave every other ${unit} exactly as-is: `
                   )
                 }
                 className="min-w-[26px] rounded-md border border-line bg-surface px-2 py-0.5 text-xs text-ink-muted hover:border-accent hover:text-ink"
@@ -688,6 +883,27 @@ export default function ArtifactPanel({
                 {i + 1}
               </button>
             ))}
+            {type === "deck" && (
+              // Gamma's per-card sparkle menu, as one-line instructions. Each is
+              // scoped to a single card so the model edits surgically instead of
+              // regenerating a deck the user is happy with.
+              <span className="ml-1 flex flex-wrap gap-1">
+                {DECK_CARD_ACTIONS.map((a) => (
+                  <button
+                    key={a.label}
+                    title={a.title}
+                    onClick={() =>
+                      prefill(
+                        `In the "${title}" deck (identifier "${record.identifier}"), ${a.instruction} Change only that card. Card number: `
+                      )
+                    }
+                    className="rounded-md border border-line bg-surface px-2 py-0.5 text-xs text-ink-muted hover:border-accent hover:text-ink"
+                  >
+                    {a.label}
+                  </button>
+                ))}
+              </span>
+            )}
           </div>
         );
       })()}
@@ -930,6 +1146,47 @@ export default function ArtifactPanel({
   );
 }
 
+/** Gamma-style per-card AI actions, shown beside the card-number buttons. */
+const DECK_CARD_ACTIONS: { label: string; title: string; instruction: string }[] = [
+  {
+    label: "New layout",
+    title: "Let the model pick a layout that suits the content better",
+    instruction:
+      "switch one card to a different data-layout that suits its content better, keeping the text.",
+  },
+  {
+    label: "Shorten",
+    title: "Cut the words on one card",
+    instruction: "cut the text on one card to the essentials — heading under 8 words, bullets under 12.",
+  },
+  {
+    label: "Expand",
+    title: "Add substance to one card",
+    instruction: "add substance to one card: a concrete number, an example or one more point.",
+  },
+  {
+    label: "Visualise",
+    title: "Turn one card into a chart, stats or smart layout",
+    instruction:
+      "turn one card into a chart, a stats row or a smart layout (timeline, process, pyramid, funnel or cycle).",
+  },
+  {
+    label: "Add image",
+    title: "Give one card artwork",
+    instruction: "give one card artwork and switch it to an image layout.",
+  },
+  {
+    label: "Duplicate",
+    title: "Copy one card and adapt it",
+    instruction: "duplicate one card directly after itself and adapt the copy so it is not a repeat.",
+  },
+  {
+    label: "Delete",
+    title: "Remove one card",
+    instruction: "delete one card entirely.",
+  },
+];
+
 const CANVAS_ACTIONS: Record<string, { label: string; instruction: string }[]> = {
   markdown: [
     { label: "Shorter", instruction: "make it more concise without losing key points" },
@@ -953,6 +1210,12 @@ const CANVAS_ACTIONS: Record<string, { label: string; instruction: string }[]> =
     { label: "Improve design", instruction: "improve the visual design and polish" },
     { label: "Make responsive", instruction: "make the layout fully responsive on mobile" },
     { label: "Add motion", instruction: "add tasteful animations and transitions" },
+  ],
+  deck: [
+    { label: "Change theme", instruction: "pick a built-in theme that fits this deck better and apply it by changing only data-theme on the deck wrapper" },
+    { label: "Tighten copy", instruction: "tighten the copy across every card — fewer words, shorter headings" },
+    { label: "More visual", instruction: "convert the text-heaviest cards to image, stats or smart layouts" },
+    { label: "Add summary", instruction: "add an executive-summary card straight after the title card" },
   ],
   slides: [
     { label: "Improve design", instruction: "improve the visual design of the deck" },
@@ -1079,6 +1342,533 @@ function CanvasBar({
       ))}
     </div>
   );
+}
+
+/**
+ * One deck-wrapper attribute, as a compact labelled dropdown. Hovering an
+ * option previews it live in the iframe; choosing one commits a new version.
+ * The preview is why this is a listbox we draw rather than a <select>: seeing
+ * the theme before you keep it is most of the value.
+ */
+function DeckAttrPicker({
+  label,
+  icon,
+  value,
+  options,
+  onPreview,
+  onCommit,
+}: {
+  label: string;
+  icon: string;
+  attr: string;
+  value: string;
+  options: { id: string; label: string; hint?: string }[];
+  onPreview: (v: string) => void;
+  onCommit: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const committed = useRef(value);
+  useEffect(() => {
+    committed.current = value;
+  }, [value]);
+  const close = (restore: boolean) => {
+    if (restore) onPreview(committed.current);
+    setOpen(false);
+  };
+  const current = options.find((o) => o.id === value);
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        // Spelled out rather than "Theme: Aurora", which reads as the app's own
+        // light/dark control and is the same words as the sidebar button.
+        title={`Change the deck's ${label.toLowerCase()} — currently ${current?.label ?? value}`}
+        aria-label={`Deck ${label.toLowerCase()}`}
+        className="flex items-center gap-1 rounded px-1.5 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink"
+      >
+        <Icon name={icon} size={13} />
+        <span className="hidden xl:inline">{current?.label ?? value}</span>
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-20" onClick={() => close(true)} />
+          <div
+            className="absolute right-0 z-30 mt-1 max-h-72 w-56 overflow-y-auto rounded-lg border border-line bg-surface p-1 shadow-lg"
+            onMouseLeave={() => onPreview(committed.current)}
+          >
+            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-ink-muted">
+              {label}
+            </div>
+            {options.map((o) => (
+              <button
+                key={o.id}
+                onMouseEnter={() => onPreview(o.id)}
+                onFocus={() => onPreview(o.id)}
+                onClick={() => {
+                  committed.current = o.id;
+                  onCommit(o.id);
+                  setOpen(false);
+                }}
+                className={`flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs ${
+                  o.id === value ? "bg-accent/10 text-accent" : "hover:bg-surface-2"
+                }`}
+              >
+                <ThemeSwatch id={o.id} />
+                <span className="min-w-0">
+                  <span className="block font-medium">{o.label}</span>
+                  {o.hint && <span className="block truncate text-ink-muted">{o.hint}</span>}
+                </span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Attention on a published deck. Only appears once the deck has a share link,
+ * because before that there is nothing to measure. The per-card bars are the
+ * useful part: they say where people stopped reading, which is the one thing a
+ * view count cannot tell you.
+ */
+function DeckAnalyticsChip({ artifactId }: { artifactId: string }) {
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState<{
+    views: number;
+    totalMs: number;
+    cards: { card: number; views: number; ms: number }[];
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setError(null);
+    api<typeof data>(`/api/artifacts/${artifactId}/views`)
+      .then(setData)
+      .catch((e) => setError(String(e)));
+  }, [open, artifactId]);
+
+  const secs = (ms: number) =>
+    ms >= 60_000 ? `${Math.round(ms / 60_000)}m` : `${Math.max(1, Math.round(ms / 1000))}s`;
+  const peak = Math.max(1, ...(data?.cards.map((c) => c.ms) ?? [1]));
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title="Who opened the published link, and which cards held them"
+        className="flex items-center gap-1 rounded px-1.5 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink"
+      >
+        <Icon name="barChart" size={13} />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 z-30 mt-1 w-64 rounded-lg border border-line bg-surface p-3 shadow-lg">
+            <div className="mb-2 text-[10px] uppercase tracking-wide text-ink-muted">
+              Published deck
+            </div>
+            {error && <p className="text-xs text-ink-muted">Could not load views.</p>}
+            {!error && !data && <p className="text-xs text-ink-muted">Loading…</p>}
+            {data && data.views === 0 && (
+              <p className="text-xs text-ink-muted">
+                No one has opened the link yet. Card-by-card attention shows up here once
+                they do.
+              </p>
+            )}
+            {data && data.views > 0 && (
+              <>
+                <div className="mb-2 flex gap-4 text-sm">
+                  <span>
+                    <b>{data.views}</b>{" "}
+                    <span className="text-ink-muted">{data.views === 1 ? "viewer" : "viewers"}</span>
+                  </span>
+                  <span>
+                    <b>{secs(data.totalMs)}</b> <span className="text-ink-muted">total</span>
+                  </span>
+                </div>
+                <div className="max-h-52 space-y-1 overflow-y-auto">
+                  {data.cards.map((c) => (
+                    <div key={c.card} className="flex items-center gap-2 text-[11px]">
+                      <span className="w-5 shrink-0 text-right tabular-nums text-ink-muted">
+                        {c.card + 1}
+                      </span>
+                      <span className="h-2 flex-1 overflow-hidden rounded-full bg-surface-2">
+                        <span
+                          className="block h-full rounded-full bg-accent"
+                          style={{ width: `${Math.round((c.ms / peak) * 100)}%` }}
+                        />
+                      </span>
+                      <span className="w-8 shrink-0 tabular-nums text-ink-muted">
+                        {secs(c.ms)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Two-tone chip so a theme is recognisable before you preview it. */
+function ThemeSwatch({ id }: { id: string }) {
+  const theme = DECK_THEMES.find((t) => t.id === id);
+  if (!theme) return null;
+  return (
+    <span
+      aria-hidden
+      className="mt-0.5 h-4 w-4 shrink-0 rounded border border-line"
+      style={{
+        background: `linear-gradient(135deg, ${theme.tokens.accent} 0 50%, ${theme.tokens.accent2} 50% 100%)`,
+      }}
+    />
+  );
+}
+
+type PptxSlide = {
+  addText: (text: unknown, opts: Record<string, unknown>) => void;
+  addNotes: (text: string) => void;
+  addImage: (opts: Record<string, unknown>) => void;
+  addTable: (rows: unknown, opts: Record<string, unknown>) => void;
+  addShape: (shape: unknown, opts: Record<string, unknown>) => void;
+  addChart: (type: unknown, data: unknown, opts: Record<string, unknown>) => void;
+  background?: { color: string };
+};
+type PptxDeck = {
+  addSlide: () => PptxSlide;
+  writeFile: (opts: { fileName: string }) => Promise<void>;
+  layout: string;
+  defineLayout: (opts: { name: string; width: number; height: number }) => void;
+  ChartType: Record<string, unknown>;
+  ShapeType: Record<string, unknown>;
+};
+
+/**
+ * Fetch an image and inline it as a data URI. This has to happen in the host
+ * page, not the preview iframe: the iframe runs at an opaque origin (no
+ * allow-same-origin), so it cannot read even our own /img/<id> assets.
+ * Cross-origin images without CORS simply fail here, and the caller falls back
+ * to an on-theme block rather than a broken slide.
+ */
+async function imageToDataUri(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { mode: "cors" });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return await new Promise((resolve) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result));
+      fr.onerror = () => resolve(null);
+      fr.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
+const PPTX_W = 13.333;
+const PPTX_H = 7.5;
+
+/**
+ * Deck -> PowerPoint, laid out per card layout rather than dumped as bullets.
+ * Gamma's weakest link is this export; ours reads the same layout names the
+ * runtime does, so a stats card becomes a row of big numbers and a chart card
+ * becomes a native PowerPoint chart you can still edit.
+ */
+async function exportDeckToPptx(deckHtml: string, filename: string) {
+  const mod = await importExternal("https://esm.sh/pptxgenjs@3.12.0");
+  const PptxGenJS = (mod.default ?? mod) as new () => PptxDeck;
+  const doc = new DOMParser().parseFromString(deckHtml, "text/html");
+  const wrapper = doc.querySelector(".deck");
+  const theme = findDeckTheme(wrapper?.getAttribute("data-theme") ?? DEFAULT_DECK_THEME);
+  const cards = Array.from(doc.querySelectorAll("section.card, .card")).filter(
+    (c) => !c.hasAttribute("data-nested")
+  );
+  const sections = cards.length ? cards : Array.from(doc.body.children);
+
+  const pptx = new PptxGenJS();
+  pptx.defineLayout({ name: "LD_WIDE", width: PPTX_W, height: PPTX_H });
+  pptx.layout = "LD_WIDE";
+
+  const headFace = theme.fonts.heading.split(",")[0];
+  const bodyFace = theme.fonts.body.split(",")[0];
+  const ink = theme.pptx.ink;
+  const accent = theme.pptx.accent;
+  const text = (el: Element | null) => (el?.textContent || "").trim();
+  const notIn = (el: Element) => !el.closest("aside.notes, .notes");
+
+  for (const section of sections) {
+    if (section.tagName === "STYLE" || section.tagName === "SCRIPT") continue;
+    const layout = section.getAttribute("data-layout") || "text";
+    const slide = pptx.addSlide();
+    slide.background = { color: theme.pptx.surface };
+
+    const notes = section.querySelector("aside.notes, .notes");
+    if (notes && text(notes)) {
+      try {
+        slide.addNotes(text(notes));
+      } catch {
+        /* older pptxgenjs — skip notes rather than fail the export */
+      }
+    }
+
+    const heading = section.querySelector("h1, h2");
+    const kicker = section.querySelector(".kicker");
+    const lede = section.querySelector(".lede");
+    const figures = Array.from(section.querySelectorAll("figure")).filter(notIn);
+    const big = layout === "title" || layout === "closing" || layout === "section";
+
+    // Picture-first layouts get the image placed, then the text beside it.
+    let textX = 0.7;
+    let textW = PPTX_W - 1.4;
+    const imgSide = layout === "image-right" || layout === "image-left";
+    if (imgSide || layout === "image-bg" || layout === "studio" || layout === "image-top") {
+      const fig = figures[0];
+      const src = fig?.querySelector("img")?.getAttribute("src");
+      const data = src ? await imageToDataUri(src) : null;
+      const box =
+        layout === "image-bg" || layout === "studio"
+          ? { x: 0, y: 0, w: PPTX_W, h: PPTX_H }
+          : layout === "image-top"
+            ? { x: 0, y: 0, w: PPTX_W, h: 3.1 }
+            : layout === "image-right"
+              ? { x: PPTX_W / 2, y: 0, w: PPTX_W / 2, h: PPTX_H }
+              : { x: 0, y: 0, w: PPTX_W / 2, h: PPTX_H };
+      if (data) {
+        slide.addImage({ data, ...box, sizing: { type: "cover", w: box.w, h: box.h } });
+      } else {
+        slide.addShape(pptx.ShapeType.rect, { ...box, fill: { color: accent, transparency: 80 } });
+      }
+      if (layout === "image-right") {
+        textX = 0.7;
+        textW = PPTX_W / 2 - 1.2;
+      } else if (layout === "image-left") {
+        textX = PPTX_W / 2 + 0.5;
+        textW = PPTX_W / 2 - 1.2;
+      }
+    }
+    if (layout === "studio") continue; // the image is the whole card
+
+    const dark = layout === "image-bg" || theme.dark;
+    const fg = dark && layout === "image-bg" ? "FFFFFF" : ink;
+    let y = big ? 2.4 : 0.6;
+
+    if (kicker && text(kicker)) {
+      slide.addText(text(kicker).toUpperCase(), {
+        x: textX, y: y, w: textW, h: 0.35,
+        fontSize: 12, bold: true, charSpacing: 2,
+        color: layout === "image-bg" ? "FFFFFF" : accent, fontFace: headFace,
+      });
+      y += 0.45;
+    }
+    if (heading && text(heading)) {
+      const size = big ? 40 : 28;
+      slide.addText(text(heading), {
+        x: textX, y, w: textW, h: big ? 1.5 : 1.0,
+        fontSize: size, bold: true, color: fg, fontFace: headFace,
+        align: big ? "center" : "left",
+      });
+      y += big ? 1.6 : 1.1;
+    }
+    if (lede && text(lede)) {
+      slide.addText(text(lede), {
+        x: textX, y, w: textW, h: 0.8, fontSize: big ? 18 : 15,
+        color: fg, fontFace: bodyFace, align: big ? "center" : "left",
+      });
+      y += 0.95;
+    }
+
+    if (layout === "stats") {
+      const stats = Array.from(section.querySelectorAll(".stat")).filter(notIn);
+      const w = stats.length ? (PPTX_W - 1.4) / stats.length : PPTX_W;
+      stats.forEach((st, idx) => {
+        slide.addText(text(st.querySelector("b")), {
+          x: 0.7 + w * idx, y: y + 0.3, w, h: 1.3,
+          fontSize: 44, bold: true, color: accent, fontFace: headFace,
+        });
+        slide.addText(text(st.querySelector("span")), {
+          x: 0.7 + w * idx, y: y + 1.6, w, h: 0.7,
+          fontSize: 13, color: ink, fontFace: bodyFace,
+        });
+      });
+      continue;
+    }
+
+    if (layout === "quote") {
+      const q = section.querySelector("blockquote p");
+      const cite = section.querySelector("cite");
+      slide.addText(text(q), {
+        x: 1.4, y: 2.2, w: PPTX_W - 2.8, h: 2.4,
+        fontSize: 28, italic: true, color: ink, fontFace: headFace, align: "center",
+      });
+      slide.addText(text(cite), {
+        x: 1.4, y: 4.8, w: PPTX_W - 2.8, h: 0.5,
+        fontSize: 13, color: accent, fontFace: bodyFace, align: "center",
+      });
+      continue;
+    }
+
+    const chartTable = section.querySelector("table[data-chart]");
+    if (chartTable) {
+      const kind = (chartTable.getAttribute("data-chart") || "bar").toLowerCase();
+      const heads = Array.from(chartTable.querySelectorAll("thead th")).map((th) => text(th));
+      const rows = Array.from(chartTable.querySelectorAll("tbody tr"));
+      const labels = rows.map((r) => text(r.children[0]));
+      const seriesCount = Math.max(1, heads.length - 1);
+      const data = [];
+      for (let s = 0; s < seriesCount; s++) {
+        data.push({
+          name: heads[s + 1] || `Series ${s + 1}`,
+          labels,
+          values: rows.map((r) => {
+            const cell = r.children[s + 1];
+            return Number((text(cell) || "0").replace(/[^0-9.-]/g, "")) || 0;
+          }),
+        });
+      }
+      const map: Record<string, string> = {
+        bar: "bar", column: "bar", stacked: "bar", hbar: "bar",
+        line: "line", area: "area", pie: "pie", donut: "doughnut",
+        scatter: "scatter", radar: "radar", gauge: "doughnut", waterfall: "bar",
+      };
+      try {
+        slide.addChart(pptx.ChartType[map[kind] || "bar"], data, {
+          x: 0.8, y: y + 0.2, w: PPTX_W - 1.6, h: PPTX_H - y - 0.8,
+          showLegend: seriesCount > 1, legendPos: "b",
+          chartColors: [accent, theme.pptx.ink],
+          barDir: kind === "hbar" ? "bar" : "col",
+          barGrouping: kind === "stacked" ? "stacked" : "clustered",
+        });
+      } catch {
+        /* chart unsupported by this pptxgenjs build — fall through to the table */
+      }
+      continue;
+    }
+
+    const table = Array.from(section.querySelectorAll("table")).filter(notIn)[0];
+    if (table) {
+      const rows = Array.from(table.querySelectorAll("tr")).map((tr) =>
+        Array.from(tr.children).map((td) => ({
+          text: text(td),
+          options: {
+            bold: td.tagName === "TH",
+            color: td.tagName === "TH" ? accent : ink,
+            fontFace: bodyFace,
+          },
+        }))
+      );
+      slide.addTable(rows, {
+        x: 0.7, y: y + 0.2, w: PPTX_W - 1.4,
+        fontSize: 12, border: { type: "solid", pt: 0.5, color: "DDDDDD" },
+      });
+      continue;
+    }
+
+    const cols = Array.from(section.querySelectorAll(".col")).filter(notIn);
+    const steps = Array.from(section.querySelectorAll(".steps > li")).filter(notIn);
+    const units = cols.length ? cols : steps;
+    if (units.length) {
+      const w = (PPTX_W - 1.4) / units.length;
+      units.forEach((u, idx) => {
+        const t = text(u.querySelector("h3, b")) || text(u).slice(0, 40);
+        const d = text(u.querySelector("p, span"));
+        if (steps.length) {
+          slide.addShape(pptx.ShapeType.ellipse, {
+            x: 0.7 + w * idx, y: y + 0.2, w: 0.5, h: 0.5,
+            fill: { color: accent },
+          });
+          slide.addText(String(idx + 1), {
+            x: 0.7 + w * idx, y: y + 0.2, w: 0.5, h: 0.5,
+            fontSize: 14, bold: true, color: "FFFFFF", align: "center", valign: "middle",
+          });
+        }
+        slide.addText(t, {
+          x: 0.7 + w * idx, y: y + (steps.length ? 0.85 : 0.2), w: w - 0.25, h: 0.6,
+          fontSize: 16, bold: true, color: ink, fontFace: headFace,
+        });
+        slide.addText(d, {
+          x: 0.7 + w * idx, y: y + (steps.length ? 1.45 : 0.8), w: w - 0.25, h: 2,
+          fontSize: 12, color: ink, fontFace: bodyFace,
+        });
+      });
+      continue;
+    }
+
+    const bullets = Array.from(section.querySelectorAll("li"))
+      .filter(notIn)
+      .map((li) => text(li))
+      .filter(Boolean);
+    const paras = Array.from(section.querySelectorAll("p"))
+      .filter(notIn)
+      .filter((p) => !p.classList.contains("kicker") && !p.classList.contains("lede"))
+      .map((p) => text(p))
+      .filter(Boolean);
+    const bodyRuns = [
+      ...paras.map((t) => ({ text: t, options: { bullet: false, breakLine: true } })),
+      ...bullets.map((t) => ({ text: t, options: { bullet: true, breakLine: true } })),
+    ];
+    if (bodyRuns.length) {
+      slide.addText(bodyRuns, {
+        x: textX, y: y + 0.1, w: textW, h: PPTX_H - y - 0.7,
+        fontSize: 15, color: fg, fontFace: bodyFace,
+      });
+    }
+  }
+
+  await pptx.writeFile({ fileName: `${filename.replace(/[^\w-]/g, "") || "deck"}.pptx` });
+}
+
+/**
+ * Every card as a PNG, zipped. Rendering happens in a hidden same-origin iframe
+ * (the deck markup here is the one we just built, and html-to-image needs to
+ * read computed styles), then each card is captured at 2x.
+ */
+async function exportDeckToPngZip(deckHtml: string, filename: string) {
+  const [h2i, fflate] = await Promise.all([
+    importExternal("https://esm.sh/html-to-image@1.11.11"),
+    importExternal("https://esm.sh/fflate@0.8.2"),
+  ]);
+  const toPng = (h2i as unknown as { toPng: (n: HTMLElement, o?: object) => Promise<string> })
+    .toPng;
+  const zipSync = (
+    fflate as unknown as { zipSync: (f: Record<string, Uint8Array>) => Uint8Array }
+  ).zipSync;
+
+  const host = document.createElement("iframe");
+  host.style.cssText = "position:fixed;left:-99999px;top:0;width:1280px;height:900px;border:0";
+  document.body.appendChild(host);
+  try {
+    const idoc = host.contentDocument!;
+    idoc.open();
+    idoc.write(buildSrcDoc("deck", deckHtml) ?? deckHtml);
+    idoc.close();
+    await new Promise((r) => setTimeout(r, 1200)); // fonts + runtime
+    const cards = Array.from(idoc.querySelectorAll(".deck > .card")) as HTMLElement[];
+    const files: Record<string, Uint8Array> = {};
+    for (let i = 0; i < cards.length; i++) {
+      const url = await toPng(cards[i], { pixelRatio: 2, cacheBust: true });
+      const bin = atob(url.split(",")[1]);
+      const bytes = new Uint8Array(bin.length);
+      for (let b = 0; b < bin.length; b++) bytes[b] = bin.charCodeAt(b);
+      files[`card-${String(i + 1).padStart(2, "0")}.png`] = bytes;
+    }
+    if (!Object.keys(files).length) throw new Error("no cards found");
+    const zipped = zipSync(files);
+    const blob = new Blob([zipped as BlobPart], { type: "application/zip" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${filename.replace(/[^\w-]/g, "") || "deck"}-cards.zip`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  } finally {
+    host.remove();
+  }
 }
 
 /** Best-effort .pptx export: extracts headings/bullets/paragraphs per slide via pptxgenjs. */

@@ -9,7 +9,8 @@ export type ArtifactType =
   | "mermaid"
   | "markdown"
   | "code"
-  | "slides";
+  | "slides"
+  | "deck";
 
 export const ARTIFACT_TYPES: ArtifactType[] = [
   "html",
@@ -19,6 +20,7 @@ export const ARTIFACT_TYPES: ArtifactType[] = [
   "markdown",
   "code",
   "slides",
+  "deck",
 ];
 
 export interface ArtifactRecord {
@@ -240,6 +242,7 @@ Types:
 - "html" — a complete standalone HTML page (inline CSS/JS; may load libraries from CDNs like cdnjs/jsdelivr/unpkg)
 - "react" — a single React component. Must have a default export. May import from "react", "lucide-react", "recharts". Style with Tailwind utility classes (no arbitrary values). No required props.
 - "slides" — a presentation. Emit one <section class="slide">…</section> per slide plus ONE <style> block for your design (typography, colors, layout — make it beautiful and consistent, like a keynote). Do NOT write navigation code, position slides, or hide/show them — the interface adds navigation, a counter, and PDF export automatically. Each slide is presented on a FIXED 1920×1080 (16:9) canvas that scales to fit the screen: design in absolute pixels for that canvas (e.g. 64-96px headings, 28-36px body) and make content fit it — overflow is clipped, never scrolled. Optionally end each section with speaker notes as <aside class="notes">1–3 sentences of what the presenter should say</aside> — hidden on the slide, shown in the player's notes panel, exported as PowerPoint presenter notes.
+- "deck" — a card-based presentation, document, webpage or social post in Liberde deck markup. ONLY use this when a Present-mode directive is active (it defines the markup and the themes); otherwise use "slides".
 - "svg" — an SVG image (the <svg> element itself)
 - "mermaid" — a Mermaid diagram definition
 - "markdown" — a formatted document

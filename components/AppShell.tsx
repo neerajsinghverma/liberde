@@ -16,6 +16,10 @@ import CommandPalette from "./CommandPalette";
 import UiHost from "./UiHost";
 import Icon from "./Icon";
 
+/** The three studios in the sidebar switcher. Persisted per conversation as
+ *  conversations.mode, so reopening a link lands you back in the right one. */
+export type Workspace = "chat" | "design" | "present";
+
 export type View =
   | { kind: "chat"; conversationId: string | null }
   | { kind: "project"; projectId: string }
@@ -56,7 +60,7 @@ export default function AppShell({ initialView }: { initialView: View }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [booted, setBooted] = useState(false);
-  const [workspace, setWorkspace] = useState<"chat" | "design">("chat");
+  const [workspace, setWorkspace] = useState<Workspace>("chat");
   // Once the user picks a workspace, the async mount-time mode sync (which
   // reads the opened conversation's mode) must not stomp their choice.
   const workspacePicked = useRef(false);
@@ -151,8 +155,12 @@ export default function AppShell({ initialView }: { initialView: View }) {
     let cancelled = false;
     api<Conversation>(`/api/conversations/${initialView.conversationId}`)
       .then((c) => {
-        if (!cancelled && !workspacePicked.current && c?.mode === "design") {
-          setWorkspace("design");
+        if (
+          !cancelled &&
+          !workspacePicked.current &&
+          (c?.mode === "design" || c?.mode === "present")
+        ) {
+          setWorkspace(c.mode as Workspace);
         }
       })
       .catch(() => {});

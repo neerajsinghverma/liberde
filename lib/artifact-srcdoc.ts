@@ -2,6 +2,7 @@
 // server and tests can use them too.
 
 import type { ArtifactType } from "./artifact-shared";
+import { buildDeckSrcDoc, type DeckDocOptions } from "./deck-srcdoc";
 
 export const escapeHtml = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -325,7 +326,11 @@ export const DESIGN_BRIDGE = `
 })();
 </script>`;
 
-export function buildSrcDoc(type: ArtifactType, content: string): string | null {
+export function buildSrcDoc(
+  type: ArtifactType,
+  content: string,
+  opts?: DeckDocOptions
+): string | null {
   let doc: string | null;
   switch (type) {
     case "html":
@@ -339,6 +344,9 @@ export function buildSrcDoc(type: ArtifactType, content: string): string | null 
       break;
     case "mermaid":
       doc = buildMermaidSrcDoc(content);
+      break;
+    case "deck":
+      doc = buildDeckSrcDoc(content, opts);
       break;
     case "slides":
       doc = buildSlidesSrcDoc(content);

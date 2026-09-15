@@ -82,7 +82,7 @@ const DOCS: Doc[] = [
     id: "design",
     icon: "pencil",
     title: "Design studio",
-    blurb: "A separate workspace for interactive prototypes, decks, and apps — switch to it with the Chat/Design toggle at the top of the sidebar.",
+    blurb: "A separate workspace for interactive prototypes, decks, and apps — switch to it with the Chat/Design/Present toggle at the top of the sidebar.",
     points: [
       { h: "Start from a template", d: "Pitch deck, dashboard, SaaS landing, mobile flow, explainer deck, roadmap — or just describe what you want." },
       { h: "It interviews you first", d: "On a new design it asks a quick round of questions (purpose, style, palette, scope) as clickable options, then builds." },
@@ -96,6 +96,27 @@ const DOCS: Doc[] = [
       { h: "Export", d: "Decks export to PDF and PowerPoint (.pptx); any design downloads as a self-contained file." },
       { h: "Full power", d: "Design reuses the whole chat engine, so model choice/switching, web, and attachments all work here too." },
       { h: "Brand check", d: "When a design is locked to a system, the artifact panel reports where it drifted: colours outside the palette, fonts the system never named, and emoji used where an icon belongs. It reports rather than blocks — the check reads the source, so a colour inside a gradient can show up legitimately." },
+    ],
+  },
+  {
+    id: "present",
+    icon: "presentation",
+    title: "Present studio",
+    blurb:
+      "Prompt to finished deck in one pass — presentations, documents, websites and social posts. The third tab in the sidebar switcher.",
+    points: [
+      { h: "Three ways in", d: "Generate from a prompt, Paste in text (your notes, kept or rewritten), or Import a file — a PDF, Word doc, or existing deck becomes cards." },
+      { h: "You edit the outline first", d: "It drafts a card-by-card outline before building anything. Rename cards, drag to reorder, change a layout, add or drop one, pick a theme, then press Generate. A wrong assumption costs a click instead of a whole deck." },
+      { h: "Set it up before you start", d: "Format, card shape, how many cards, how much text per card, where pictures come from — the chips beside the model picker." },
+      { h: "Cards, not slides", d: "Cards grow to fit their content and reflow on a phone. Lock them to 16:9 or 4:3 for a projector, letter or A4 for print, or 1:1 / 4:5 / 9:16 for social." },
+      { h: "You never see raw design", d: "The model writes the words and picks a layout from a fixed catalogue; a built-in engine does the typography, colour, spacing and diagrams. That is why decks look consistent whichever model you use." },
+      { h: "Thirty layouts", d: "Title, stats, quotes, columns, galleries, tables, charts, and smart diagrams — timeline, process, pyramid, funnel, cycle, staircase, bullseye, quadrant, Venn, versus, iceberg." },
+      { h: "Twelve themes, swapped instantly", d: "Change theme, size, density or format from the artifact panel and the whole deck restyles at once. No regeneration, no cost, content untouched." },
+      { h: "Charts without a library", d: "Write a table, mark it as a chart, and it is drawn as SVG in your theme's colours — so it still works offline, in print, and in the downloaded file." },
+      { h: "Present properly", d: "Full screen with a progress bar. Arrows move, up/down scroll a long card, S spotlights one block at a time and blurs the rest, E edits in place, N opens notes, Esc leaves." },
+      { h: "Notes view", d: "A second window with your speaker notes, a timer and the next card, while the audience sees only the deck." },
+      { h: "Talk to change it", d: "“Make it dark”, “shorten every heading”, “translate to Spanish”, “turn card 4 into a chart” — each is a surgical edit, not a rebuild." },
+      { h: "Export", d: "PDF, PowerPoint (laid out per card type, with your theme colours and real charts), a PNG per card, or a self-contained HTML file that still presents offline." },
     ],
   },
   {

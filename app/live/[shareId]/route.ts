@@ -19,7 +19,12 @@ export async function GET(
   if (!art || !art.resolved) {
     return new Response("Not found or not published.", { status: 404 });
   }
-  const html = buildSrcDoc(art.type as ArtifactType, art.resolved.content);
+  // A published deck reports per-card dwell back to us so the owner can see
+  // which cards held attention. Only on this hosted path: the in-app preview
+  // and the downloaded file measure nothing.
+  const html = buildSrcDoc(art.type as ArtifactType, art.resolved.content, {
+    beacon: art.type === "deck" ? `/api/deck-views/${encodeURIComponent(shareId)}` : undefined,
+  });
   if (html == null) {
     return new Response("This artifact type can't be served as a live page.", { status: 400 });
   }

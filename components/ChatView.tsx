@@ -31,6 +31,12 @@ import { comparable } from "@/lib/compare-picks";
 import ModelAdvisor from "./ModelAdvisor";
 import ComparePanel from "./ComparePanel";
 import DesignSystemChip from "./DesignSystemChip";
+import OutlineCard, {
+  DEFAULT_OUTLINE_SETTINGS,
+  type DeckOutline,
+  type DeckOutlineCard,
+} from "./OutlineCard";
+import { DECK_FORMATS, DECK_SIZES, type DeckFormat } from "@/lib/deck-runtime";
 import ArtifactPanel, {
   typeIcon,
   type ArtifactWithVersions,
@@ -119,6 +125,21 @@ export default function ChatView({
   const [agentMode, setAgentMode] = useState(false);
   const [designImages, setDesignImages] = useState(false);
   const [designImageModel, setDesignImageModel] = useState("");
+  // Present mode (the deck studio). These are the generation settings Gamma
+  // asks for up front; they ride along on the first message as a Settings line
+  // rather than in the request body, so the system prompt stays byte-identical
+  // turn to turn and the prompt cache keeps hitting.
+  const presentMode = mode === "present";
+  const [deckOpts, setDeckOpts] = useState({
+    format: "presentation" as DeckFormat,
+    cards: 10,
+    text: "medium",
+    images: "themed",
+    size: "fluid",
+    studio: false,
+  });
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const presentImportRef = useRef<HTMLInputElement>(null);
   const [researchStatuses, setResearchStatuses] = useState<string[]>([]);
   const [voiceMode, setVoiceMode] = useState<"off" | "listening" | "speaking" | "idle">(
     "off"
@@ -685,6 +706,7 @@ export default function ChatView({
       webSearch?: boolean;
       think?: boolean;
       designImages?: boolean;
+      deckStudio?: boolean;
       imageModel?: string;
     }) => {
       setError(null);
@@ -786,6 +808,16 @@ export default function ChatView({
       autoRunsRef.current = 0;
       ensureNotifyPermission();
       let id = convId;
+      // Opening a new deck: carry the setup chips into the message itself, so
+      // they survive in the transcript and the model can honour them in the
+      // outline without a second round trip.
+      if (presentMode && !id && text.trim() && !/^Settings:/m.test(text)) {
+        text =
+          text.trimEnd() +
+          `\n\nSettings: ${deckOpts.format} · ${deckOpts.cards} cards · ${deckOpts.text} text · ` +
+          `${DECK_IMAGE_LABEL[deckOpts.images] ?? deckOpts.images} · ${deckOpts.size}` +
+          (deckOpts.studio ? " · studio mode" : "");
+      }
       if (!id) {
         try {
           const conv = await api<Conversation>("/api/conversations", {
@@ -914,9 +946,12 @@ export default function ChatView({
         model,
         webSearch,
         think,
-        designImages: mode === "design" ? designImages : undefined,
+        designImages: mode === "design" || presentMode ? designImages : undefined,
+        deckStudio: presentMode && deckOpts.studio ? true : undefined,
         imageModel:
-          mode === "design" && designImages && designImageModel ? designImageModel : undefined,
+          (mode === "design" || presentMode) && designImages && designImageModel
+            ? designImageModel
+            : undefined,
       });
     },
     [
@@ -934,6 +969,8 @@ export default function ChatView({
       think,
       agentMode,
       designImages,
+      presentMode,
+      deckOpts,
       designImageModel,
       designSystemId,
       mode,
@@ -1099,6 +1136,19 @@ export default function ChatView({
 
   const showWelcome = messages.length === 0 && !isStreaming;
 
+  // Present mode defaults to real generated art when an image model is already
+  // configured, and to on-theme graphics when there is none — so a deck never
+  // opens with a tool the user cannot actually run, and never needlessly falls
+  // back to placeholders for someone who set an image model up.
+  useEffect(() => {
+    if (!presentMode) return;
+    if (settings?.imageModel) {
+      setDeckOpts((o) => (o.images === "themed" ? { ...o, images: "ai" } : o));
+      setDesignImages(true);
+    }
+    // Only when the mode or the configured model changes, never per keystroke.
+  }, [presentMode, settings?.imageModel]);
+
   return (
     <div className="relative flex min-w-0 flex-1">
     {lightboxSrc && (
@@ -1158,7 +1208,7 @@ export default function ChatView({
         >
           <Icon name="sparkles" size={13} /> <span className="hidden sm:inline">Help me pick</span>
         </button>
-        {mode === "design" && (
+        {(mode === "design" || presentMode) && (
           <button
             onClick={() => setDesignImages((v) => !v)}
             title="Generate real images with the image model (vs placeholder images)"
@@ -1171,11 +1221,25 @@ export default function ChatView({
             <Icon name="image" size={13} /> <span className="hidden sm:inline">AI images</span>
           </button>
         )}
-        {mode === "design" && designImages && (
+        {(mode === "design" || presentMode) && designImages && (
           <ModelPicker
             models={models.filter((m) => m.outputsImages)}
             value={designImageModel || settings?.imageModel || ""}
             onChange={setDesignImageModel}
+          />
+        )}
+        {presentMode && (
+          <DeckSetupChips
+            value={deckOpts}
+            onChange={(patch) => {
+              setDeckOpts((o) => ({ ...o, ...patch }));
+              // The image-source chip and the AI-images toggle are two views of
+              // one decision, so keep them in step rather than letting the user
+              // pick "AI images" and get placeholders.
+              if (patch.images !== undefined) setDesignImages(patch.images === "ai");
+              if (patch.studio) setDesignImages(true);
+            }}
+            hasImageModel={Boolean(designImageModel || settings?.imageModel)}
           />
         )}
         {mode === "design" && (
@@ -1294,7 +1358,7 @@ export default function ChatView({
         <ModelAdvisor
           models={models}
           currentDefault={settings?.defaultModel}
-          designMode={mode === "design"}
+          designMode={mode === "design" || presentMode}
           onUse={changeModel}
           onClose={() => setShowAdvisor(false)}
         />
@@ -1348,7 +1412,67 @@ export default function ChatView({
       )}
 
       <div ref={scrollRef} onScroll={onThreadScroll} className="min-h-0 flex-1 overflow-y-auto">
-        {showWelcome && mode === "design" ? (
+        {showWelcome && presentMode ? (
+          <div className="flex min-h-full flex-col items-center justify-center px-6 py-10 text-center">
+            <div className="login-logo mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-accent text-white">
+              <Icon name="presentation" size={26} />
+            </div>
+            <h1 className="font-display text-4xl font-medium tracking-tight">
+              {timeGreeting(userName)}
+            </h1>
+            <p className="mt-3 max-w-md text-sm text-ink-muted">
+              Describe it, paste your notes, or bring a file. I’ll draft an outline you
+              can edit, then build the cards — a deck, a document, a site or a social
+              post. Change the theme any time without regenerating a thing.
+            </p>
+            {settings?.hasApiKey && (
+              <>
+                <div className="mt-6 flex flex-wrap justify-center gap-2">
+                  <button
+                    onClick={() =>
+                      window.dispatchEvent(
+                        new CustomEvent("liberde-prefill", {
+                          detail: "A presentation about ",
+                        })
+                      )
+                    }
+                    className="flex items-center gap-2 rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-white hover:bg-accent-hover"
+                  >
+                    <Icon name="sparkles" size={15} /> Generate
+                  </button>
+                  <button
+                    onClick={() => setPasteOpen(true)}
+                    className="flex items-center gap-2 rounded-lg border border-line bg-surface px-3.5 py-2 text-sm hover:border-accent"
+                  >
+                    <Icon name="fileText" size={15} /> Paste in text
+                  </button>
+                  <button
+                    onClick={() => presentImportRef.current?.click()}
+                    className="flex items-center gap-2 rounded-lg border border-line bg-surface px-3.5 py-2 text-sm hover:border-accent"
+                  >
+                    <Icon name="upload" size={15} /> Import file
+                  </button>
+                </div>
+                <div className="anim-stagger mt-8 grid w-full max-w-3xl grid-cols-1 gap-2 sm:grid-cols-3">
+                  {PRESENT_TEMPLATES.map((t) => (
+                    <button
+                      key={t.label}
+                      onClick={() => {
+                        if (t.format) setDeckOpts((o) => ({ ...o, ...t.format }));
+                        send(t.prompt, []);
+                      }}
+                      className="flex flex-col items-start gap-1 rounded-xl border border-line bg-surface p-4 text-left shadow-sm transition-colors hover:border-accent"
+                    >
+                      <Icon name={t.icon} size={18} className="text-accent" />
+                      <span className="mt-1 text-sm font-medium">{t.label}</span>
+                      <span className="text-xs text-ink-muted">{t.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        ) : showWelcome && mode === "design" ? (
           <div className="flex min-h-full flex-col items-center justify-center px-6 py-10 text-center">
             <div className="login-logo mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-accent text-white">
               <Icon name="pencil" size={26} />
@@ -1830,6 +1954,69 @@ export default function ChatView({
         </div>
       )}
 
+      {presentMode &&
+        !showWelcome &&
+        !isStreaming &&
+        messages.some((m) => m.role === "assistant") && (
+          <div className="mx-auto flex max-w-3xl flex-wrap gap-1.5 px-4 pb-1">
+            {PRESENT_TWEAKS.map((t) => (
+              <button
+                key={t.label}
+                onClick={() => send(t.prompt, [])}
+                title={t.prompt}
+                className="flex items-center gap-1.5 rounded-full border border-line bg-surface px-2.5 py-1 text-xs text-ink-muted transition-colors hover:border-accent hover:text-ink"
+              >
+                <Icon name={t.icon} size={13} />
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+      {/* Import: the third Gamma entry point. Files go through the same
+          attachment pipeline as any chat upload, so PDFs and DOCX arrive as
+          extracted text the model can restructure into cards. */}
+      {presentMode && (
+        <input
+        ref={presentImportRef}
+        type="file"
+        multiple
+        hidden
+        accept=".txt,.md,.pdf,.doc,.docx,.ppt,.pptx,.csv,.json,.html"
+        onChange={async (e) => {
+          const files = Array.from(e.target.files || []);
+          e.target.value = "";
+          if (!files.length) return;
+          try {
+            const atts = await Promise.all(files.map(fileToUploadAttachment));
+            send(
+              "Build this into a deck. Read the attached file(s), keep the author's facts and " +
+                "numbers, and restructure them into cards. Outline first.",
+              atts
+            );
+          } catch (err) {
+            toast(`Could not read that file: ${err}`, "error");
+          }
+        }}
+        />
+      )}
+
+      {pasteOpen && (
+        <PasteTextDialog
+          onClose={() => setPasteOpen(false)}
+          onSubmit={(body, textMode) => {
+            setPasteOpen(false);
+            const verb =
+              textMode === "preserve"
+                ? "Keep my wording exactly as written and lay it out as cards; do not rewrite it."
+                : textMode === "condense"
+                  ? "Condense my text — keep every fact, cut the words."
+                  : "Rewrite and expand my text into proper card copy.";
+            send(`Build a deck from the text below. ${verb}\n\n${body}`, []);
+          }}
+        />
+      )}
+
       {runFiles.length > 0 && (
         <div className="anim-rise mx-auto flex max-w-3xl flex-wrap items-center gap-1.5 px-4 pb-1">
           <span className="text-[11px] text-ink-muted">Produced:</span>
@@ -1908,6 +2095,13 @@ export default function ChatView({
         onToggleAgentMode={() => setAgentMode((v) => !v)}
         modelSupportsImages={
           models.find((m) => m.id === model)?.supportsImages ?? true
+        }
+        placeholder={
+          presentMode
+            ? showWelcome
+              ? "Describe the presentation you want…"
+              : "Ask for a change — a new theme, a shorter card, another language…"
+            : undefined
         }
       />
     </div>
@@ -2011,6 +2205,13 @@ function AssistantContent({
                     questions={part.questions}
                     interactive={Boolean(interactive && onAnswer)}
                     onSubmit={(answer) => onAnswer?.(answer)}
+                  />
+                ) : part.type === "outline" ? (
+                  <OutlineCard
+                    key={j}
+                    outline={part.outline}
+                    interactive={Boolean(interactive && onAnswer)}
+                    onGenerate={(message) => onAnswer?.(message)}
                   />
                 ) : part.value.trim() ? (
                   // Prose and run blocks interleave, so the run blocks are split
@@ -2460,6 +2661,319 @@ const DESIGN_TWEAKS: { icon: string; label: string; prompt: string }[] = [
   { icon: "play", label: "Add motion", prompt: "Add smooth animations and transitions." },
 ];
 
+/** Image-source chip value -> the words the model reads in the Settings line. */
+const DECK_IMAGE_LABEL: Record<string, string> = {
+  themed: "themed graphics",
+  ai: "AI-generated images",
+  stock: "stock photos",
+  none: "no images",
+};
+
+/**
+ * Present-mode starting points. Each seeds a SHORT intent and, where it matters,
+ * the format — so clicking "Landing page" actually produces a webpage rather
+ * than a deck about landing pages. Prompts stay brief so the outline step runs.
+ */
+const PRESENT_TEMPLATES: {
+  icon: string;
+  label: string;
+  desc: string;
+  prompt: string;
+  format?: Partial<{ format: DeckFormat; size: string; text: string; cards: number }>;
+}[] = [
+  {
+    icon: "presentation",
+    label: "Pitch deck",
+    desc: "Problem, solution, traction, ask",
+    prompt: "I want an investor pitch deck. Draft the outline first.",
+  },
+  {
+    icon: "barChart",
+    label: "Quarterly review",
+    desc: "KPIs, wins, risks, next quarter",
+    prompt: "I want a quarterly business review deck. Draft the outline first.",
+    format: { format: "presentation", text: "detailed", cards: 12 },
+  },
+  {
+    icon: "rocket",
+    label: "Product launch",
+    desc: "Positioning and go-to-market",
+    prompt: "I want a product launch deck. Draft the outline first.",
+  },
+  {
+    icon: "lightbulb",
+    label: "Training course",
+    desc: "Objectives, modules, recap",
+    prompt: "I want a training course deck. Draft the outline first.",
+    format: { format: "presentation", cards: 14 },
+  },
+  {
+    icon: "fileText",
+    label: "Report",
+    desc: "Long-form, printable document",
+    prompt: "I want a written report. Draft the outline first.",
+    format: { format: "document", size: "a4", text: "extensive" },
+  },
+  {
+    icon: "globe",
+    label: "Landing page",
+    desc: "Hero, features, pricing, CTA",
+    prompt: "I want a landing page. Draft the outline first.",
+    format: { format: "webpage", size: "fluid", cards: 7 },
+  },
+  {
+    icon: "layout",
+    label: "One-pager",
+    desc: "Scope, approach, pricing",
+    prompt: "I want a proposal one-pager. Draft the outline first.",
+    format: { format: "document", size: "letter", cards: 5 },
+  },
+  {
+    icon: "image",
+    label: "Social carousel",
+    desc: "4:5 tiles for LinkedIn",
+    prompt: "I want a social carousel. Draft the outline first.",
+    format: { format: "social", size: "4x5", text: "brief", cards: 6 },
+  },
+  {
+    icon: "search",
+    label: "Research summary",
+    desc: "Question, method, findings",
+    prompt:
+      "I want a research summary deck. Search the web for current sources and cite them. Draft the outline first.",
+    format: { format: "presentation", text: "detailed" },
+  },
+];
+
+/** Post-generation quick edits, the Gamma Agent's greatest hits. */
+const PRESENT_TWEAKS: { icon: string; label: string; prompt: string }[] = [
+  {
+    icon: "palette",
+    label: "Change theme",
+    prompt:
+      "Suggest two built-in themes that suit this deck better and apply the stronger one. Change only data-theme.",
+  },
+  {
+    icon: "moon",
+    label: "Dark theme",
+    prompt: "Switch to a dark theme (neon or midnight). Change only data-theme.",
+  },
+  {
+    icon: "type",
+    label: "Shorter text",
+    prompt:
+      "Shorten every card: headings under 6 words, bullets under 8. Keep the layouts and attributes exactly as they are.",
+  },
+  {
+    icon: "image",
+    label: "More visual",
+    prompt:
+      "Convert the most text-heavy cards into image, stats or smart layouts. Keep the meaning.",
+  },
+  {
+    icon: "barChart",
+    label: "Consultant style",
+    prompt:
+      "Apply data-theme=consultant and data-density=compact, and add one stats card with the key numbers.",
+  },
+  {
+    icon: "plus",
+    label: "Add a card",
+    prompt: "Add an executive-summary card straight after the title card.",
+  },
+  {
+    icon: "message",
+    label: "Speaker notes",
+    prompt:
+      "Write or improve the speaker notes on every card — what I would actually say, not a summary of the slide.",
+  },
+  {
+    icon: "globe",
+    label: "Translate",
+    prompt:
+      "Translate all card text, including the speaker notes, to Spanish. Keep every attribute and layout identical.",
+  },
+];
+
+/**
+ * The generation settings Gamma puts on its setup screen, as a compact chip row
+ * in the composer header. They apply to the NEXT new deck; once a deck exists,
+ * theme, size and density are changed instantly from the artifact panel.
+ */
+function DeckSetupChips({
+  value,
+  onChange,
+  hasImageModel,
+}: {
+  value: {
+    format: DeckFormat;
+    cards: number;
+    text: string;
+    images: string;
+    size: string;
+    studio: boolean;
+  };
+  onChange: (patch: Partial<typeof value>) => void;
+  hasImageModel: boolean;
+}) {
+  const sizes = DECK_SIZES[value.format] ?? DECK_SIZES.presentation;
+  const sel =
+    "shrink-0 rounded-lg border border-line bg-transparent px-1.5 py-1 text-xs text-ink-muted hover:text-ink";
+  return (
+    <>
+      <select
+        value={value.format}
+        title="What you are making"
+        onChange={(e) => {
+          const format = e.target.value as DeckFormat;
+          const next = DECK_SIZES[format] ?? DECK_SIZES.presentation;
+          onChange({
+            format,
+            size: next.some((s) => s.id === value.size) ? value.size : next[0].id,
+          });
+        }}
+        className={sel}
+      >
+        {DECK_FORMATS.map((f) => (
+          <option key={f} value={f}>
+            {f[0].toUpperCase() + f.slice(1)}
+          </option>
+        ))}
+      </select>
+      <select
+        value={value.size}
+        title="Card shape"
+        onChange={(e) => onChange({ size: e.target.value })}
+        className={sel}
+      >
+        {sizes.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.label}
+          </option>
+        ))}
+      </select>
+      <select
+        value={String(value.cards)}
+        title="How many cards"
+        onChange={(e) => onChange({ cards: Number(e.target.value) })}
+        className={sel}
+      >
+        {[5, 8, 10, 12, 15, 20, 30].map((n) => (
+          <option key={n} value={n}>
+            {n} cards
+          </option>
+        ))}
+      </select>
+      <select
+        value={value.text}
+        title="How much text per card"
+        onChange={(e) => onChange({ text: e.target.value })}
+        className={sel}
+      >
+        {["brief", "medium", "detailed", "extensive"].map((t) => (
+          <option key={t} value={t}>
+            {t}
+          </option>
+        ))}
+      </select>
+      <select
+        value={value.images}
+        title="Where pictures come from"
+        onChange={(e) => onChange({ images: e.target.value })}
+        className={sel}
+      >
+        {Object.entries(DECK_IMAGE_LABEL).map(([id, label]) => (
+          <option key={id} value={id} disabled={id === "ai" && !hasImageModel}>
+            {label}
+          </option>
+        ))}
+      </select>
+      {hasImageModel && (
+        <button
+          onClick={() => onChange({ studio: !value.studio })}
+          title="Studio mode: render every card as one generated image. Slower and costlier, but cinematic."
+          className={`flex shrink-0 items-center gap-1 rounded-lg border px-2 py-1 text-xs ${
+            value.studio
+              ? "border-accent bg-accent text-white"
+              : "border-line text-ink-muted hover:bg-surface-2 hover:text-ink"
+          }`}
+        >
+          <Icon name="sparkles" size={13} /> <span className="hidden sm:inline">Studio</span>
+        </button>
+      )}
+    </>
+  );
+}
+
+/** Gamma's "Paste in text" entry: your notes, plus how much licence we have. */
+function PasteTextDialog({
+  onClose,
+  onSubmit,
+}: {
+  onClose: () => void;
+  onSubmit: (text: string, textMode: string) => void;
+}) {
+  const [body, setBody] = useState("");
+  const [textMode, setTextMode] = useState("generate");
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
+          <span className="text-sm font-medium">Paste in text</span>
+          <button onClick={onClose} className="text-ink-muted hover:text-ink">
+            ✕
+          </button>
+        </div>
+        <textarea
+          autoFocus
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          placeholder="Notes, an outline, a transcript, a draft — anything with the substance in it."
+          className="min-h-[240px] flex-1 resize-none bg-transparent p-4 text-sm outline-none"
+        />
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-2.5">
+          <div className="flex flex-wrap gap-1">
+            {[
+              { id: "generate", label: "Rewrite it", hint: "Turn my notes into proper card copy" },
+              { id: "condense", label: "Condense", hint: "Keep every fact, cut the words" },
+              { id: "preserve", label: "Keep my words", hint: "Lay it out without rewriting" },
+            ].map((m) => (
+              <button
+                key={m.id}
+                title={m.hint}
+                onClick={() => setTextMode(m.id)}
+                className={`rounded-full border px-2.5 py-1 text-xs ${
+                  textMode === m.id
+                    ? "border-accent bg-accent/10 text-accent"
+                    : "border-line text-ink-muted hover:text-ink"
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-ink-muted">{body.length.toLocaleString()} chars</span>
+            <button
+              disabled={!body.trim()}
+              onClick={() => onSubmit(body.trim(), textMode)}
+              className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-40"
+            >
+              Build deck
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function BranchSwitcher({
   count,
   onPrev,
@@ -2667,7 +3181,54 @@ interface AskQuestion {
 
 type AskPart =
   | { type: "md"; value: string }
-  | { type: "ask"; questions: AskQuestion[] };
+  | { type: "ask"; questions: AskQuestion[] }
+  | { type: "outline"; outline: DeckOutline };
+
+/** Lenient parse of a <liberdeOutline> payload; same salvage rules as asks. */
+function parseOutlinePayload(raw: string): DeckOutline | null {
+  let s = raw.trim();
+  s = s.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  const coerce = (parsed: unknown): DeckOutline | null => {
+    if (!parsed || typeof parsed !== "object") return null;
+    const o = parsed as Partial<DeckOutline> & { cards?: unknown };
+    const rawCards = Array.isArray(o.cards) ? o.cards : null;
+    if (!rawCards || !rawCards.length) return null;
+    const cards = rawCards
+      .map((c): DeckOutlineCard | null =>
+        typeof c === "string"
+          ? { title: c }
+          : c && typeof c === "object" && typeof (c as DeckOutlineCard).title === "string"
+            ? {
+                title: (c as DeckOutlineCard).title,
+                layout: (c as DeckOutlineCard).layout,
+                summary: (c as DeckOutlineCard).summary,
+              }
+            : null
+      )
+      .filter((c): c is DeckOutlineCard => Boolean(c));
+    if (!cards.length) return null;
+    return {
+      title: typeof o.title === "string" ? o.title : "Untitled deck",
+      settings: { ...DEFAULT_OUTLINE_SETTINGS, ...(o.settings || {}) },
+      cards,
+    };
+  };
+  try {
+    const result = coerce(JSON.parse(s));
+    if (result) return result;
+  } catch {
+    /* fall through to extraction */
+  }
+  const embedded = s.match(/\{[\s\S]*\}/)?.[0];
+  if (embedded) {
+    try {
+      return coerce(JSON.parse(embedded));
+    } catch {
+      /* truly malformed */
+    }
+  }
+  return null;
+}
 
 /** Parse an ask payload leniently — models emit arrays, bare objects,
  *  {questions:[...]} wrappers, and code-fenced JSON. */
@@ -2706,21 +3267,41 @@ function parseAskPayload(raw: string): AskQuestion[] | null {
   return null;
 }
 
-/** Split assistant text into markdown and interactive <liberdeAsk> question blocks. */
+/**
+ * Split assistant text into markdown and the two interactive blocks: question
+ * cards (<liberdeAsk>) and the Present-mode deck outline (<liberdeOutline>).
+ * Both are hidden while still streaming so a half-written JSON payload never
+ * flashes up as raw text.
+ */
 function splitAsk(text: string): AskPart[] {
   const parts: AskPart[] = [];
-  const re = /<liberdeAsk>([\s\S]*?)<\/liberdeAsk>/g;
+  const re = /<liberde(Ask|Outline)>([\s\S]*?)<\/liberde\1>/g;
   let last = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
     if (m.index > last) parts.push({ type: "md", value: text.slice(last, m.index) });
-    const qs = parseAskPayload(m[1]);
+    const payload = m[2];
+    if (m[1] === "Outline") {
+      const outline = parseOutlinePayload(payload);
+      if (outline) {
+        parts.push({ type: "outline", outline });
+      } else {
+        // Unsalvageable: show the card titles as a plain list rather than JSON.
+        const titles = [...payload.matchAll(/"title"\s*:\s*"([^"]+)"/g)].map((x) => x[1]);
+        if (titles.length) {
+          parts.push({ type: "md", value: titles.map((t, i) => `${i + 1}. ${t}`).join("\n") });
+        }
+      }
+      last = re.lastIndex;
+      continue;
+    }
+    const qs = parseAskPayload(payload);
     if (qs) {
       parts.push({ type: "ask", questions: qs });
     } else {
       // Unsalvageable payload: show the questions' text as plain markdown
       // rather than raw tags/JSON.
-      const qTexts = [...m[1].matchAll(/"q"\s*:\s*"([^"]+)"/g)].map((x) => x[1]);
+      const qTexts = [...payload.matchAll(/"q"\s*:\s*"([^"]+)"/g)].map((x) => x[1]);
       if (qTexts.length) {
         parts.push({ type: "md", value: qTexts.map((q) => `**${q}**`).join("\n\n") });
       }
@@ -2729,12 +3310,43 @@ function splitAsk(text: string): AskPart[] {
   }
   let rest = text.slice(last);
   // Hide an unterminated block still streaming in.
-  rest = rest.replace(/<liberdeAsk\b[\s\S]*$/, "");
+  rest = rest.replace(/<liberde(?:Ask|Outline)\b[\s\S]*$/, "");
+
+  // Weaker models emit the outline payload with the wrapper tags missing, and
+  // sometimes stop mid-object. Untagged JSON is still clearly an outline —
+  // nothing else in a reply is an object carrying both "title" and "cards" —
+  // so parse it rather than printing raw JSON at the user. Observed 2026-09-15
+  // with mistralai/mistral-nemo.
+  if (rest && /"cards"\s*:/.test(rest) && /"title"\s*:/.test(rest)) {
+    const start = rest.search(/\{\s*"(?:title|settings|cards)"/);
+    if (start >= 0) {
+      const bare = parseOutlinePayload(rest.slice(start));
+      const before = rest.slice(0, start);
+      if (bare) {
+        if (before.trim()) parts.push({ type: "md", value: before });
+        parts.push({ type: "outline", outline: bare });
+        rest = "";
+      } else {
+        // Truncated beyond salvage: drop the fragment instead of showing it.
+        rest = before;
+      }
+    }
+  }
   if (rest) parts.push({ type: "md", value: rest });
-  // Fallback for a fully-dropped message: never show raw <liberdeAsk> tags.
+  // Fallback for a fully-dropped message: never show raw tags — and never
+  // resurrect the untagged outline fragment the branch above deliberately
+  // discarded, which is what this did before the strip was added here too.
   return parts.length
     ? parts
-    : [{ type: "md", value: text.replace(/<\/?liberdeAsk>/g, "").trim() }];
+    : [
+        {
+          type: "md",
+          value: text
+            .replace(/<\/?liberde(?:Ask|Outline)>/g, "")
+            .replace(/\{\s*"(?:title|settings|cards)"[\s\S]*$/, "")
+            .trim(),
+        },
+      ];
 }
 
 function QuestionCard({
@@ -3138,6 +3750,7 @@ function Composer({
   agentMode,
   onToggleAgentMode,
   modelSupportsImages,
+  placeholder,
 }: {
   disabled: boolean;
   isStreaming: boolean;
@@ -3156,6 +3769,8 @@ function Composer({
   agentMode: boolean;
   onToggleAgentMode: () => void;
   modelSupportsImages: boolean;
+  /** Overrides the default composer prompt (Present mode asks for a deck). */
+  placeholder?: string;
 }) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -3457,7 +4072,7 @@ function Composer({
                 ? "Add your OpenRouter API key in Settings to start…"
                 : imageMode
                   ? "Describe the image to generate…"
-                  : "Message Liberde…"
+                  : placeholder || "Message Liberde…"
             }
             rows={1}
             disabled={disabled}

@@ -14,7 +14,10 @@
     "test:browser": "tsx scripts/test-sandbox-browser.ts",
     "test:e2e": "tsx scripts/test-e2e.ts",
     "test:live": "tsx scripts/test-live-chat.ts",
-    "test:soak": "tsx scripts/test-soak.ts"
+    "test:soak": "tsx scripts/test-soak.ts",
+    "test:deck": "tsx scripts/test-deck.ts && tsx scripts/test-deck-browser.ts",
+    "test:present": "tsx scripts/test-present-ui.ts",
+    "test:present:live": "tsx scripts/test-present-live.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

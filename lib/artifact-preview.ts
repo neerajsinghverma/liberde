@@ -120,7 +120,13 @@ export function artifactPreview(source: string, type: string): ArtifactPreview {
   if (!src.trim()) return { text: "", colors: [] };
 
   let text: string;
-  if (type === "html" || type === "svg" || type === "slides" || type === "mermaid") {
+  if (
+    type === "html" ||
+    type === "svg" ||
+    type === "slides" ||
+    type === "deck" ||
+    type === "mermaid"
+  ) {
     text = textFromMarkup(src);
   } else if (type === "react" || type === "code") {
     text = textFromCode(src);

@@ -11,6 +11,9 @@ import { getSettings } from "@/lib/openrouter";
 import { getRequestUserId, unauthorized } from "@/lib/auth";
 import { canAccessProject } from "@/lib/db";
 
+/** Workspaces a conversation can belong to; anything else falls back to chat. */
+const CONVERSATION_MODES = ["chat", "design", "present"];
+
 export async function GET(req: NextRequest) {
   const userId = await getRequestUserId();
   if (!userId) return unauthorized();
@@ -46,7 +49,7 @@ export async function POST(req: NextRequest) {
     body.projectId ?? null,
     Boolean(body.temp),
     userId,
-    body.mode === "design" ? "design" : "chat",
+    CONVERSATION_MODES.includes(body.mode) ? body.mode : "chat",
     agent?.id ?? null
   );
   // Design mode: pin the chosen design system to the conversation (access is

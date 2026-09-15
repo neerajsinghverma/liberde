@@ -196,6 +196,7 @@ export function readableAssistantText(text: string): string {
     .replace(/<liberdeArtifact\b[\s\S]*?(<\/liberdeArtifact>|$)/g, "\n_[artifact]_\n")
     .replace(/<liberdeRun(\s[^>]*)?>[\s\S]*?(<\/liberdeRun>|$)/g, "\n_[code]_\n")
     .replace(/<liberdeAsk>[\s\S]*?(<\/liberdeAsk>|$)/g, "")
+    .replace(/<liberdeOutline>[\s\S]*?(<\/liberdeOutline>|$)/g, "")
     .replace(/<liberdeMemory>[\s\S]*?(<\/liberdeMemory>|$)/g, "")
     .trim();
 }

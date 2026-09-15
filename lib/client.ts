@@ -40,6 +40,7 @@ export function streamChat(
     webSearch?: boolean;
     think?: boolean;
     designImages?: boolean;
+    deckStudio?: boolean;
     imageModel?: string;
   },
   callbacks: StreamCallbacks

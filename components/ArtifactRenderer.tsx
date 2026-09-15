@@ -30,9 +30,21 @@ export default function ArtifactRenderer({
   /** Bump to force the preview iframe to fully remount and re-run its scripts. */
   reloadKey?: number;
 }) {
+  // A streaming deck arrives a few characters at a time, and the iframe below
+  // remounts on every content change. Rendering per token would be a strobe
+  // light, so a deck is re-rendered only when a whole card has landed: the
+  // cards then appear one at a time, which is what makes generation watchable
+  // rather than distracting.
+  // The throttle lifts as soon as the deck closes its wrapper, so the finished
+  // artifact always renders in full even when its last chunk added no new card.
+  const deckKey =
+    type === "deck" && !/<\/div>\s*$/.test(content)
+      ? "streaming:" + (content.match(/<\/section>/gi) || []).length
+      : content;
   const srcDoc = useMemo(
     () => buildSrcDoc(type, content),
-    [type, content]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [type, deckKey]
   );
 
   // Capture runtime errors the sandboxed preview reports (Claude's "Fix with AI" path).

@@ -43,6 +43,7 @@ import {
 } from "@/lib/openrouter";
 import { DOC_MIME, DOCX_MIME, type Attachment, type ToolCall } from "@/lib/types";
 import { ARTIFACTS_SYSTEM_PROMPT } from "@/lib/artifact-shared";
+import { presentDirective } from "@/lib/present-prompt";
 import {
   ARTIFACT_READ_TOOL,
   execArtifactRead,
@@ -147,6 +148,7 @@ interface ChatRequest {
   think?: boolean;
   /** Design mode: generate real images with the image model (vs placeholders). */
   designImages?: boolean;
+  deckStudio?: boolean;
   /** Design mode: which image model to use for generated images (overrides the default). */
   imageModel?: string;
 }
@@ -209,7 +211,7 @@ export async function POST(req: NextRequest) {
   let { model, routeReason } = await resolveAutoModel(requestedModel, {
     content: body.content ?? "",
     hasImage: body.attachments?.some((a) => a.mime?.startsWith("image/")) ?? false,
-    designMode: conversation.mode === "design",
+    designMode: conversation.mode === "design" || conversation.mode === "present",
     priorModel: requestedModel === "auto" ? await getLastAssistantModel(conversation.id) : null,
     settings,
     userId,
@@ -301,12 +303,17 @@ export async function POST(req: NextRequest) {
   const recallActive = settings.recallEnabled && !conversation.is_temp;
 
   const designMode = conversation.mode === "design";
+  // Present mode (the Gamma-style deck studio) shares design mode's plumbing:
+  // the deep model tier, the image tool, and the forced-artifact rescue. What
+  // differs is the directive and the artifact type it produces.
+  const presentMode = conversation.mode === "present";
   // Design imagery: "new way" = AI-generate assets via the image model (opt-in);
   // "old way" = placeholder image services. Default is the old way.
   // Only offer the generate_image tool when an image model is actually
   // configured — otherwise the model calls a tool that can only fail.
   const imageModel = body.imageModel || settings.imageModel;
-  const designImages = designMode && body.designImages === true && !!imageModel;
+  const designImages =
+    (designMode || presentMode) && body.designImages === true && !!imageModel;
 
   const { tools: mcpTools, errors: toolErrors } = await assembleTools(userId);
   // eslint-disable-next-line prefer-const -- re-assembled when create_http_tool adds one mid-turn
@@ -370,6 +377,9 @@ Only reply in plain text for a genuine question that clearly isn't a design requ
       console.error("design system load failed (continuing without):", e);
     }
   }
+  const presentDirectiveText = presentMode
+    ? presentDirective({ images: designImages, studio: body.deckStudio === true })
+    : "";
   const styleDirective = STYLE_PRESETS[settings.responseStyle]?.directive ?? "";
   // Split by cacheability: everything identical on every turn goes in the head
   // (which carries the prompt-cache breakpoint); everything that moves — the
@@ -391,6 +401,7 @@ Only reply in plain text for a genuine question that clearly isn't a design requ
   const stableSystemPrompt = [
     agentDirective,
     designDirective,
+    presentDirectiveText,
     designSystemBlock,
     styleDirective,
     systemParts.stable,
@@ -997,27 +1008,53 @@ Only reply in plain text for a genuine question that clearly isn't a design requ
             const noArtifact = !/<liberdeArtifact/i.test(finalText);
             // If the model asked clarifying questions (ask-first flow), it is NOT
             // trying to build yet — never override that.
-            const askedQuestions = /<liberdeAsk/i.test(finalText);
-            if (
+            const askedQuestions = /<liberdeAsk|<liberdeOutline/i.test(finalText);
+            // Present mode has its own way of failing: instead of emitting the
+            // outline block, a weaker model writes the outline out as prose
+            // ("Card 1: …", "Card 2: …") and stops. Nothing renders, nothing is
+            // editable, and the deck never gets built — but the reply is long,
+            // so the artifact rescue below (which only fires on short
+            // narration) never sees it. Detected narrowly: three or more
+            // enumerated card lines in a present turn that produced neither a
+            // block nor an artifact. Observed 2026-09-15 with mistral-nemo.
+            const narratedOutline =
+              presentMode &&
+              noArtifact &&
+              !askedQuestions &&
+              (finalText.match(/(?:^|\n)\s*(?:[#*->\s]*)(?:card|slide)\s*\d+\s*[:.–-]/gi) || [])
+                .length >= 3;
+            const canRescue =
               !forcedArtifactDone &&
               useTools &&
               !minimalMode &&
-              noArtifact &&
-              !askedQuestions &&
-              Date.now() - turnStart < FORCE_SYNTH_DEADLINE_MS &&
-              // Only when there's no real answer yet (short narration), and only
-              // in the design workspace.
-              finalText.trim().length < 600 &&
-              designMode
-            ) {
+              Date.now() - turnStart < FORCE_SYNTH_DEADLINE_MS;
+            const rescue = !canRescue
+              ? null
+              : narratedOutline
+                ? {
+                    status: "Drafting the outline…",
+                    // Keep the model's own reasoning sentence; only the list has
+                    // to become a block.
+                    instruction:
+                      "You wrote the outline as prose, which the interface cannot render and the user cannot edit — so nothing happened. Convert EXACTLY what you just wrote into one <liberdeOutline>{…}</liberdeOutline> block, using the JSON shape and the settings/theme/layout names from your instructions. Reply with at most one short sentence and then that single block. Do not call any tools, do not build the deck yet, and do not repeat the list as prose.",
+                  }
+                : noArtifact &&
+                    !askedQuestions &&
+                    // Only when there's no real answer yet (short narration),
+                    // and only in the maker workspaces.
+                    finalText.trim().length < 600 &&
+                    (designMode || presentMode)
+                  ? {
+                      status: "Producing the artifact…",
+                      instruction:
+                        "Output the COMPLETE artifact right now as a single <liberdeArtifact …>…</liberdeArtifact> block, written directly in your reply. Do NOT call any tools, do NOT read anything, and do NOT say you will build it or that here it is — just write the full artifact content now. Artifacts are created ONLY by writing this block in your message; no tool creates them.",
+                    }
+                  : null;
+            if (rescue) {
               forcedArtifactDone = true;
-              emit({ toolEvent: { status: "Producing the artifact…" } });
+              emit({ toolEvent: { status: rescue.status } });
               apiMessages.push({ role: "assistant", content: finalText || null });
-              apiMessages.push({
-                role: "user",
-                content:
-                  "Output the COMPLETE artifact right now as a single <liberdeArtifact …>…</liberdeArtifact> block, written directly in your reply. Do NOT call any tools, do NOT read anything, and do NOT say you will build it or that here it is — just write the full artifact content now. Artifacts are created ONLY by writing this block in your message; no tool creates them.",
-              });
+              apiMessages.push({ role: "user", content: rescue.instruction });
               finalText = "";
               const fbBody = JSON.stringify({
                 model: target.bodyModel,

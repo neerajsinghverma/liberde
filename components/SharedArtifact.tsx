@@ -23,7 +23,9 @@ export default function SharedArtifact({
   version: number;
   isLatest: boolean;
 }) {
-  const renderable = ["html", "react", "svg", "mermaid", "markdown", "slides"].includes(type);
+  const renderable = ["html", "react", "svg", "mermaid", "markdown", "slides", "deck"].includes(
+    type
+  );
   const [tab, setTab] = useState<"preview" | "code">(renderable ? "preview" : "code");
   const [remixing, setRemixing] = useState(false);
 

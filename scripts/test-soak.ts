@@ -40,6 +40,8 @@ const MACHINE_TAGS = [
   "</liberdeRun>",
   "<liberdeRunResult>",
   "<liberdeAsk>",
+  "<liberdeOutline>",
+  "</liberdeOutline>",
   "<liberdeMemory>",
 ];
 
@@ -464,6 +466,22 @@ async function main() {
       await page.waitForTimeout(2500);
       await happened("design", /Design|canvas|Pick a starting point/i);
       await invariants("design workspace");
+      const chat = page.getByRole("button", { name: /^Chat$/ }).first();
+      if (await chat.count()) await chat.click();
+      await page.waitForTimeout(1500);
+    }
+  });
+
+  await step("present", async () => {
+    await clearOverlays();
+    const present = page.getByRole("button", { name: /^Present$/ }).first();
+    checks++;
+    if ((await present.count()) === 0) fail("present", "no Present workspace tab");
+    else {
+      if (!(await clickOrFail("present → open", present))) return;
+      await page.waitForTimeout(2500);
+      await happened("present", /Describe it|Generate|Paste in text|Pitch deck/i);
+      await invariants("present workspace");
       const chat = page.getByRole("button", { name: /^Chat$/ }).first();
       if (await chat.count()) await chat.click();
       await page.waitForTimeout(1500);
