@@ -11,41 +11,17 @@ import {
   type DeckFormat,
 } from "@/lib/deck-runtime";
 
-export interface DeckOutlineCard {
-  title: string;
-  layout?: string;
-  summary?: string;
-}
+// Types and defaults live in lib/assistant-parts.ts, alongside the parser that
+// has to cope with what models actually emit. Re-exported here so anything
+// importing them from this component keeps working.
+import type {
+  DeckOutline,
+  DeckOutlineCard,
+  DeckOutlineSettings,
+} from "@/lib/assistant-parts";
 
-export interface DeckOutlineSettings {
-  format: string;
-  cards: number;
-  text: string;
-  images: string;
-  size: string;
-  theme: string;
-  density?: string;
-  tone?: string;
-  audience?: string;
-  language?: string;
-}
-
-export interface DeckOutline {
-  title: string;
-  settings: DeckOutlineSettings;
-  cards: DeckOutlineCard[];
-}
-
-export const DEFAULT_OUTLINE_SETTINGS: DeckOutlineSettings = {
-  format: "presentation",
-  cards: 10,
-  text: "medium",
-  images: "themed",
-  size: "fluid",
-  theme: "slate",
-  density: "medium",
-  language: "en",
-};
+export type { DeckOutline, DeckOutlineCard, DeckOutlineSettings };
+export { DEFAULT_OUTLINE_SETTINGS } from "@/lib/assistant-parts";
 
 const TEXT_AMOUNTS = ["brief", "medium", "detailed", "extensive"];
 const IMAGE_SOURCES = [

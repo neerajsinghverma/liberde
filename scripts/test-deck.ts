@@ -17,6 +17,8 @@ import {
   swapDeckAttr,
 } from "../lib/deck-runtime";
 import { presentDirective } from "../lib/present-prompt";
+import { splitAsk } from "../lib/assistant-parts";
+import { normaliseMath } from "../lib/math";
 import { readableAssistantText } from "../lib/analysis";
 import { processAssistantArtifacts } from "../lib/artifacts";
 import {
@@ -235,12 +237,56 @@ ok("the outline rescue fires on a prose outline", () => {
  * cleanup in ChatView's splitAsk. Both shapes observed 2026-09-15 with
  * mistralai/mistral-nemo.
  */
+/** Everything splitAsk would hand to the markdown renderer, joined. */
 const visibleText = (t: string) =>
-  t
-    .replace(/<liberde(Ask|Outline)>[\s\S]*?<\/liberde\1>/g, "")
-    .replace(/<liberde(?:Ask|Outline)\b[\s\S]*$/, "")
-    .replace(/\{\s*"(?:title|settings|cards)"[\s\S]*$/, "")
+  splitAsk(t)
+    .map((p) => (p.type === "md" ? p.value : ""))
+    .join("\n")
     .trim();
+
+/**
+ * The clarifying-question payload must never reach the markdown renderer.
+ * An unterminated <liberdeAsk> with no prose around it used to fall through to
+ * the fallback, which stripped the tag and printed the JSON — and because the
+ * payload is a bracketed line containing braces, lib/math.ts then typeset the
+ * whole thing as display LaTeX. Reported 2026-09-15 as a screen of run-together
+ * italic serif where a question card should have been.
+ */
+const ASK_PAYLOAD =
+  '[{"q":"Should this deck match an existing brand or reference?","options":["NiCE/enterprise technology style","Match reference I\'ll provide","Start fresh"],"multi":false},{"q":"Who is the primary audience?","options":["Execs","Product team"],"multi":false}]';
+
+ok("an unterminated ask block still renders as questions, not JSON", () => {
+  const parts = splitAsk("<liberdeAsk>" + ASK_PAYLOAD);
+  assert.equal(parts.length, 1);
+  assert.equal(parts[0].type, "ask");
+  const asked = parts[0] as { type: "ask"; questions: { q: string }[] };
+  assert.equal(asked.questions.length, 2);
+  assert.ok(/existing brand/.test(asked.questions[0].q));
+});
+
+ok("a mangled ask payload degrades to the question text, never the payload", () => {
+  const broken = '<liberdeAsk>[{"q":"What is the audience?","options":[oops';
+  const parts = splitAsk(broken);
+  const rendered = parts
+    .map((p) => (p.type === "md" ? p.value : "[CARD]"))
+    .join("\n");
+  assert.ok(/What is the audience\?/.test(rendered), "the question survives");
+  assert.ok(!/"options"|liberdeAsk|\{/.test(rendered), "no payload leaks: " + rendered);
+});
+
+ok("a leaked payload is no longer typeset as LaTeX", () => {
+  // The bare-bracket display rule must not fire on JSON.
+  assert.equal(normaliseMath(ASK_PAYLOAD), ASK_PAYLOAD);
+  assert.ok(!normaliseMath(ASK_PAYLOAD).includes("$$"));
+});
+
+ok("real display maths is still recognised", () => {
+  assert.ok(normaliseMath("[ \\frac{500000}{0.03} = 16666667 ]").includes("$$"));
+  assert.ok(normaliseMath("[ x^2 + y^2 = z^2 ]").includes("$$"));
+  assert.ok(normaliseMath("\\[ a + b \\]").includes("$$"));
+  // And ordinary bracketed prose is still left alone.
+  assert.equal(normaliseMath("[ see the appendix ]"), "[ see the appendix ]");
+});
 
 ok("an untagged outline payload never shows as raw JSON", () => {
   const truncated =

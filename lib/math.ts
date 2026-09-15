@@ -18,6 +18,15 @@
 /** A backslash command like \\frac, \\times, \\boxed — the tell for real TeX. */
 const TEX_COMMAND = /\\[a-zA-Z]{2,}/;
 
+/**
+ * A line that is machine payload rather than prose or maths. A JSON object or
+ * array on its own line matches the bare-bracket display form exactly, and
+ * braces are not evidence of TeX — JSON, code and set notation all have them.
+ * Typesetting one of these produced a page of run-together italic serif where
+ * a question card should have been.
+ */
+const LOOKS_LIKE_JSON = /"\s*:|:\s*"|:\s*(?:true|false|null)\b|"\s*,\s*"/;
+
 export function normaliseMath(text: string): string {
   let out = text;
 
@@ -34,7 +43,11 @@ export function normaliseMath(text: string): string {
       const m = line.match(/^\s*\[\s*([\s\S]*?)\s*\]\s*$/);
       if (!m) return line;
       const body = m[1];
-      if (!TEX_COMMAND.test(body) && !/[_^]|\{.*\}/.test(body)) return line;
+      // Real TeX announces itself with a command or a sub/superscript. A brace
+      // used to count as evidence too, which made every JSON array on its own
+      // line into a formula.
+      if (!TEX_COMMAND.test(body) && !/[_^]/.test(body)) return line;
+      if (LOOKS_LIKE_JSON.test(body)) return line;
       return "$$" + body + "$$";
     })
     .join("\n");
