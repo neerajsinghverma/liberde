@@ -744,23 +744,37 @@ export default function ArtifactPanel({
             >
               PDF
             </button>
-            <button
-              title="Export as PowerPoint (.pptx) with this deck's theme colours"
-              disabled={exporting}
-              onClick={async () => {
+            <ExportMenu
+              label="PPTX"
+              busy={exporting}
+              options={[
+                {
+                  id: "exact",
+                  label: "Looks exactly like this",
+                  hint: "Each card as a picture. Identical to the screen; the text is not editable.",
+                },
+                {
+                  id: "editable",
+                  label: "Editable text",
+                  hint: "Rebuilt as PowerPoint text boxes. You can edit every word, but gradients, icons and diagram shapes are lost.",
+                },
+              ]}
+              onPick={async (id) => {
                 setExporting(true);
                 try {
-                  await exportDeckToPptx(shownBody, record?.identifier ?? "deck", deckTemplate);
+                  const name = record?.identifier ?? "deck";
+                  if (id === "exact") {
+                    await exportDeckToPptxImages(shownBody, name, deckTemplate);
+                  } else {
+                    await exportDeckToPptx(shownBody, name, deckTemplate);
+                  }
                 } catch (e) {
                   toast(`PPTX export failed: ${e}`, "error");
                 } finally {
                   setExporting(false);
                 }
               }}
-              className="rounded px-1.5 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink disabled:opacity-50"
-            >
-              {exporting ? "…" : "PPTX"}
-            </button>
+            />
             {record && (
               // The most faithful way to make a template: get one deck right by
               // hand, then freeze it. Nothing is inferred, because the deck
@@ -1506,6 +1520,59 @@ function DeckAttrPicker({
 }
 
 /**
+ * An export with a real choice behind it. The first option is the one people
+ * mean when they say "export", so it leads; the second is there because
+ * sometimes you genuinely need to edit the words in PowerPoint and will accept
+ * a plainer deck for it. Each option states its own trade rather than making
+ * the user discover it after opening the file.
+ */
+function ExportMenu({
+  label,
+  busy,
+  options,
+  onPick,
+}: {
+  label: string;
+  busy: boolean;
+  options: { id: string; label: string; hint: string }[];
+  onPick: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        disabled={busy}
+        onClick={() => setOpen((v) => !v)}
+        title={`Export as ${label}`}
+        className="rounded px-1.5 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink disabled:opacity-50"
+      >
+        {busy ? "…" : label}
+      </button>
+      {open && !busy && (
+        <>
+          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 z-30 mt-1 w-64 rounded-lg border border-line bg-surface p-1 shadow-lg">
+            {options.map((o) => (
+              <button
+                key={o.id}
+                onClick={() => {
+                  setOpen(false);
+                  onPick(o.id);
+                }}
+                className="block w-full rounded px-2 py-1.5 text-left text-xs hover:bg-surface-2"
+              >
+                <span className="block font-medium">{o.label}</span>
+                <span className="block text-ink-muted">{o.hint}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
  * Attention on a published deck. Only appears once the deck has a share link,
  * because before that there is nothing to measure. The per-card bars are the
  * useful part: they say where people stopped reading, which is the one thing a
@@ -1928,50 +1995,171 @@ async function exportDeckToPptx(
  * (the deck markup here is the one we just built, and html-to-image needs to
  * read computed styles), then each card is captured at 2x.
  */
-async function exportDeckToPngZip(
+export interface RenderedCard {
+  /** A PNG data URI of the card exactly as the runtime drew it. */
+  dataUrl: string;
+  width: number;
+  height: number;
+  notes: string;
+}
+
+/**
+ * Photograph every card.
+ *
+ * The deck is rendered in a hidden same-origin iframe and each card captured at
+ * 2x, so what comes out is the runtime's own output: gradients, smart-layout
+ * geometry, icons, charts, the lot. Same-origin is the point — html-to-image
+ * has to read computed styles, which the sandboxed preview iframe forbids.
+ *
+ * Fonts are waited for explicitly. Capturing before they load silently
+ * substitutes a system face, and a deck in the wrong typeface is the kind of
+ * wrong that is only obvious once it is in front of an audience.
+ */
+async function renderDeckCards(
   deckHtml: string,
-  filename: string,
   template?: DeckTemplate | null
-) {
-  const [h2i, fflate] = await Promise.all([
-    importExternal("https://esm.sh/html-to-image@1.11.11"),
-    importExternal("https://esm.sh/fflate@0.8.2"),
-  ]);
+): Promise<RenderedCard[]> {
+  const h2i = await importExternal("https://esm.sh/html-to-image@1.11.11");
   const toPng = (h2i as unknown as { toPng: (n: HTMLElement, o?: object) => Promise<string> })
     .toPng;
-  const zipSync = (
-    fflate as unknown as { zipSync: (f: Record<string, Uint8Array>) => Uint8Array }
-  ).zipSync;
 
   const host = document.createElement("iframe");
-  host.style.cssText = "position:fixed;left:-99999px;top:0;width:1280px;height:900px;border:0";
+  // Wide enough that a fluid card hits its own max-width rather than being
+  // squeezed, which would capture a phone-shaped deck.
+  host.style.cssText = "position:fixed;left:-99999px;top:0;width:1600px;height:1000px;border:0";
   document.body.appendChild(host);
   try {
     const idoc = host.contentDocument!;
     idoc.open();
     idoc.write(buildSrcDoc("deck", deckHtml, { template }) ?? deckHtml);
     idoc.close();
-    await new Promise((r) => setTimeout(r, 1200)); // fonts + runtime
-    const cards = Array.from(idoc.querySelectorAll(".deck > .card")) as HTMLElement[];
-    const files: Record<string, Uint8Array> = {};
-    for (let i = 0; i < cards.length; i++) {
-      const url = await toPng(cards[i], { pixelRatio: 2, cacheBust: true });
-      const bin = atob(url.split(",")[1]);
-      const bytes = new Uint8Array(bin.length);
-      for (let b = 0; b < bin.length; b++) bytes[b] = bin.charCodeAt(b);
-      files[`card-${String(i + 1).padStart(2, "0")}.png`] = bytes;
+    try {
+      await (idoc as Document & { fonts?: FontFaceSet }).fonts?.ready;
+    } catch {
+      /* no font API: the delay below is the fallback */
     }
-    if (!Object.keys(files).length) throw new Error("no cards found");
-    const zipped = zipSync(files);
-    const blob = new Blob([zipped as BlobPart], { type: "application/zip" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `${filename.replace(/[^\w-]/g, "") || "deck"}-cards.zip`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    await new Promise((r) => setTimeout(r, 1400));
+
+    const cards = Array.from(idoc.querySelectorAll(".deck > .card")) as HTMLElement[];
+    const out: RenderedCard[] = [];
+    for (const card of cards) {
+      const rect = card.getBoundingClientRect();
+      const notes = card.querySelector("aside.notes, .notes")?.textContent?.trim() ?? "";
+      const dataUrl = await toPng(card, { pixelRatio: 2, cacheBust: true });
+      out.push({
+        dataUrl,
+        width: Math.round(rect.width) || 1180,
+        height: Math.round(rect.height) || 664,
+        notes,
+      });
+    }
+    return out;
   } finally {
     host.remove();
   }
+}
+
+function dataUrlToBytes(url: string): Uint8Array {
+  const bin = atob(url.split(",")[1]);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+function download(blob: Blob, name: string) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+/**
+ * Deck -> PowerPoint, as pictures of the real cards.
+ *
+ * The other exporter rebuilds each card out of PowerPoint text boxes, which
+ * keeps the words editable and throws away every gradient, rounded corner,
+ * icon and smart-layout shape on the way. That gap is why an exported deck
+ * looked nothing like the deck. This one puts the card itself on the slide, so
+ * the file matches the screen exactly, and keeps the speaker notes as real
+ * presenter notes. The trade is that the text is a picture.
+ *
+ * A card that is not 16:9 is fitted rather than cropped, on a slide painted in
+ * the deck's own background colour, so a fluid deck reads as deliberate letter-
+ * boxing instead of losing its bottom third.
+ */
+async function exportDeckToPptxImages(
+  deckHtml: string,
+  filename: string,
+  template?: DeckTemplate | null
+) {
+  const [mod, cards] = await Promise.all([
+    importExternal("https://esm.sh/pptxgenjs@3.12.0"),
+    renderDeckCards(deckHtml, template),
+  ]);
+  if (!cards.length) throw new Error("no cards to export");
+  const PptxGenJS = (mod.default ?? mod) as new () => PptxDeck;
+
+  const doc = new DOMParser().parseFromString(deckHtml, "text/html");
+  const themeId = doc.querySelector(".deck")?.getAttribute("data-theme") ?? DEFAULT_DECK_THEME;
+  const base = findDeckTheme(themeId);
+  const bg =
+    themeId === "custom" && template
+      ? templatePptxPalette(template, base.pptx).bg
+      : base.pptx.bg;
+
+  const pptx = new PptxGenJS();
+  pptx.defineLayout({ name: "LD_WIDE", width: PPTX_W, height: PPTX_H });
+  pptx.layout = "LD_WIDE";
+
+  const slideAspect = PPTX_W / PPTX_H;
+  for (const card of cards) {
+    const slide = pptx.addSlide();
+    slide.background = { color: bg };
+    const aspect = card.width / card.height;
+    // Contain-fit: whichever dimension runs out first sets the size.
+    const w = aspect >= slideAspect ? PPTX_W : PPTX_H * aspect;
+    const h = aspect >= slideAspect ? PPTX_W / aspect : PPTX_H;
+    slide.addImage({
+      data: card.dataUrl,
+      x: (PPTX_W - w) / 2,
+      y: (PPTX_H - h) / 2,
+      w,
+      h,
+    });
+    if (card.notes) {
+      try {
+        slide.addNotes(card.notes);
+      } catch {
+        /* older pptxgenjs — skip notes rather than fail the export */
+      }
+    }
+  }
+  await pptx.writeFile({ fileName: `${filename.replace(/[^\w-]/g, "") || "deck"}.pptx` });
+}
+
+async function exportDeckToPngZip(
+  deckHtml: string,
+  filename: string,
+  template?: DeckTemplate | null
+) {
+  const [fflate, cards] = await Promise.all([
+    importExternal("https://esm.sh/fflate@0.8.2"),
+    renderDeckCards(deckHtml, template),
+  ]);
+  const zipSync = (
+    fflate as unknown as { zipSync: (f: Record<string, Uint8Array>) => Uint8Array }
+  ).zipSync;
+  if (!cards.length) throw new Error("no cards found");
+  const files: Record<string, Uint8Array> = {};
+  cards.forEach((card, i) => {
+    files[`card-${String(i + 1).padStart(2, "0")}.png`] = dataUrlToBytes(card.dataUrl);
+  });
+  const zipped = zipSync(files);
+  download(
+    new Blob([zipped as BlobPart], { type: "application/zip" }),
+    `${filename.replace(/[^\w-]/g, "") || "deck"}-cards.zip`
+  );
 }
 
 /** Best-effort .pptx export: extracts headings/bullets/paragraphs per slide via pptxgenjs. */
